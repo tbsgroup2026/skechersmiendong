@@ -1,0 +1,37 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Hệ thống Skechers Miền Đông (tách riêng khỏi vpchuoiskechers).
+  // KHÔNG ghi khóa bí mật vào file này. Khóa đặt bằng: npx wrangler secret put <TÊN>
+  //   Bắt buộc: JWT_SECRET, VAPID_PRIVATE_KEY, INTERNAL_SYNC_SECRET, GEMBA_SHEET_SYNC_KEY
+  //   Tùy chọn: ZALO_BOT_TOKEN, GEMINI_API_KEY / GROQ_API_KEY, MMTB_SKMD_AUTO_LOGIN_EMP_CODE, MMTB_SKMD_AUTO_LOGIN_PASSWORD
+  "name": "skechersmiendong",
+  "main": "web/public/_worker.js",
+  "account_id": "3b346f8398b8d1143acd52516011cfb4",
+  "compatibility_date": "2024-09-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "web/out",
+    "binding": "ASSET_BINDING",
+    "html_handling": "drop-trailing-slash",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "vars": {
+    "SITE_ID": "skechersmiendong",
+    "NEXT_PUBLIC_APP_URL": "https://skechersmiendong.tbsgroup2026.workers.dev",
+    // Máy chủ MMTB (tbsMayMoc): Worker luôn dùng tài khoản dịch vụ Nhà Máy Miền Đông
+    "TBSMAYMOC_API_URL": "https://tbs-may-moc-admin.tbs-quanlymaymoc.workers.dev",
+    "VAPID_PUBLIC_KEY": "BC8JBKkxGTW34UgLCgb8l1Y-6kjGiMqqRL5-OtQ4pNOVx2re-qurzaKF2cSYHydAzG3zcIG-G4F91CHCvNABImw",
+    "VAPID_CONTACT": "mailto:admin@tbsgroup.vn"
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "skechersmiendong-db", "database_id": "de11286c-1962-4d55-8a11-1f88f09b2fce" }
+  ],
+  "r2_buckets": [
+    { "binding": "BUCKET", "bucket_name": "skechersmiendong-files" },
+    { "binding": "IMAGE_BUCKET", "bucket_name": "skechersmiendong-img" }
+  ],
+  "triggers": {
+    "crons": ["0 19 * * *", "0 * * * *"]
+  }
+}

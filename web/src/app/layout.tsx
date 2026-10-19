@@ -1,0 +1,132 @@
+import type { Metadata, Viewport } from "next";
+import "./globals.css";
+import DevToolsShield from "@/components/DevToolsShield";
+import AppChrome from "@/components/AppChrome";
+import { LanguageProvider } from "@/components/LanguageProvider";
+import NotificationInitializer from "@/components/NotificationInitializer";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  themeColor: "#08221a",
+  viewportFit: "cover",
+};
+
+export const metadata: Metadata = {
+  title: "Skechers Miền Đông - TBS Group",
+  description:
+    "Hệ thống quản trị vận hành chuỗi cung ứng và sản xuất SKECHERS - TBS Group (Gemba Walk, Cải tiến CI, Kaizen, Biểu mẫu, BI Dashboard 24/7).",
+  keywords:
+    "Skechers Miền Đông - TBS Group, SKECHERS, TBS Group, Gemba Walk, CI, Kaizen, Quản trị hằng ngày, Quản lý nhà máy",
+  manifest: "/manifest.json",
+  icons: {
+    icon: [
+      { url: "/icon.png", type: "image/png" },
+      { url: "/favicon.png", type: "image/png" },
+    ],
+    shortcut: "/icon.png",
+    apple: "/icon.png",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "SKECHERS TBS Group",
+  },
+  openGraph: {
+    title: "Skechers Miền Đông - TBS Group",
+    description:
+      "Trung tâm điều hành và quản trị số hoá vận hành chuỗi cung ứng SKECHERS - TBS Group.",
+    type: "website",
+    images: ["/icon.png"],
+  },
+};
+
+import { PerformanceProvider } from "@/components/PerformanceProvider";
+import PerfDebugOverlay from "@/components/PerfDebugOverlay";
+import GuestRouteGuard from "@/components/GuestRouteGuard";
+
+import VersionChecker from "@/components/VersionChecker";
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="vi"
+      className="h-full antialiased font-sans"
+    >
+      <head>
+        <meta name="mobile-web-app-capable" content="yes" />
+        <link rel="stylesheet" href="/compiled-tailwind.css" />
+        <link rel="icon" href="/icon.png" type="image/png" />
+        <link rel="shortcut icon" href="/icon.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/icon.png" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                function autoRecoverChunkError(err) {
+                  var str = String((err && (err.message || err.name || err.reason || err)) || '');
+                  if (str.indexOf('ChunkLoadError') !== -1 || str.indexOf('Loading chunk') !== -1 || str.indexOf('Unexpected token') !== -1) {
+                    console.warn('Detected stale deploy chunk load error, reloading fresh build assets...', str);
+                    if (!sessionStorage.getItem('tbs_chunk_auto_reloaded')) {
+                      sessionStorage.setItem('tbs_chunk_auto_reloaded', '1');
+                      if ('serviceWorker' in navigator) {
+                        navigator.serviceWorker.getRegistrations().then(function(regs) {
+                          for (var i = 0; i < regs.length; i++) { regs[i].unregister(); }
+                          window.location.reload(true);
+                        });
+                      } else {
+                        window.location.reload(true);
+                      }
+                    }
+                  }
+                }
+
+                window.addEventListener('unhandledrejection', function(e) {
+                  autoRecoverChunkError(e.reason);
+                  console.warn('Silenced unhandled promise rejection:', e.reason);
+                  if (e.preventDefault) e.preventDefault();
+                });
+
+                window.addEventListener('error', function(e) {
+                  autoRecoverChunkError(e.error || e.message);
+                  var target = e.target;
+                  if (target && (target.tagName === 'LINK' || target.tagName === 'SCRIPT')) {
+                    var url = target.src || target.href || '';
+                    if (url.indexOf('/_next/static/') !== -1) {
+                      autoRecoverChunkError('ChunkLoadError static asset missing: ' + url);
+                    }
+                  }
+                }, true);
+
+                setTimeout(function() {
+                  sessionStorage.removeItem('tbs_chunk_auto_reloaded');
+                }, 10000);
+              })();
+            `,
+          }}
+        />
+      </head>
+      <body className="min-h-full flex flex-col font-sans bg-canvas text-ink">
+        <PerformanceProvider>
+          {/* Ngôn ngữ VI/EN dùng chung toàn ứng dụng (thiếu provider thì nút chọn ngôn ngữ không có tác dụng) */}
+          <LanguageProvider>
+            <GuestRouteGuard />
+            <DevToolsShield />
+            <NotificationInitializer />
+            <AppChrome>
+              {children}
+              <VersionChecker />
+            </AppChrome>
+            <PerfDebugOverlay />
+          </LanguageProvider>
+        </PerformanceProvider>
+      </body>
+    </html>
+  );
+}

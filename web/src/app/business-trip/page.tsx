@@ -1,0 +1,4298 @@
+"use client";
+
+import React, { useState, useEffect, useRef } from "react";
+import Link from "next/link";
+import {
+  IconArrowLeft,
+  IconPlus,
+  IconTrash,
+  IconSend,
+  IconX,
+  IconCheck,
+  IconCalendar,
+  IconMapPin,
+  IconCar,
+  IconUser,
+  IconBriefcase,
+  IconBuilding,
+  IconPhone,
+  IconFileText,
+  IconSearch,
+  IconFilter,
+  IconBell,
+  IconChevronDown,
+  IconChecklist,
+  IconEdit,
+  IconEye,
+  IconDownload,
+  IconRefresh,
+  IconPaperclip,
+  IconPhoto,
+  IconFileTypePdf,
+  IconReceipt,
+  IconUpload,
+  IconExternalLink,
+  IconCash,
+  IconZoomIn,
+  IconList,
+  IconChevronRight,
+  IconLoader,
+  IconChartBar,
+} from "@tabler/icons-react";
+import Can from "@/components/Can";
+import UserAvatar from "@/components/UserAvatar";
+import { usePermission } from "@/hooks/usePermission";
+import { PERMISSIONS } from "@/lib/permissions";
+import { getCurrentUser, getUserDisplayBadgeTitle } from "@/lib/userProfiles";
+import { broadcastNotification } from "@/lib/browserNotifications";
+import AuthReLoginModal from "@/components/AuthReLoginModal";
+import { useAutoSave } from "@/lib/autoSaveManager";
+import { uploadFileToR2 } from "@/lib/imageCompressor";
+
+export interface TripAttachment {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  dataUrl: string;
+  createdAt: string;
+}
+
+export interface TripInvoice {
+  id: string;
+  title: string;
+  category: "Vé máy bay / Tàu xe" | "Khách sạn / Lưu trú" | "Ăn uống / Tiếp khách" | "Xăng xe / Cầu đường" | "Chi phí khác";
+  amount: number;
+  invoiceDate: string;
+  invoiceNumber?: string;
+  fileName?: string;
+  fileType?: string;
+  fileUrl?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+interface Participant {
+  id: string;
+  fullName: string;
+  position: string;
+  employeeId: string;
+  department: string;
+  phone: string;
+  pickupLocation: string;
+}
+
+export type TripStatus =
+  | "PENDING"
+  | "PENDING_L2"
+  | "APPROVED"
+  | "REJECTED"
+  | "RECALLED"
+  | "CANCELLED";
+
+export type BudgetStatus =
+  | "pending_dept_budget"
+  | "pending_exec_budget"
+  | "budget_approved"
+  | "budget_rejected";
+
+interface BusinessTripRecord {
+  id: string;
+  code: string;
+  title: string;
+  region: string;
+  factory?: string;
+  creator: string;
+  department: string;
+  departmentId?: string;
+  location: string;
+  startDate: string;
+  endDate: string;
+  daysCount: number;
+  transport: string;
+  participantsCount: number;
+  purpose?: string;
+  address?: string;
+  proposalText?: string;
+  attachmentsJson?: string;
+  attachments?: TripAttachment[];
+  invoicesJson?: string;
+  invoices?: TripInvoice[];
+  participantsJson?: string;
+  status: TripStatus;
+  estimatedCost?: number;
+  version?: number;
+  approvedLevel?: string;
+  rejectedLevel?: "L1" | "L2";
+  rejectionReason?: string;
+  budgetStatus?: BudgetStatus;
+  budgetAmount?: number;
+  budgetRejectionReason?: string;
+  logisticsStatus?: string;
+  logistics?: any;
+  payment_status?: string;
+  createdAt: string;
+}
+
+// ✅ NEW: Region, Factory, Location Mapping (synced with Kaizen)
+const REGION_MAPPING: Record<string, { factories: string[]; locations: string[] }> = {
+  "Kiên Giang 1": {
+    factories: ["Nhà máy NK1 - Kiên Giang 1", "Nhà máy NK1A - Phụ lô"],
+    locations: ["Kiên Giang 1 - Cụm chính", "Kiên Giang 1 - Phân xưởng A"]
+  },
+  "Kiên Giang 2": {
+    factories: ["Nhà máy NK2 - Kiên Giang 2", "Nhà máy NK2 Mở rộng"],
+    locations: ["Kiên Giang 2 - Cụm chính", "Kiên Giang 2 - Khu phụ trợ"]
+  },
+  "Kiên Giang 3": {
+    factories: ["Nhà máy NK3 - Kiên Giang 3"],
+    locations: ["Kiên Giang 3 - Cụm sản xuất"]
+  },
+  "Hoàn Thiện Đế": {
+    factories: ["Tổ hợp Đế Giày TTPP", "Xưởng Hoàn Thiện Đế"],
+    locations: ["Hoàn Thiện Đế - Khu TTPP", "Hoàn Thiện Đế - Kho thành phẩm"]
+  },
+  "Nhà Máy Miền Đông": {
+    factories: ["Nhà máy Miền Đông - Chính", "Nhà máy Miền Đông - Phụ"],
+    locations: ["Miền Đông - Cụm chính", "Miền Đông - Khu thử nghiệm"]
+  },
+  "Miền Đông (R&D)": {
+    factories: ["Skechers Miền Đông Chính", "Phòng R&D"],
+    locations: ["Miền Đông - Trụ sở", "Miền Đông - Phòng R&D"]
+  }
+};
+
+export default function BusinessTripRegistrationPage() {
+  const { can, roles, managedDepartmentId, isExecutiveOrAdmin } = usePermission();
+  const [activeTab, setActiveTab] = useState<"FORM" | "LIST" | "LOGISTICS" | "VEHICLES" | "CFO_DASHBOARD">("FORM");
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [selectedModalRecord, setSelectedModalRecord] = useState<BusinessTripRecord | null>(null);
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const currentPageRef = useRef(1);
+
+  // Vehicles Management State
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [isVehiclesLoading, setIsVehiclesLoading] = useState(false);
+
+  // Bulk Action State
+  const [selectedTrips, setSelectedTrips] = useState<string[]>([]);
+  const [isBulkApproving, setIsBulkApproving] = useState(false);
+
+  const handleBulkApprove = async () => {
+    if (selectedTrips.length === 0) return;
+    if (!window.confirm(`Bạn có chắc chắn muốn duyệt ${selectedTrips.length} đơn đã chọn không?`)) return;
+    setIsBulkApproving(true);
+    let successCount = 0;
+    try {
+      for (const id of selectedTrips) {
+        const trip = records.find(r => r.id === id);
+        if (!trip) continue;
+
+        let actionLevel = "";
+        
+        // Determine what to approve based on current status and user's role
+        if (trip.status === "PENDING" && (roles.includes("department_head") || isExecutiveOrAdmin)) {
+          actionLevel = "APPROVE_L1";
+        } else if (trip.status === "PENDING_L2" && isExecutiveOrAdmin) {
+          actionLevel = "APPROVE_L2";
+        } else if ((!trip.budgetStatus || trip.budgetStatus === "pending_dept_budget") && (roles.includes("department_head") || isExecutiveOrAdmin)) {
+          actionLevel = "APPROVE_BUDGET_L1";
+        } else if (trip.budgetStatus === "pending_exec_budget" && isExecutiveOrAdmin) {
+          actionLevel = "APPROVE_BUDGET_L2";
+        }
+
+        if (!actionLevel) continue;
+
+        const res = await fetch("/api/business-trips", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id, actionLevel }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          successCount++;
+        }
+      }
+      showToast(`✅ Đã duyệt thành công ${successCount}/${selectedTrips.length} đơn!`);
+      setSelectedTrips([]);
+      await fetchD1Records();
+    } catch (err) {
+      showToast("❌ Có lỗi xảy ra trong quá trình duyệt hàng loạt.");
+    } finally {
+      setIsBulkApproving(false);
+    }
+  };
+  const [vehicleForm, setVehicleForm] = useState<any>(null);
+
+  // File Upload State for Form Proposal
+  const [attachments, setAttachments] = useState<TripAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Invoice Management Modal State (Tab 2: LIST)
+  const [activeInvoiceTrip, setActiveInvoiceTrip] = useState<BusinessTripRecord | null>(null);
+
+  // Logistics Update Modal
+  const [activeLogisticsUpdate, setActiveLogisticsUpdate] = useState<any>(null);
+  const [selectedLogisticsTrips, setSelectedLogisticsTrips] = useState<string[]>([]);
+  
+  const handleSaveLogistics = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeLogisticsUpdate) return;
+    
+    try {
+      setIsLoading(true);
+      const tripIds = activeLogisticsUpdate.isBulk ? activeLogisticsUpdate.ids : [activeLogisticsUpdate.id];
+      if (!tripIds || tripIds.length === 0) return;
+
+      let successCount = 0;
+      for (const tId of tripIds) {
+        const res = await fetch("/api/business-trips/logistics", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: tId,
+            logisticsData: activeLogisticsUpdate.logistics
+          })
+        });
+        const data = await res.json();
+        if (data.success) successCount++;
+      }
+      
+      showToast(`Đã lưu thông tin hậu cần thành công cho ${successCount} đơn!`);
+      setActiveLogisticsUpdate(null);
+      setSelectedModalRecord(null);
+      setSelectedLogisticsTrips([]); // clear bulk selection
+      fetchLogisticsRecords();
+    } catch (err) {
+      showToast("Lỗi mạng khi lưu thông tin");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const [globalImportModal, setGlobalImportModal] = useState(false);
+  const [selectedTripIdForImport, setSelectedTripIdForImport] = useState<string>("");
+  const invoiceFileInputRef = useRef<HTMLInputElement>(null);
+  const [newInvoiceForm, setNewInvoiceForm] = useState<{
+    title: string;
+    category: "Vé máy bay / Tàu xe" | "Khách sạn / Lưu trú" | "Ăn uống / Tiếp khách" | "Xăng xe / Cầu đường" | "Chi phí khác";
+    amount: string;
+    invoiceDate: string;
+    invoiceNumber: string;
+    notes: string;
+    fileName: string;
+    fileType: string;
+    fileUrl: string;
+  }>({
+    title: "",
+    category: "Vé máy bay / Tàu xe",
+    amount: "",
+    invoiceDate: new Date().toISOString().split("T")[0],
+    invoiceNumber: "",
+    notes: "",
+    fileName: "",
+    fileType: "",
+    fileUrl: "",
+  });
+
+  // Preview Modal for Images / PDFs
+  const [previewModal, setPreviewModal] = useState<{ url: string; title: string; type: string } | null>(null);
+
+  // Rejection Modal State
+  const [rejectionTarget, setRejectionTarget] = useState<{ id: string; level: "department_head" | "executive_board" } | null>(null);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState("");
+
+  
+
+  // Form State: Proposal Info
+  const [proposalForm, setProposalForm] = useState({
+    title: "",
+    region: "Miền Đông (R&D)",
+    factory: "",
+    creator: "Ban Quản Lý",
+    department: "Hành chính",
+    location: "",
+    transport: "",
+    startDate: "2026-08-15",
+    daysCount: 1,
+    endDate: "2026-08-15",
+    purpose: "",
+    address: "",
+    proposalText: "",
+    estimatedCost: 0,
+  });
+
+  // Form State: Participants List
+  const [participants, setParticipants] = useState<Participant[]>([
+    {
+      id: "p_1",
+      fullName: "",
+      position: "",
+      employeeId: "",
+      department: "",
+      phone: "",
+      pickupLocation: "",
+    },
+  ]);
+
+  const [currentUser, setCurrentUser] = useState<{ name: string; title: string; department: string; avatar: string; roleCode?: string; empCode?: string }>({
+    name: "Cán Bộ Công Nhân Viên",
+    title: "Cán Bộ Công Nhân Viên",
+    department: "Skechers Miền Đông",
+    avatar: "/images/tbs-logo.png",
+  });
+
+  useEffect(() => {
+    function loadUser() {
+      const cur = getCurrentUser();
+      if (cur && cur.name) {
+        setCurrentUser({
+          name: cur.name,
+          title: getUserDisplayBadgeTitle(cur),
+          department: cur.department || "Skechers Miền Đông",
+          avatar: cur.avatar || "/images/tbs-logo.png",
+        });
+        
+        // ✅ Auto-set creator and department from current user
+        setProposalForm(prev => ({
+          ...prev,
+          creator: cur.name || "Ban Quản Lý",
+          department: cur.department || "Hành chính"
+        }));
+      }
+    }
+
+    loadUser();
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("tbs_profile_updated", loadUser);
+      return () => window.removeEventListener("tbs_profile_updated", loadUser);
+    }
+  }, []);
+
+  // Initialize factory and location from REGION_MAPPING on mount
+  useEffect(() => {
+    const defaultRegion = "Miền Đông (R&D)";
+    const factories = REGION_MAPPING[defaultRegion]?.factories || [];
+    const locations = REGION_MAPPING[defaultRegion]?.locations || [];
+    
+    setProposalForm(prev => ({
+      ...prev,
+      factory: factories[0] || "",
+      location: locations[0] || ""
+    }));
+  }, []);
+
+  // 🛡️ BẢO MẬT GIAO DIỆN: Tab Redirect Logic based on Roles
+  useEffect(() => {
+    if (activeTab === "LOGISTICS" && !can(PERMISSIONS.TRIP_DISPATCH_VEHICLE)) {
+      setActiveTab("LIST");
+    } else if (activeTab === "VEHICLES" && !can(PERMISSIONS.TRIP_DISPATCH_VEHICLE)) {
+      setActiveTab("LIST");
+    } else if (activeTab === "CFO_DASHBOARD" && !roles.includes("ke_toan") && !isExecutiveOrAdmin) {
+      setActiveTab("LIST");
+    }
+  }, [activeTab, can, roles, isExecutiveOrAdmin]);
+
+  // Set default tab for specific roles on first load
+  const [hasSetDefaultTab, setHasSetDefaultTab] = useState(false);
+  useEffect(() => {
+    if (roles.length > 0 && !hasSetDefaultTab) {
+      if (roles.includes("hanh_chinh")) {
+        setActiveTab("LOGISTICS");
+      } else if (roles.includes("ke_toan")) {
+        setActiveTab("CFO_DASHBOARD");
+      }
+      setHasSetDefaultTab(true);
+    }
+  }, [roles, hasSetDefaultTab]);
+
+  // Auth Re-login Modal State for non-destructive form saving
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
+  // Fleet availability state
+  const [fleetInfo, setFleetInfo] = useState<{ total: number; available: number; booked: number } | null>(null);
+
+  // Auto-Save Draft for Business Trip Registration Form
+  const { draft: savedDraft, clearDraft, hasDraft } = useAutoSave("tbs_business_trip_form_draft", {
+    proposalForm,
+    participants,
+  });
+
+  const handleRestoreDraft = () => {
+    if (savedDraft?.proposalForm) {
+      setProposalForm(savedDraft.proposalForm);
+    }
+    if (savedDraft?.participants) {
+      setParticipants(savedDraft.participants);
+    }
+    showToast("✅ Đã khôi phục bản nháp form công tác thành công!");
+  };
+
+  // Fetch Fleet Availability when transport is "Xe công ty" or dates change
+  useEffect(() => {
+    if (proposalForm.transport === "Xe công ty") {
+      fetch(`/api/business-trips/fleet-availability?startDate=${proposalForm.startDate}&endDate=${proposalForm.endDate}`)
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.success && json.fleet) {
+            setFleetInfo(json.fleet);
+          }
+        })
+        .catch(() => {});
+    } else {
+      setFleetInfo(null);
+    }
+  }, [proposalForm.transport, proposalForm.startDate, proposalForm.endDate]);
+
+  // Recall pending business trip
+  const handleRecallTrip = async (id: string) => {
+    const reason = prompt("Nhập lý do rút lại đề xuất công tác:");
+    if (reason === null) return;
+    const target = records.find((r) => r.id === id);
+    if (!target) return;
+
+    try {
+      setIsLoading(true);
+      const res = await fetch("/api/business-trips", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          actionLevel: "RECALL",
+          version: target.version || 1,
+          recallReason: reason || "Người tạo chủ động rút lại đơn",
+        }),
+      });
+
+      const data = await res.json();
+      if (res.status === 401) {
+        setShowAuthModal(true);
+        return;
+      }
+      if (!res.ok || !data.success) {
+        showToast(`❌ ${data.message || data.error || "Không thể rút lại đơn"}`);
+        return;
+      }
+
+      showToast("✅ Đã rút lại đề xuất công tác thành công!");
+      await fetchD1Records();
+
+      if (target) {
+        broadcastNotification({
+          title: "🚫 Hủy Hậu Cần Đơn Công Tác",
+          message: `Cán bộ ${target.creator} đã chủ động rút/hủy đơn công tác "${target.title}". Vui lòng HỦY xe và phòng đã đặt (nếu có).`,
+          type: "WARNING",
+          targetUser: "Lễ Tân",
+          link: "/business-trip",
+        });
+      }
+    } catch (err) {
+      showToast("❌ Lỗi kết nối máy chủ");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Sequential Approval Handlers with Real D1 Persistence
+  const handleApproveTrip = async (id: string, level: "department_head" | "executive_board") => {
+    const target = records.find((r) => r.id === id);
+    const actionLevel = level === "department_head" ? "APPROVE_L1" : "APPROVE_L2";
+    const currentVersion = target?.version || 1;
+
+    try {
+      setIsLoading(true);
+      const res = await fetch("/api/business-trips", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          actionLevel,
+          version: currentVersion,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.status === 403 || data.error === "SEGREGATION_OF_DUTIES_VIOLATION") {
+        alert(data.message || "Cảnh báo: Bạn không thể tự phê duyệt đề xuất công tác do chính mình tạo!");
+        showToast("⚠️ Cảnh báo phân tách nhiệm vụ: Không thể tự phê duyệt!");
+        return;
+      }
+
+      if (res.status === 409 || data.code === "OPTIMISTIC_LOCK_CONFLICT" || data.error === "OPTIMISTIC_LOCK_CONFLICT") {
+        showToast("⚠️ Dữ liệu đã được người khác cập nhật, đang tải lại...");
+        await fetchD1Records();
+        return;
+      }
+
+      if (res.status === 422 || data.error === "INVALID_STATE_TRANSITION") {
+        showToast(`❌ ${data.message || "Lỗi luồng duyệt: Đề xuất chưa qua phê duyệt cấp 1 hoặc đã hoàn tất!"}`);
+        return;
+      }
+
+      if (!res.ok || !data.success) {
+        showToast(`❌ Lỗi khi duyệt đơn: ${data.message || data.error || "Không thể kết nối D1"}`);
+        return;
+      }
+
+      // Success: refresh from D1 to get exact status & updated version
+      await fetchD1Records();
+
+      showToast(
+        level === "department_head"
+          ? "✅ Trưởng phòng đã duyệt D1! Đã chuyển đơn lên Ban Giám Đốc (Cấp 2)."
+          : "🎉 Ban Giám Đốc đã duyệt hoàn tất đơn công tác trên D1 Database!"
+      );
+
+      if (target) {
+        if (level === "department_head") {
+          broadcastNotification({
+            title: "✅ Đã Phê Duyệt Cấp 1 (Trưởng Phòng)",
+            message: `Trưởng phòng đã phê duyệt đề xuất công tác "${target.title}" của ${target.creator}.`,
+            type: "SUCCESS",
+            targetUser: target.creator,
+            link: "/business-trip",
+          });
+
+          // Send notification to Lễ Tân IMMEDIATELY after Level 1 Approval (For both < 5M and >= 5M trips)
+          broadcastNotification({
+            title: "🚗 Sắp Xếp Hậu Cần Công Tác Mới",
+            message: `Đơn công tác "${target.title}" của ${target.creator} (${target.startDate} - ${target.endDate}) đã qua Cấp 1. Vui lòng xếp xe công ty/phòng lưu trú.`,
+            type: "INFO",
+            targetUser: "Lễ Tân",
+            link: "/business-trip",
+          });
+
+          // If estimatedCost >= 5M, notify Ban Giám Đốc for Level 2 approval
+          if ((target.estimatedCost || 0) >= 5000000) {
+            broadcastNotification({
+              title: "🛎️ Đơn Công Tác Chờ BGĐ Phê Duyệt Cấp 2",
+              message: `Đơn công tác "${target.title}" của ${target.creator} (${target.department}) đã được Trưởng phòng duyệt, đang chờ Ban Giám Đốc phê duyệt Cấp 2.`,
+              type: "INFO",
+              targetUser: "Ban Giám Đốc",
+              link: "/business-trip",
+            });
+          }
+        } else {
+          // Level 2 (Ban Giám Đốc) approval completion
+          broadcastNotification({
+            title: "🎉 Ban Giám Đốc Đã Phê Duyệt Hoàn Tất",
+            message: `Đề xuất công tác "${target.title}" của bạn đã được Ban Giám Đốc phê duyệt chính thức Cấp 2.`,
+            type: "SUCCESS",
+            targetUser: target.creator,
+            link: "/business-trip",
+          });
+        }
+      }
+    } catch (err) {
+      showToast("❌ Lỗi mạng hoặc máy chủ, vui lòng thử lại!");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleOpenRejectModal = (id: string, level: "department_head" | "executive_board") => {
+    setRejectionTarget({ id, level });
+    setRejectionReasonInput("");
+  };
+
+  const handleConfirmReject = async () => {
+    if (!rejectionTarget) return;
+    const { id, level } = rejectionTarget;
+    const target = records.find((r) => r.id === id);
+    const actionLevel = level === "department_head" ? "REJECT_L1" : "REJECT_L2";
+    const currentVersion = target?.version || 1;
+
+    try {
+      setIsLoading(true);
+      const res = await fetch("/api/business-trips", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          status: "REJECTED",
+          actionLevel,
+          rejectionReason: rejectionReasonInput || "Không đáp ứng điều kiện",
+          version: currentVersion,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.status === 403 || data.error === "SEGREGATION_OF_DUTIES_VIOLATION") {
+        alert(data.message || "Cảnh báo: Bạn không thể tự từ chối đề xuất do chính mình tạo!");
+        showToast("⚠️ Cảnh báo phân tách nhiệm vụ: Không thể thao tác!");
+        return;
+      }
+
+      if (res.status === 409 || data.code === "OPTIMISTIC_LOCK_CONFLICT" || data.error === "OPTIMISTIC_LOCK_CONFLICT") {
+        showToast("⚠️ Dữ liệu đã được người khác cập nhật, đang tải lại...");
+        await fetchD1Records();
+        setRejectionTarget(null);
+        return;
+      }
+
+      if (!res.ok || !data.success) {
+        showToast(`❌ Lỗi khi từ chối đơn: ${data.message || data.error || "Không thể kết nối D1"}`);
+        return;
+      }
+
+      await fetchD1Records();
+      setRejectionTarget(null);
+      showToast(`❌ Đã từ chối đơn công tác (${level === "department_head" ? "Trưởng phòng" : "Ban Giám Đốc"}) trên D1 Database!`);
+
+      if (target) {
+        broadcastNotification({
+          title: "❌ Đề Xuất Công Tác Bị Từ Chối",
+          message: `Đề xuất công tác "${target.title}" của bạn đã bị từ chối (${level === "department_head" ? "Trưởng phòng" : "Ban Giám Đốc"}). Lý do: ${rejectionReasonInput || "Không đáp ứng điều kiện"}.`,
+          type: "WARNING",
+          targetUser: target.creator,
+          link: "/business-trip",
+        });
+
+        // Notify Lễ Tân to cancel logistics if assigned or pending
+        broadcastNotification({
+          title: "🚫 Hủy Hậu Cần Đơn Công Tác",
+          message: `Đơn công tác "${target.title}" của ${target.creator} đã bị từ chối. Vui lòng HỦY xe và phòng đã đặt (nếu có).`,
+          type: "WARNING",
+          targetUser: "Lễ Tân",
+          link: "/business-trip",
+        });
+      }
+    } catch (err) {
+      showToast("❌ Lỗi mạng hoặc máy chủ, vui lòng thử lại!");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Dedicated Budget 2-Level Approval State & Handlers with Real D1 Persistence
+  const [activeBudgetTrip, setActiveBudgetTrip] = useState<BusinessTripRecord | null>(null);
+  const [budgetRejectionReason, setBudgetRejectionReason] = useState("");
+
+  const handleApproveBudget = async (id: string, level: "dept_budget" | "exec_budget") => {
+    const target = records.find((r) => r.id === id);
+    const actionLevel = level === "dept_budget" ? "APPROVE_BUDGET_L1" : "APPROVE_BUDGET_L2";
+    const currentVersion = target?.version || 1;
+
+    try {
+      setIsLoading(true);
+      const res = await fetch("/api/business-trips", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          actionLevel,
+          version: currentVersion,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.status === 409 || data.code === "OPTIMISTIC_LOCK_CONFLICT" || data.error === "OPTIMISTIC_LOCK_CONFLICT") {
+        showToast("⚠️ Dữ liệu đã được người khác cập nhật, đang tải lại...");
+        await fetchD1Records();
+        return;
+      }
+
+      if (!res.ok || !data.success) {
+        showToast(`❌ Lỗi duyệt ngân sách: ${data.message || data.error || "Lỗi kết nối D1"}`);
+        return;
+      }
+
+      await fetchD1Records();
+      if (activeBudgetTrip && activeBudgetTrip.id === id) {
+        setActiveBudgetTrip({
+          ...activeBudgetTrip,
+          budgetStatus: level === "dept_budget" ? "pending_exec_budget" : "budget_approved",
+        });
+      }
+
+      showToast(
+        level === "dept_budget"
+          ? "✅ Đã duyệt ngân sách Cấp 1! Đã chuyển đơn ngân sách lên Ban Giám Đốc / CFO (Cấp 2)."
+          : "🎉 Ban Giám Đốc / CFO đã phê duyệt hoàn tất ngân sách công tác!"
+      );
+
+      if (target) {
+        if (level === "dept_budget") {
+          broadcastNotification({
+            title: "✅ Duyệt Ngân Sách Cấp 1 (Trưởng Phòng)",
+            message: `Ngân sách đề xuất công tác "${target.title}" của ${target.creator} đã qua Cấp 1. Đã chuyển lên Ban Giám Đốc / CFO duyệt Cấp 2.`,
+            type: "SUCCESS",
+            targetUser: target.creator,
+            link: "/business-trip",
+          });
+
+          broadcastNotification({
+            title: "💰 Đề Xuất Ngân Sách Chờ BGĐ Duyệt (Cấp 2)",
+            message: `Đề xuất ngân sách chuyến công tác "${target.title}" của ${target.creator} (${target.department}) đã qua Cấp 1, chờ Ban Giám Đốc / CFO duyệt Cấp 2.`,
+            type: "INFO",
+            targetUser: "Ban Giám Đốc",
+            link: "/business-trip",
+          });
+        } else {
+          broadcastNotification({
+            title: "🎉 Ngân Sách Đã Phê Duyệt Hoàn Tất (Cấp 2)",
+            message: `Ngân sách chuyến công tác "${target.title}" của bạn đã được Ban Giám Đốc / CFO phê duyệt 2 Cấp chính thức. Kế toán sẽ thực hiện chi tạm ứng/thanh toán.`,
+            type: "SUCCESS",
+            targetUser: target.creator,
+            link: "/business-trip",
+          });
+
+          broadcastNotification({
+            title: "💵 Giải Ngân / Tạm Ứng Ngân Sách Công Tác",
+            message: `Chuyến công tác "${target.title}" của ${target.creator} đã được duyệt ngân sách 2 cấp. Kế toán tiến hành chi nạp/tạm ứng.`,
+            type: "INFO",
+            targetUser: "Kế Toán",
+            link: "/business-trip",
+          });
+        }
+      }
+    } catch (err) {
+      showToast("❌ Lỗi mạng hoặc máy chủ, vui lòng thử lại!");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRejectBudget = async (id: string, reason: string) => {
+    const target = records.find((r) => r.id === id);
+    const currentVersion = target?.version || 1;
+
+    try {
+      setIsLoading(true);
+      const res = await fetch("/api/business-trips", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          actionLevel: "REJECT_BUDGET",
+          budgetRejectionReason: reason || "Chưa phù hợp định mức chi tiêu",
+          version: currentVersion,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        showToast(`❌ Lỗi từ chối ngân sách: ${data.message || data.error || "Lỗi kết nối D1"}`);
+        return;
+      }
+
+      await fetchD1Records();
+      if (activeBudgetTrip && activeBudgetTrip.id === id) {
+        setActiveBudgetTrip({
+          ...activeBudgetTrip,
+          budgetStatus: "budget_rejected",
+          budgetRejectionReason: reason,
+        });
+      }
+
+      showToast("❌ Đã từ chối phê duyệt ngân sách công tác!");
+
+      if (target) {
+        broadcastNotification({
+          title: "❌ Đề Xuất Ngân Sách Bị Từ Chối",
+          message: `Đề xuất ngân sách công tác "${target.title}" của bạn đã bị từ chối. Lý do: ${reason || "Chưa phù hợp định mức chi tiêu"}.`,
+          type: "WARNING",
+          targetUser: target.creator,
+          link: "/business-trip",
+        });
+      }
+    } catch (err) {
+      showToast("❌ Lỗi mạng hoặc máy chủ, vui lòng thử lại!");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Submitted Records List (synced with D1)
+  const [records, setRecords] = useState<BusinessTripRecord[]>([]);
+
+  // Logistics Tab State
+  const [logisticsRecords, setLogisticsRecords] = useState<BusinessTripRecord[]>([]);
+  const [logisticsFilterStatus, setLogisticsFilterStatus] = useState<string>("ACTIVE"); // "ACTIVE", "ALL", "PENDING", "ARRANGED", "CANCELLED"
+
+  const fetchLogisticsRecords = async () => {
+    try {
+      setIsLoading(true);
+      const res = await fetch("/api/business-trips/logistics");
+      const data = await res.json();
+      if (data.success) {
+        setLogisticsRecords(data.data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch logistics", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleConfirmCancelLogistics = async (rec: BusinessTripRecord) => {
+    try {
+      setIsLoading(true);
+      const res = await fetch("/api/business-trips/logistics", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: rec.id,
+          logisticsData: rec.logistics || {},
+          cancellationHandled: true,
+          logisticsStatus: "CANCELLED_HANDLED"
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast("✅ Đã xác nhận xử lý hủy xe/phòng thành công!");
+        fetchLogisticsRecords();
+      } else {
+        showToast("❌ Lỗi: " + data.error);
+      }
+    } catch (e) {
+      showToast("❌ Lỗi mạng khi cập nhật");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "LOGISTICS") {
+      fetchLogisticsRecords();
+    }
+  }, [activeTab]);
+
+
+  // List Search & 5 Filter Inputs
+  const [searchQuery, setSearchQuery] = useState("");
+  const [regionFilter, setRegionFilter] = useState("ALL");
+  const [locationFilter, setLocationFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [startDateFilter, setStartDateFilter] = useState("");
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // Fetch Business Trips from Cloudflare D1 Database on Mount & Tab Change
+  const fetchD1Records = async (pageToFetch?: number) => {
+    try {
+      setIsLoading(true);
+      const targetPage = pageToFetch || currentPageRef.current;
+      const res = await fetch(`/api/business-trips?page=${targetPage}&limit=5`);
+      const result = await res.json();
+      if (result.success && Array.isArray(result.data)) {
+        const d1Records: BusinessTripRecord[] = result.data.map((item: any) => {
+          let parsedAttachments: TripAttachment[] = [];
+          if (item.attachments_json) {
+            try { parsedAttachments = JSON.parse(item.attachments_json); } catch(e) {}
+          }
+          let parsedInvoices: TripInvoice[] = [];
+          if (item.invoices_json) {
+            try { parsedInvoices = JSON.parse(item.invoices_json); } catch(e) {}
+          }
+
+          let rawStatus = item.status || "PENDING";
+          if (rawStatus === "pending_department_head") rawStatus = "PENDING";
+          if (rawStatus === "pending_executive_board") rawStatus = "PENDING_L2";
+          if (rawStatus === "approved" || rawStatus === "APPROVED") {
+            if (item.approved_level === "L1" || item.approved_level === "department_head") {
+              rawStatus = "PENDING_L2";
+            } else {
+              rawStatus = "APPROVED";
+            }
+          }
+          if (typeof rawStatus === "string" && rawStatus.toLowerCase().includes("rejected")) rawStatus = "REJECTED";
+
+          return {
+            id: item.id || `rec_${Date.now()}`,
+            code: item.code || `CT-2026-${Math.floor(100 + Math.random() * 900)}`,
+            title: item.title || "Đề xuất công tác",
+            region: item.region || "Miền Đông (R&D)",
+            factory: item.factory || "",
+            creator: item.creator || "Ban Quản Lý",
+            department: item.department || "Hành chính",
+            location: item.location || "Bình Dương",
+            startDate: item.start_date || item.startDate || "15/08/2026",
+            endDate: item.end_date || item.endDate || "15/08/2026",
+            daysCount: item.days_count || item.daysCount || 1,
+            transport: item.transport || "Xe công ty",
+            participantsCount: item.participants_count || item.participantsCount || 1,
+            purpose: item.purpose || "",
+            address: item.address || "",
+            proposalText: item.proposal_text || item.proposalText || "",
+            attachmentsJson: item.attachments_json || "[]",
+            attachments: parsedAttachments,
+            invoicesJson: item.invoices_json || "[]",
+            invoices: parsedInvoices,
+            participantsJson: item.participants_json || item.participantsJson || "[]",
+            status: rawStatus as TripStatus,
+            estimatedCost: Number(item.estimated_cost || 0),
+            version: Number(item.version || 1),
+            approvedLevel: item.approved_level,
+            rejectedLevel: item.rejected_level,
+            rejectionReason: item.rejection_reason,
+            budgetStatus: item.budget_status || "pending_dept_budget",
+            budgetAmount: Number(item.budget_amount || 0),
+            budgetRejectionReason: item.budget_rejection_reason,
+            createdAt: item.created_at || new Date().toLocaleString("vi-VN"),
+          };
+        });
+        setRecords(d1Records);
+        if (result.pagination) {
+          setTotalPages(result.pagination.totalPages || 1);
+          setTotalRecords(result.pagination.total || 0);
+          setCurrentPage(result.pagination.page || targetPage);
+          currentPageRef.current = result.pagination.page || targetPage;
+        }
+      }
+    } catch (err) {
+      console.warn("D1 Database fetch error:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchVehicles = async () => {
+    try {
+      setIsVehiclesLoading(true);
+      const res = await fetch("/api/company-vehicles");
+      const result = await res.json();
+      if (result.success) {
+        setVehicles(result.data || []);
+      }
+    } catch (err) {
+      console.warn("Vehicles fetch error:", err);
+    } finally {
+      setIsVehiclesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchD1Records();
+    fetchVehicles();
+  }, []);
+
+  // Reset all filters
+  const handleResetFilters = () => {
+    setSearchQuery("");
+    setRegionFilter("ALL");
+    setLocationFilter("ALL");
+    setStatusFilter("ALL");
+    setStartDateFilter("");
+  };
+
+  // Add a participant row
+  const handleAddParticipant = () => {
+    const newP: Participant = {
+      id: `p_${Date.now()}`,
+      fullName: "",
+      position: "",
+      employeeId: "",
+      department: "",
+      phone: "",
+      pickupLocation: "",
+    };
+    setParticipants([...participants, newP]);
+  };
+
+  // Remove participant row
+  const handleRemoveParticipant = (id: string) => {
+    if (participants.length <= 1) {
+      alert("Cần có ít nhất 01 người tham gia chuyến công tác!");
+      return;
+    }
+    setParticipants(participants.filter((p) => p.id !== id));
+  };
+
+  // Update participant field
+  const handleUpdateParticipant = (id: string, field: keyof Participant, val: string) => {
+    setParticipants(
+      participants.map((p) => (p.id === id ? { ...p, [field]: val } : p))
+    );
+  };
+
+  // Handle Attachment Upload (Images & PDFs) for Proposal with R2 Storage & Compression
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    for (const file of Array.from(files)) {
+      try {
+        setIsLoading(true);
+        const res = await uploadFileToR2(file, 'ATTACHMENT');
+        const newAtt: TripAttachment = {
+          id: res.id || `att_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          name: file.name,
+          size: res.size || file.size,
+          type: file.type,
+          dataUrl: res.url || res.dataUrl,
+          createdAt: new Date().toLocaleTimeString("vi-VN"),
+        };
+        setAttachments((prev) => [...prev, newAtt]);
+      } catch (err: any) {
+        showToast("❌ Lỗi tải file lên R2: " + (err.message || "Lỗi tải file"));
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    if (e.target) e.target.value = "";
+  };
+
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  // Handle Invoice File Upload in Invoice Modal with R2 Storage & Compression
+  const handleInvoiceFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsLoading(true);
+      const res = await uploadFileToR2(file, 'INVOICE', selectedModalRecord?.id);
+      setNewInvoiceForm((prev) => ({
+        ...prev,
+        fileName: file.name,
+        fileType: file.type,
+        fileUrl: res.url || res.dataUrl,
+      }));
+      showToast("✅ Đã tải hóa đơn lên R2!");
+    } catch (err: any) {
+      showToast("❌ Lỗi tải hóa đơn: " + (err.message || "Lỗi tải file"));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Save new invoice for active trip
+  const handleSaveInvoice = async (tripId: string) => {
+    if (!newInvoiceForm.title.trim()) {
+      alert("Vui lòng nhập tên hóa đơn/chứng từ!");
+      return;
+    }
+    const parsedAmount = parseFloat(newInvoiceForm.amount.replace(/[^0-9]/g, "")) || 0;
+    if (parsedAmount <= 0) {
+      alert("Vui lòng nhập số tiền hợp lệ!");
+      return;
+    }
+
+    const newInv: TripInvoice = {
+      id: `inv_${Date.now()}`,
+      title: newInvoiceForm.title.trim(),
+      category: newInvoiceForm.category,
+      amount: parsedAmount,
+      invoiceDate: newInvoiceForm.invoiceDate,
+      invoiceNumber: newInvoiceForm.invoiceNumber.trim(),
+      fileName: newInvoiceForm.fileName,
+      fileType: newInvoiceForm.fileType,
+      fileUrl: newInvoiceForm.fileUrl,
+      notes: newInvoiceForm.notes.trim(),
+      createdAt: new Date().toLocaleString("vi-VN"),
+    };
+
+    // Update Local State
+    setRecords((prev) =>
+      prev.map((r) => {
+        if (r.id === tripId) {
+          const currentInvoices = r.invoices ? [...r.invoices, newInv] : [newInv];
+          return {
+            ...r,
+            invoices: currentInvoices,
+            invoicesJson: JSON.stringify(currentInvoices),
+          };
+        }
+        return r;
+      })
+    );
+
+    // Update active modal trip state if open
+    if (activeInvoiceTrip && activeInvoiceTrip.id === tripId) {
+      const currentInvoices = activeInvoiceTrip.invoices ? [...activeInvoiceTrip.invoices, newInv] : [newInv];
+      setActiveInvoiceTrip({
+        ...activeInvoiceTrip,
+        invoices: currentInvoices,
+        invoicesJson: JSON.stringify(currentInvoices),
+      });
+    }
+
+    // Persist to Cloudflare D1 Database
+    try {
+      await fetch("/api/business-trips/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tripId, invoice: newInv }),
+      });
+      showToast("Đã lưu & đồng bộ hóa đơn chứng từ thành công vào D1!");
+    } catch (e) {
+      showToast("Đã lưu hóa đơn chứng từ vào ứng dụng!");
+    }
+
+    // Reset Invoice Input Form
+    setNewInvoiceForm({
+      title: "",
+      category: "Vé máy bay / Tàu xe",
+      amount: "",
+      invoiceDate: new Date().toISOString().split("T")[0],
+      invoiceNumber: "",
+      notes: "",
+      fileName: "",
+      fileType: "",
+      fileUrl: "",
+    });
+    // ✅ FIX #3: Clear selectedTripIdForImport when closing modal
+    if (globalImportModal) {
+      setGlobalImportModal(false);
+      setSelectedTripIdForImport("");
+    }
+  };
+
+  // Upload Giấy đi đường đã ký (Signed Travel Paper) to R2 and update D1
+  const handleUploadSignedTravelPaper = async (tripId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsLoading(true);
+      const res = await uploadFileToR2(file, 'SIGNED_TRAVEL_PAPER', tripId);
+      const newPaper = {
+        id: res.id,
+        name: res.originalName || file.name,
+        size: res.size || file.size,
+        type: res.mimeType || file.type,
+        url: res.url || res.fileUrl,
+        uploadedAt: new Date().toLocaleString("vi-VN"),
+      };
+
+      const targetTrip = records.find(r => r.id === tripId) || logisticsRecords.find(r => r.id === tripId);
+      const existingPapers = (targetTrip as any)?.signedTravelPaper || [];
+      const updatedPapers = [...existingPapers, newPaper];
+
+      const saveRes = await fetch("/api/business-trips", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: tripId,
+          signedTravelPaper: updatedPapers,
+        }),
+      });
+
+      const saveData = await saveRes.json();
+      if (saveData.success) {
+        showToast("✅ Đã tải lên Giấy đi đường đã ký thành công!");
+        fetchD1Records();
+        fetchLogisticsRecords();
+        if (selectedModalRecord && selectedModalRecord.id === tripId) {
+          setSelectedModalRecord({
+            ...selectedModalRecord,
+            signedTravelPaper: updatedPapers,
+          } as any);
+        }
+      } else {
+        showToast("❌ Lỗi lưu Giấy đi đường: " + (saveData.error || "Không thể lưu"));
+      }
+    } catch (err: any) {
+      showToast("❌ Lỗi upload file: " + (err.message || "Lỗi mạng"));
+    } finally {
+      setIsLoading(false);
+      if (e.target) e.target.value = "";
+    }
+  };
+
+  // Delete an invoice from trip
+  const handleDeleteInvoice = async (tripId: string, invoiceId: string) => {
+    if (!confirm("Bạn có chắc chắn muốn xóa hóa đơn này không?")) return;
+
+    setRecords((prev) =>
+      prev.map((r) => {
+        if (r.id === tripId) {
+          const filtered = (r.invoices || []).filter((inv) => inv.id !== invoiceId);
+          return {
+            ...r,
+            invoices: filtered,
+            invoicesJson: JSON.stringify(filtered),
+          };
+        }
+        return r;
+      })
+    );
+
+    if (activeInvoiceTrip && activeInvoiceTrip.id === tripId) {
+      const filtered = (activeInvoiceTrip.invoices || []).filter((inv) => inv.id !== invoiceId);
+      setActiveInvoiceTrip({
+        ...activeInvoiceTrip,
+        invoices: filtered,
+        invoicesJson: JSON.stringify(filtered),
+      });
+    }
+
+    const targetTrip = records.find((r) => r.id === tripId);
+    if (targetTrip) {
+      const updatedInvoices = (targetTrip.invoices || []).filter((inv) => inv.id !== invoiceId);
+      try {
+        await fetch("/api/business-trips", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: tripId, invoices_json: JSON.stringify(updatedInvoices) }),
+        });
+        showToast("Đã xóa hóa đơn chứng từ!");
+      } catch (e) {}
+    }
+  };
+
+  // Helper to parse YYYY-MM-DD safely into Date object
+  const parseIsoDate = (str: string): Date | null => {
+    if (!str) return null;
+    const parts = str.split("-");
+    if (parts.length !== 3) return null;
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    const d = parseInt(parts[2], 10);
+    const date = new Date(y, m, d);
+    return isNaN(date.getTime()) ? null : date;
+  };
+
+  // Helper to format Date object to YYYY-MM-DD
+  const formatIsoDate = (date: Date): string => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  // 1. Calculate when Start Date changes
+  const handleStartDateChange = (newStartStr: string) => {
+    setProposalForm((prev) => {
+      const start = parseIsoDate(newStartStr);
+      if (!start) return { ...prev, startDate: newStartStr };
+
+      const end = parseIsoDate(prev.endDate);
+
+      // If we have an existing end date on/after new start date, auto-calculate daysCount
+      if (end && end.getTime() >= start.getTime()) {
+        const diffDays = Math.round((end.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1;
+        return {
+          ...prev,
+          startDate: newStartStr,
+          daysCount: diffDays,
+        };
+      }
+
+      // Otherwise, calculate new endDate based on current daysCount
+      const newEnd = new Date(start);
+      newEnd.setDate(newEnd.getDate() + (prev.daysCount - 1));
+      return {
+        ...prev,
+        startDate: newStartStr,
+        endDate: formatIsoDate(newEnd),
+      };
+    });
+  };
+
+  // 2. Calculate when Days Count changes
+  const handleDaysChange = (days: number) => {
+    const d = Math.max(1, days);
+    setProposalForm((prev) => {
+      const start = parseIsoDate(prev.startDate);
+      if (start) {
+        const newEnd = new Date(start);
+        newEnd.setDate(newEnd.getDate() + (d - 1));
+        return { ...prev, daysCount: d, endDate: formatIsoDate(newEnd) };
+      }
+      return { ...prev, daysCount: d };
+    });
+  };
+
+  // 3. Calculate when End Date changes
+  const handleEndDateChange = (newEndStr: string) => {
+    setProposalForm((prev) => {
+      const end = parseIsoDate(newEndStr);
+      if (!end) return { ...prev, endDate: newEndStr };
+
+      const start = parseIsoDate(prev.startDate);
+      if (start) {
+        if (end.getTime() < start.getTime()) {
+          // If user picked an end date earlier than start date, auto-sync start date = end date, days = 1
+          return {
+            ...prev,
+            startDate: newEndStr,
+            endDate: newEndStr,
+            daysCount: 1,
+          };
+        }
+
+        // Auto-calculate daysCount: (end - start) + 1
+        const diffDays = Math.round((end.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1;
+        return {
+          ...prev,
+          endDate: newEndStr,
+          daysCount: diffDays,
+        };
+      }
+
+      return { ...prev, endDate: newEndStr };
+    });
+  };
+
+  // Submit Business Trip Form
+  const handleSubmitForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Enhanced validation for all required fields
+    if (!proposalForm.title || !proposalForm.title.trim()) {
+      showToast("⚠️ Tên đề xuất công tác là bắt buộc!");
+      return;
+    }
+    if (!proposalForm.region || !proposalForm.region.trim()) {
+      showToast("⚠️ Khu vực là bắt buộc!");
+      return;
+    }
+    if (!proposalForm.factory || !proposalForm.factory.trim()) {
+      showToast("⚠️ Nhà máy là bắt buộc!");
+      return;
+    }
+    if (!proposalForm.location || !proposalForm.location.trim()) {
+      showToast("⚠️ Công tác tại là bắt buộc!");
+      return;
+    }
+    if (!proposalForm.transport || !proposalForm.transport.trim()) {
+      showToast("⚠️ Hình thức di chuyển là bắt buộc!");
+      return;
+    }
+    if (!proposalForm.purpose || !proposalForm.purpose.trim()) {
+      showToast("⚠️ Mục đích công tác là bắt buộc!");
+      return;
+    }
+
+    const startFmt = proposalForm.startDate.split("-").reverse().join("/");
+    const endFmt = proposalForm.endDate.split("-").reverse().join("/");
+    const costVal = Number(proposalForm.estimatedCost || 0);
+
+    const newRecord: BusinessTripRecord = {
+      id: `rec_${Date.now()}`,
+      code: `CT-2026-0${records.length + 20}`,
+      title: proposalForm.title,
+      region: proposalForm.region,
+      factory: proposalForm.factory,
+      creator: proposalForm.creator,
+      department: proposalForm.department,
+      location: proposalForm.location,
+      startDate: startFmt,
+      endDate: endFmt,
+      daysCount: proposalForm.daysCount,
+      transport: proposalForm.transport || "Xe công ty",
+      participantsCount: participants.length,
+      purpose: proposalForm.purpose,
+      address: proposalForm.address,
+      proposalText: proposalForm.proposalText,
+      attachmentsJson: JSON.stringify(attachments),
+      attachments,
+      invoicesJson: JSON.stringify([]),
+      invoices: [],
+      participantsJson: JSON.stringify(participants),
+      status: "PENDING",
+      estimatedCost: costVal,
+      version: 1,
+      budgetStatus: "pending_dept_budget",
+      createdAt: new Date().toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short" }),
+    };
+
+    try {
+      setIsLoading(true);
+      const res = await fetch("/api/business-trips", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...newRecord,
+          startDate: startFmt,
+          endDate: endFmt,
+          daysCount: proposalForm.daysCount,
+          participantsCount: participants.length,
+          attachments,
+          participants,
+          estimatedCost: costVal,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        showToast(`❌ Lỗi tạo đề xuất D1: ${data.message || data.error || "Không thể kết nối D1"}`);
+        return;
+      }
+
+      await fetchD1Records();
+      showToast("Đã lưu & gửi đề xuất công tác thành công vào D1 Database!");
+
+      // Broadcast Notifications to Approver & Creator
+      broadcastNotification({
+        title: "✈️ Đề Xuất Công Tác Mới",
+        message: `Cán bộ ${newRecord.creator} (${newRecord.department}) vừa đăng ký đi công tác "${newRecord.title}" tại ${newRecord.location} (${newRecord.startDate} - ${newRecord.endDate}). Chờ duyệt Cấp 1!`,
+        type: "INFO",
+        targetUser: "Trưởng Phòng",
+        link: "/business-trip",
+      });
+
+      broadcastNotification({
+        title: "⏳ Đã Gửi Đề Xuất Công Tác",
+        message: `Đề xuất công tác "${newRecord.title}" của bạn đã gửi tới Trưởng phòng duyệt Cấp 1.`,
+        type: "SUCCESS",
+        targetUser: newRecord.creator,
+        link: "/business-trip",
+      });
+
+      // Reset Form
+      setAttachments([]);
+      setProposalForm({
+        title: "",
+        region: "Miền Đông (R&D)",
+        factory: "",
+        creator: currentUser.name || "Ban Quản Lý",
+        department: currentUser.department || "Hành chính",
+        location: "",
+        transport: "",
+        startDate: new Date().toISOString().split("T")[0],
+        daysCount: 1,
+        endDate: new Date().toISOString().split("T")[0],
+        purpose: "",
+        address: "",
+        proposalText: "",
+        estimatedCost: 0,
+      });
+
+      setActiveTab("LIST");
+    } catch (err) {
+      showToast("❌ Lỗi kết nối máy chủ D1, vui lòng thử lại!");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const isAccountant = roles.includes('ACCOUNTANT') || roles.includes('accountant') || currentUser?.roleCode === 'KE_TOAN' || ['KT-001','KT-002'].includes(currentUser?.empCode||'');
+
+  // Filter records
+  const filteredRecords = records.filter((rec) => {
+    const matchSearch =
+      !searchQuery.trim() ||
+      rec.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      rec.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      rec.creator.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchRegion = regionFilter === "ALL" || rec.region === regionFilter;
+    const matchLocation = locationFilter === "ALL" || rec.location.includes(locationFilter);
+    const matchStatus =
+      statusFilter === "ALL" ||
+      rec.status === statusFilter ||
+      (statusFilter === "PENDING" && rec.status === "PENDING_L2");
+    const matchStartDate = !startDateFilter || rec.startDate.includes(startDateFilter.split("-").reverse().join("/"));
+
+    return matchSearch && matchRegion && matchLocation && matchStatus && matchStartDate;
+  });
+
+  return (
+    <div className="min-h-screen bg-[#f4f7f5] text-slate-900 flex flex-col justify-between font-sans">
+      {/* ════════════════════════════════════════════════════════════════
+          TOP EXECUTIVE HEADER BAR
+         ════════════════════════════════════════════════════════════════ */}
+      <header className="px-3.5 sm:px-6 lg:px-8 py-2.5 sm:py-3.5 bg-white border-b border-slate-200/80 shadow-xs flex items-center justify-between sticky top-0 z-40">
+        {/* Left: Brand Lockup */}
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+          <Link href="/work" className="flex items-center gap-2 group flex-shrink-0">
+            <img
+              src="/images/tbs-logo.png"
+              alt="TBS Group Logo"
+              className="h-7 sm:h-8 w-auto object-contain group-hover:scale-105 transition-transform"
+            />
+          </Link>
+          <span className="hidden md:inline-block px-2.5 py-1 rounded-full bg-[#e6f4ed] text-[#006838] text-xs font-bold border border-emerald-100 truncate">
+            Phòng Nhân Sự Hành Chánh
+          </span>
+        </div>
+
+        {/* Right Header Options */}
+        <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
+          <button className="px-2 py-1 rounded-lg bg-slate-100 text-slate-700 text-[11px] sm:text-xs font-bold flex items-center gap-1 hover:bg-slate-200 transition-colors">
+            <span>VN</span>
+            <IconChevronDown size={12} />
+          </button>
+          <button className="p-1.5 sm:p-2 rounded-full bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors relative">
+            <IconBell size={16} />
+            <span className="absolute top-0 right-0 w-2 h-2 rounded-full bg-rose-500 border border-white" />
+          </button>
+          <div className="flex items-center gap-2 border-l border-slate-200 pl-2 sm:pl-3">
+            <UserAvatar
+              src={currentUser.avatar}
+              name={currentUser.name}
+              size="sm"
+              showOnlineBadge={true}
+            />
+            <div className="hidden md:block text-left">
+              <div className="text-xs font-bold text-slate-900 leading-none">{currentUser.name}</div>
+              <div className="text-[10px] text-slate-500 font-medium mt-0.5">{currentUser.department || currentUser.title}</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* ════════════════════════════════════════════════════════════════
+          PAGE HERO SPINE & TITLE
+         ════════════════════════════════════════════════════════════════ */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-3.5 sm:p-6 lg:p-8 space-y-4 sm:space-y-6 min-w-0">
+        {/* Back Link & Title Header (Flex Responsive - No Absolute Overlap on Mobile) */}
+        <div className="relative overflow-hidden flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-900 text-white p-5 rounded-2xl border border-emerald-800/30 shadow-md group">
+          {/* Background Real Image & Dark Emerald Gradient Overlay */}
+          <img
+            src="/images/KGLV/mat-tien-sanh.png"
+            alt="Đăng Ký Công Tác SKECHERS"
+            className="absolute inset-0 w-full h-full object-cover opacity-35 group-hover:scale-105 transition-transform duration-700 pointer-events-none"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#006838]/90 via-[#004d29]/80 to-slate-950/85 pointer-events-none" />
+          <div className="relative z-10 flex items-center gap-3">
+            <Link
+              href="/work"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/10 border border-white/20 text-white text-xs font-bold hover:bg-white/20 transition-colors shadow-2xs backdrop-blur-md"
+            >
+              <IconArrowLeft size={16} />
+              <span>Trở về Tổng quan</span>
+            </Link>
+          </div>
+
+          <div className="relative z-10 text-center sm:text-right">
+            <h1 className="text-base sm:text-2xl font-black text-white tracking-tight drop-shadow-sm">
+              ĐĂNG KÝ ĐI CÔNG TÁC
+            </h1>
+            <p className="text-[11px] sm:text-xs text-emerald-100/90 font-medium">
+              Vui lòng cung cấp đầy đủ thông tin để hoàn tất đăng ký công tác
+            </p>
+          </div>
+        </div>
+
+        {/* ════════════════════════════════════════════════════════════════
+            TOP NAVIGATION TABS (Nhập liệu vs Xem dữ liệu)
+           ════════════════════════════════════════════════════════════════ */}
+        <div className="flex items-center justify-start border-b border-slate-200 gap-2">
+          
+            <button
+              onClick={() => setActiveTab("FORM")}
+              className={`px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all duration-300 flex items-center gap-2 cursor-pointer ${
+                activeTab === "FORM"
+                  ? "bg-white text-[#006838] shadow-md shadow-slate-200/50"
+                  : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+              }`}
+            >
+              <IconPlus size={18} className={activeTab === "FORM" ? "opacity-100" : "opacity-50"} />
+              <span className="hidden sm:inline">Nhập liệu</span>
+            </button>
+            <button
+              onClick={() => setActiveTab("LIST")}
+              className={`px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all duration-300 flex items-center gap-2 cursor-pointer ${
+                activeTab === "LIST"
+                  ? "bg-white text-[#006838] shadow-md shadow-slate-200/50"
+                  : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+              }`}
+            >
+              <IconList size={18} className={activeTab === "LIST" ? "opacity-100" : "opacity-50"} />
+              <span className="hidden sm:inline">Xem dữ liệu</span>
+              
+              {/* Badge for PENDING trips */}
+              {records.filter(r => r.status === "PENDING" || r.status === "PENDING_L2").length > 0 && (
+                <span className="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+                  {records.filter(r => r.status === "PENDING" || r.status === "PENDING_L2").length}
+                </span>
+              )}
+            </button>
+
+            {/* XỬ LÝ HẬU CẦN (LỄ TÂN) */}
+            {can(PERMISSIONS.TRIP_DISPATCH_VEHICLE) && (
+              <button
+                onClick={() => setActiveTab("LOGISTICS")}
+                className={`px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all duration-300 flex items-center gap-2 cursor-pointer ${
+                  activeTab === "LOGISTICS"
+                    ? "bg-white text-blue-700 shadow-md shadow-slate-200/50"
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                }`}
+              >
+                <IconCar size={18} className={activeTab === "LOGISTICS" ? "opacity-100" : "opacity-50"} />
+                <span className="hidden sm:inline">🚗 Xử lý hậu cần</span>
+                {logisticsRecords.filter(r => r.logisticsStatus === "PENDING" || r.logisticsStatus === "NOT_STARTED").length > 0 && (
+                  <span className="bg-blue-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+                    {logisticsRecords.filter(r => r.logisticsStatus === "PENDING" || r.logisticsStatus === "NOT_STARTED").length}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {/* QUẢN LÝ XE CÔNG TY (LỄ TÂN / ADMIN) */}
+            {can(PERMISSIONS.TRIP_DISPATCH_VEHICLE) && (
+              <button
+                onClick={() => setActiveTab("VEHICLES")}
+                className={`px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all duration-300 flex items-center gap-2 cursor-pointer ${
+                  activeTab === "VEHICLES"
+                    ? "bg-white text-emerald-700 shadow-md shadow-slate-200/50"
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                }`}
+              >
+                <IconCar size={18} className={activeTab === "VEHICLES" ? "opacity-100" : "opacity-50"} />
+                <span className="hidden sm:inline">Quản lý Xe</span>
+              </button>
+            )}
+
+            {/* CFO DASHBOARD (KẾ TOÁN / ADMIN) */}
+            {(roles.includes("ke_toan") || isExecutiveOrAdmin) && (
+              <button
+                onClick={() => setActiveTab("CFO_DASHBOARD")}
+                className={`px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all duration-300 flex items-center gap-2 cursor-pointer ${
+                  activeTab === "CFO_DASHBOARD"
+                    ? "bg-white text-purple-700 shadow-md shadow-slate-200/50"
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
+                }`}
+              >
+                <IconChartBar size={18} className={activeTab === "CFO_DASHBOARD" ? "opacity-100" : "opacity-50"} />
+                <span className="hidden sm:inline">Dashboard CFO</span>
+              </button>
+            )}
+
+        </div>
+
+        {/* ════════════════════════════════════════════════════════════════
+            TAB 1: FORM NHẬP LIỆU ĐĂNG KÝ CÔNG TÁC
+           ════════════════════════════════════════════════════════════════ */}
+        {activeTab === "FORM" && (
+          <form onSubmit={handleSubmitForm} className="space-y-6 animate-in fade-in duration-200">
+            {hasDraft && (
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 flex items-center justify-between gap-3 text-xs shadow-xs">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">📝</span>
+                  <div>
+                    <span className="font-extrabold block">Phát hiện dữ liệu nháp chưa lưu từ phiên trước!</span>
+                    <span className="text-[11px] text-amber-800">Hệ thống đã tự động sao lưu an toàn nội dung bạn đang nhập.</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleRestoreDraft}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs shadow-2xs transition-all cursor-pointer"
+                  >
+                    Khôi phục nháp
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearDraft}
+                    className="px-3 py-1.5 rounded-xl bg-white border border-amber-300 text-amber-800 hover:bg-amber-100 font-bold text-xs transition-all cursor-pointer"
+                  >
+                    Bỏ qua
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 📋 SECTION 1: THÔNG TIN ĐỀ XUẤT CÔNG TÁC */}
+            <div className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-5">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+                <div className="w-8 h-8 rounded-lg bg-[#e6f4ed] text-[#006838] flex items-center justify-center border border-emerald-100">
+                  <IconFileText size={18} />
+                </div>
+                <h2 className="text-sm sm:text-base font-black text-slate-900 uppercase tracking-tight">
+                  📋 THÔNG TIN ĐỀ XUẤT CÔNG TÁC
+                </h2>
+              </div>
+
+              {/* Grid Inputs: Row 1 */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                {/* Tên đề xuất */}
+                <div className="lg:col-span-1 space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Tên đề xuất <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      placeholder="Nhập tên đề xuất công tác"
+                      value={proposalForm.title}
+                      onChange={(e) => setProposalForm({ ...proposalForm, title: e.target.value })}
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold outline-none focus:border-[#006838] focus:ring-1 focus:ring-[#006838] bg-slate-50/50"
+                    />
+                    <IconFileText size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  </div>
+                </div>
+
+                {/* Khu vực */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Khu vực <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={proposalForm.region}
+                    onChange={(e) => {
+                      const newRegion = e.target.value;
+                      setProposalForm({ 
+                        ...proposalForm, 
+                        region: newRegion,
+                        factory: REGION_MAPPING[newRegion]?.factories[0] || "",
+                        location: REGION_MAPPING[newRegion]?.locations[0] || ""
+                      });
+                    }}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] focus:ring-1 focus:ring-[#006838] bg-white cursor-pointer"
+                  >
+                    <option value="Kiên Giang 1">Kiên Giang 1</option>
+                    <option value="Kiên Giang 2">Kiên Giang 2</option>
+                    <option value="Kiên Giang 3">Kiên Giang 3</option>
+                    <option value="Hoàn Thiện Đế">Hoàn Thiện Đế</option>
+                    <option value="Nhà Máy Miền Đông">Nhà Máy Miền Đông</option>
+                    <option value="Miền Đông (R&D)">Miền Đông (R&D)</option>
+                  </select>
+                </div>
+
+                {/* Nhà máy */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Nhà máy <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={proposalForm.factory}
+                    onChange={(e) => setProposalForm({ ...proposalForm, factory: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] focus:ring-1 focus:ring-[#006838] bg-white cursor-pointer"
+                  >
+                    {REGION_MAPPING[proposalForm.region]?.factories.map((factory) => (
+                      <option key={factory} value={factory}>
+                        {factory}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Người tạo */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Người tạo <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      value={proposalForm.creator}
+                      readOnly
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold outline-none bg-slate-100 cursor-not-allowed text-slate-700"
+                    />
+                    <IconUser size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  </div>
+                  <p className="text-[10px] text-slate-500 font-medium">Tự động từ tài khoản hiện tại</p>
+                </div>
+
+                {/* Bộ phận */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Bộ phận <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      value={proposalForm.department}
+                      readOnly
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold outline-none bg-slate-100 cursor-not-allowed text-slate-700"
+                    />
+                    <IconBuilding size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  </div>
+                  <p className="text-[10px] text-slate-500 font-medium">Tự động từ tài khoản hiện tại</p>
+                </div>
+              </div>
+
+              {/* Grid Inputs: Row 2 */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                {/* Công tác tại */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Công tác tại <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={proposalForm.location}
+                      onChange={(e) => setProposalForm({ ...proposalForm, location: e.target.value })}
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] focus:ring-1 focus:ring-[#006838] bg-white cursor-pointer"
+                    >
+                      {REGION_MAPPING[proposalForm.region]?.locations.map((location) => (
+                        <option key={location} value={location}>
+                          {location}
+                        </option>
+                      ))}
+                    </select>
+                    <IconMapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  </div>
+                </div>
+
+                {/* Hình thức di chuyển */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Hình thức di chuyển <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={proposalForm.transport}
+                      onChange={(e) => setProposalForm({ ...proposalForm, transport: e.target.value })}
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] focus:ring-1 focus:ring-[#006838] bg-white cursor-pointer"
+                    >
+                      <option value="">-- Chọn hình thức --</option>
+                      <option value="Xe công ty">🚘 Xe công ty (Xe đưa đón)</option>
+                      <option value="Máy bay">✈️ Máy bay</option>
+                      <option value="Tàu hỏa">🚆 Tàu hỏa</option>
+                      <option value="Xe khách">🚌 Xe khách chất lượng cao</option>
+                      <option value="Phương tiện cá nhân">🛵 Phương tiện cá nhân</option>
+                    </select>
+                    <IconCar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  </div>
+                  {fleetInfo && (
+                    <div className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center justify-between">
+                      <span>🚘 Lịch xe:</span>
+                      <span>Còn {fleetInfo.available}/{fleetInfo.total} xe trống ({fleetInfo.booked} giữ chỗ)</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Ngày bắt đầu */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Ngày bắt đầu <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      value={proposalForm.startDate}
+                      onChange={(e) => handleStartDateChange(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] focus:ring-1 focus:ring-[#006838] bg-white cursor-pointer"
+                    />
+                    <IconCalendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  </div>
+                </div>
+
+                {/* Số ngày */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 block">Số ngày</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={1}
+                      value={proposalForm.daysCount}
+                      onChange={(e) => handleDaysChange(parseInt(e.target.value) || 1)}
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] focus:ring-1 focus:ring-[#006838] bg-white"
+                    />
+                    <IconCalendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  </div>
+                </div>
+
+                {/* Ngày kết thúc */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 block">Ngày kết thúc</label>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      value={proposalForm.endDate}
+                      onChange={(e) => handleEndDateChange(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] focus:ring-1 focus:ring-[#006838] bg-white cursor-pointer"
+                    />
+                    <IconCalendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Grid Inputs: Row 2 (Cost) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Chi phí dự toán (VNĐ) */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                    <span>Chi phí dự toán (VNĐ)</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={0}
+                      step={500000}
+                      placeholder="0"
+                      value={proposalForm.estimatedCost || ""}
+                      onChange={(e) => setProposalForm({ ...proposalForm, estimatedCost: Math.max(0, parseFloat(e.target.value) || 0) })}
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] focus:ring-1 focus:ring-[#006838] bg-white"
+                    />
+                    <IconCash size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  </div>
+                </div>
+              </div>
+
+              {(!proposalForm.estimatedCost || proposalForm.estimatedCost === 0) && (
+                <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200/80 text-[11px] text-amber-800 font-medium flex items-center gap-1.5">
+                  <span>⚠️</span>
+                  <span><strong>Chưa nhập chi phí dự toán:</strong> Đơn sẽ tự động qua Cấp 1 mà không cần Ban Giám Đốc duyệt nếu không vượt quá 5.000.000 VNĐ.</span>
+                </div>
+              )}
+
+              {/* Grid Inputs: Row 3 (Text areas & Attachments) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+                {/* Mục đích công tác */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Mục đích công tác <span className="text-rose-500">*</span>
+                  </label>
+                  <textarea
+                    rows={4}
+                    required
+                    placeholder="Nhập mục đích công tác chi tiết..."
+                    value={proposalForm.purpose}
+                    onChange={(e) => setProposalForm({ ...proposalForm, purpose: e.target.value })}
+                    className="w-full p-3 rounded-xl border border-slate-300 text-xs font-medium outline-none focus:border-[#006838] focus:ring-1 focus:ring-[#006838] bg-white resize-none"
+                  />
+                </div>
+
+                {/* Địa chỉ công tác */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700 block">Địa chỉ công tác</label>
+                  <textarea
+                    rows={4}
+                    placeholder="Nhập địa chỉ công tác chi tiết nếu có..."
+                    value={proposalForm.address}
+                    onChange={(e) => setProposalForm({ ...proposalForm, address: e.target.value })}
+                    className="w-full p-3 rounded-xl border border-slate-300 text-xs font-medium outline-none focus:border-[#006838] focus:ring-1 focus:ring-[#006838] bg-white resize-none"
+                  />
+                </div>
+
+                {/* Đề xuất phụ cấp/hỗ trợ & Import file/ảnh */}
+                <div className="space-y-1.5 flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700 block">
+                      Đề xuất phụ cấp / hỗ trợ
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="text-[11px] text-[#006838] hover:text-[#00522c] font-bold flex items-center gap-1 cursor-pointer bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200 transition-colors"
+                    >
+                      <IconPaperclip size={13} />
+                      <span>+ Đính kèm File/Ảnh/PDF</span>
+                    </button>
+                  </div>
+
+                  <textarea
+                    rows={attachments.length > 0 ? 2 : 4}
+                    placeholder="Ghi chú nội dung đề xuất phụ cấp/hỗ trợ chi phí đi lại, ăn ở, công tác phí (nếu có)..."
+                    value={proposalForm.proposalText}
+                    onChange={(e) => setProposalForm({ ...proposalForm, proposalText: e.target.value })}
+                    className="w-full p-3 rounded-xl border border-slate-300 text-xs font-medium outline-none focus:border-[#006838] focus:ring-1 focus:ring-[#006838] bg-white resize-none"
+                  />
+
+                  {/* Hidden File Input */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+
+                  {/* Attachments List Badge */}
+                  {attachments.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[11px] font-bold text-slate-500 block">
+                        Tệp đính kèm ({attachments.length}):
+                      </span>
+                      <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto pr-1">
+                        {attachments.map((att) => {
+                          const isImage = att.type.startsWith("image/");
+                          const isPdf = att.type.includes("pdf");
+                          return (
+                            <div
+                              key={att.id}
+                              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-100 border border-slate-200 text-xs group hover:bg-emerald-50 hover:border-emerald-200 transition-all"
+                            >
+                              {isImage ? (
+                                <div
+                                  onClick={() => setPreviewModal({ url: att.dataUrl, title: att.name, type: att.type })}
+                                  className="cursor-pointer flex items-center gap-1"
+                                  title="Bấm để xem ảnh"
+                                >
+                                  <img
+                                    src={att.dataUrl}
+                                    alt={att.name}
+                                    className="w-4 h-4 rounded object-cover border border-slate-300"
+                                  />
+                                  <span className="font-semibold text-slate-800 max-w-[110px] truncate text-[11px]">
+                                    {att.name}
+                                  </span>
+                                </div>
+                              ) : isPdf ? (
+                                <div
+                                  onClick={() => setPreviewModal({ url: att.dataUrl, title: att.name, type: att.type })}
+                                  className="cursor-pointer flex items-center gap-1 text-rose-600 font-bold"
+                                  title="Bấm để xem PDF"
+                                >
+                                  <IconFileTypePdf size={14} />
+                                  <span className="font-semibold text-slate-800 max-w-[110px] truncate text-[11px]">
+                                    {att.name}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1 text-slate-600">
+                                  <IconFileText size={14} />
+                                  <span className="font-semibold text-slate-800 max-w-[110px] truncate text-[11px]">
+                                    {att.name}
+                                  </span>
+                                </div>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveAttachment(att.id)}
+                                className="text-slate-400 hover:text-rose-600 transition-colors ml-0.5 cursor-pointer"
+                                title="Xóa tệp"
+                              >
+                                <IconX size={13} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 👥 SECTION 2: THÔNG TIN NGƯỜI THAM GIA */}
+            <div className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200/90 shadow-xs space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-100 text-[#006838] flex items-center justify-center border border-emerald-200">
+                    <IconUser size={18} />
+                  </div>
+                  <h2 className="text-sm sm:text-base font-black text-slate-900 uppercase tracking-tight">
+                    👥 THÔNG TIN NGƯỜI THAM GIA
+                  </h2>
+                </div>
+                <span className="text-xs font-bold text-slate-500">
+                  Tổng cộng: <span className="text-[#006838] font-black">{participants.length} người</span>
+                </span>
+              </div>
+
+              {/* Dynamic Participants Table List */}
+              <div className="space-y-3">
+                {participants.map((p) => (
+                  <div
+                    key={p.id}
+                    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3 p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/80 items-end"
+                  >
+                    {/* Họ tên */}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-600 block">
+                        Họ tên <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Nhập họ tên"
+                        value={p.fullName}
+                        onChange={(e) => handleUpdateParticipant(p.id, "fullName", e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] bg-white"
+                      />
+                    </div>
+
+                    {/* Chức vụ */}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-600 block">
+                        Chức vụ <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Nhập chức vụ"
+                        value={p.position}
+                        onChange={(e) => handleUpdateParticipant(p.id, "position", e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] bg-white"
+                      />
+                    </div>
+
+                    {/* MSNV */}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-600 block">
+                        MSNV <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Nhập MSNV"
+                        value={p.employeeId}
+                        onChange={(e) => handleUpdateParticipant(p.id, "employeeId", e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] bg-white"
+                      />
+                    </div>
+
+                    {/* Bộ phận */}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-600 block">
+                        Bộ phận <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        value={p.department}
+                        onChange={(e) => handleUpdateParticipant(p.id, "department", e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] bg-white cursor-pointer"
+                      >
+                        <option value="">-- Chọn bộ phận --</option>
+                        <option value="Hành chính">Hành chính</option>
+                        <option value="Nhân sự">Nhân sự</option>
+                        <option value="Kế toán">Kế toán</option>
+                        <option value="R&D">R&D Kỹ thuật</option>
+                        <option value="Sản xuất TH-NM">Tổ hợp Nhà máy</option>
+                        <option value="Logistics TTPP">Logistics TTPP</option>
+                      </select>
+                    </div>
+
+                    {/* Điện thoại */}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-600 block">
+                        Điện thoại <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Nhập số điện thoại"
+                        value={p.phone}
+                        onChange={(e) => handleUpdateParticipant(p.id, "phone", e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] bg-white"
+                      />
+                    </div>
+
+                    {/* Địa điểm đón */}
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-600 block">
+                        Địa điểm đón <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Nhập địa điểm đón"
+                        value={p.pickupLocation}
+                        onChange={(e) => handleUpdateParticipant(p.id, "pickupLocation", e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] bg-white"
+                      />
+                    </div>
+
+                    {/* Delete Row Button */}
+                    <div className="flex justify-center pb-0.5">
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveParticipant(p.id)}
+                        className="p-2 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-colors cursor-pointer border border-rose-200"
+                        title="Xóa người tham gia"
+                      >
+                        <IconTrash size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleAddParticipant}
+                className="px-4 py-2 rounded-xl border border-emerald-300 text-[#006838] bg-emerald-50/50 hover:bg-emerald-100 text-xs font-extrabold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              >
+                <IconPlus size={16} />
+                <span>Thêm người tham gia</span>
+              </button>
+            </div>
+
+            {/* 🚀 FORM ACTION FOOTER BUTTONS */}
+            <div className="pt-2 flex flex-col items-center gap-3">
+              <div className="flex items-center gap-4">
+                <Link
+                  href="/work"
+                  className="px-6 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-100 transition-colors shadow-2xs"
+                >
+                  ✕ Hủy bỏ
+                </Link>
+                <button
+                  type="submit"
+                  className="px-8 py-2.5 rounded-xl bg-[#006838] text-white text-xs font-extrabold hover:bg-[#00522c] transition-colors shadow-md shadow-emerald-900/20 flex items-center gap-2 cursor-pointer"
+                >
+                  <IconSend size={16} />
+                  <span>🚀 Gửi đề xuất công tác</span>
+                </button>
+              </div>
+
+              <div className="text-[11px] text-slate-500 font-medium flex items-center gap-1">
+                <span>🛡️</span>
+                <span>Thông tin đề xuất & tệp đính kèm được bảo mật và đồng bộ thời gian thực trên Cloudflare D1.</span>
+              </div>
+            </div>
+          </form>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════
+            TAB 2: DANH SÁCH DỮ LIỆU ĐĂNG KÝ CÔNG TÁC
+           ════════════════════════════════════════════════════════════════ */}
+        {activeTab === "LIST" && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            {/* 5-Filter Bar with Import Invoices Button */}
+            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-wrap items-end gap-3 text-xs">
+              {/* 1. Tìm kiếm */}
+              <div className="flex-1 min-w-[180px] space-y-1">
+                <label className="text-[11px] font-bold text-slate-600 block">Tìm kiếm</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Nhập từ khóa mã đơn, tên đề xuất, người tạo..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-300 font-medium outline-none focus:border-[#006838] bg-slate-50/50"
+                  />
+                  <IconSearch size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                </div>
+              </div>
+
+              {/* 2. Lọc theo khu vực */}
+              <div className="w-full sm:w-44 space-y-1">
+                <label className="text-[11px] font-bold text-slate-600 block">Lọc theo khu vực</label>
+                <select
+                  value={regionFilter}
+                  onChange={(e) => setRegionFilter(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#006838] bg-white cursor-pointer"
+                >
+                  <option value="ALL">Tất cả</option>
+                  <option value="Kiên Giang 1">Kiên Giang 1</option>
+                  <option value="Kiên Giang 2">Kiên Giang 2</option>
+                  <option value="Kiên Giang 3">Kiên Giang 3</option>
+                  <option value="Hoàn Thiện Đế">Hoàn Thiện Đế</option>
+                  <option value="Nhà Máy Miền Đông">Nhà Máy Miền Đông</option>
+                  <option value="Miền Đông (R&D)">Miền Đông (R&D)</option>
+                </select>
+              </div>
+
+              {/* 3. Lọc theo Công tác tại */}
+              <div className="w-full sm:w-48 space-y-1">
+                <label className="text-[11px] font-bold text-slate-600 block">Lọc theo Công tác tại</label>
+                <select
+                  value={locationFilter}
+                  onChange={(e) => setLocationFilter(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#006838] bg-white cursor-pointer"
+                >
+                  <option value="ALL">Tất cả</option>
+                  {Object.values(REGION_MAPPING).flatMap(r => r.locations).map((location) => (
+                    <option key={location} value={location}>
+                      {location}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 4. Lọc theo Trạng thái */}
+              <div className="w-full sm:w-40 space-y-1">
+                <label className="text-[11px] font-bold text-slate-600 block">Lọc theo Trạng thái</label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#006838] bg-white cursor-pointer"
+                >
+                  <option value="ALL">Tất cả</option>
+                  <option value="PENDING">Chờ xét duyệt</option>
+                  <option value="APPROVED">Được duyệt</option>
+                  <option value="REJECTED">Từ chối</option>
+                </select>
+              </div>
+
+              {/* 5. Lọc theo ngày bắt đầu */}
+              <div className="w-full sm:w-40 space-y-1">
+                <label className="text-[11px] font-bold text-slate-600 block">Lọc theo ngày bắt đầu</label>
+                <input
+                  type="date"
+                  value={startDateFilter}
+                  onChange={(e) => setStartDateFilter(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#006838] bg-white cursor-pointer"
+                />
+              </div>
+
+              {/* Action Buttons: Xóa lọc & Báo cáo & Duyệt Hàng Loạt */}
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={handleResetFilters}
+                  className="px-4 py-2 rounded-xl bg-slate-600 hover:bg-slate-700 text-white font-extrabold transition-colors cursor-pointer shadow-2xs"
+                >
+                  Xóa lọc
+                </button>
+
+                <button
+                  onClick={() => showToast("Đã xuất báo cáo lịch công tác & hóa đơn chi phí thành công (File Excel/CSV)!")}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold transition-colors cursor-pointer shadow-2xs flex items-center gap-1"
+                >
+                  <IconDownload size={14} />
+                  <span>Báo cáo</span>
+                </button>
+
+                {selectedTrips.length > 0 && (
+                  <button
+                    onClick={handleBulkApprove}
+                    disabled={isBulkApproving}
+                    className="px-4 py-2 rounded-xl bg-[#006838] hover:bg-[#004d29] text-white font-extrabold transition-colors cursor-pointer shadow-2xs flex items-center gap-1 ml-2"
+                  >
+                    <IconCheck size={14} />
+                    <span>{isBulkApproving ? "Đang duyệt..." : `Duyệt ${selectedTrips.length} Đơn`}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Records Data Table (13 Headers with Dedicated IMPORT HÓA ĐƠN Column) */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-[#242b35] border-b border-slate-700 text-white text-xs font-bold uppercase tracking-wider">
+                      <th className="p-3 text-center w-10">
+                        <input 
+                          type="checkbox" 
+                          className="w-4 h-4 cursor-pointer"
+                          checked={filteredRecords.length > 0 && selectedTrips.length === filteredRecords.length}
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedTrips(filteredRecords.map(r => r.id));
+                            else setSelectedTrips([]);
+                          }}
+                        />
+                      </th>
+                      <th className="p-3 text-center w-12">STT</th>
+                      <th className="p-3">Khu vực</th>
+                      <th className="p-3">Tên đề xuất</th>
+                      <th className="p-3">Người tạo</th>
+                      <th className="p-3">Công tác tại</th>
+                      <th className="p-3">Ngày bắt đầu</th>
+                      <th className="p-3 text-center">Số ngày</th>
+                      <th className="p-3">Ngày kết thúc</th>
+                      <th className="p-3 text-center">Duyệt Lịch (2 Cấp)</th>
+                      <th className="p-3 text-center">Duyệt Ngân Sách (2 Cấp)</th>
+                      <th className="p-3">Hình thức di chuyển</th>
+                      <th className="p-3 text-center">Import Hóa Đơn</th>
+                      <th className="p-3 text-center">Hành động</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs">
+                    {filteredRecords.length === 0 ? (
+                      <tr>
+                        <td colSpan={14} className="py-12 text-center text-slate-400 font-semibold">
+                          Không có dữ liệu phù hợp
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredRecords.map((rec, idx) => {
+                        const invoiceCount = rec.invoices?.length || 0;
+                        const attachmentCount = rec.attachments?.length || 0;
+
+                        return (
+                          <tr key={rec.id} className={`hover:bg-slate-50/90 transition-colors border-b border-slate-100 ${selectedTrips.includes(rec.id) ? 'bg-emerald-50/50' : ''}`}>
+                            <td className="p-3 text-center">
+                              <input 
+                                type="checkbox" 
+                                className="w-4 h-4 cursor-pointer accent-[#006838]"
+                                checked={selectedTrips.includes(rec.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) setSelectedTrips(prev => [...prev, rec.id]);
+                                  else setSelectedTrips(prev => prev.filter(id => id !== rec.id));
+                                }}
+                              />
+                            </td>
+                            <td className="p-3 text-center font-extrabold text-slate-500">{idx + 1}</td>
+                            <td className="p-3 font-semibold text-slate-700">{rec.region || "Miền Đông (R&D)"}</td>
+                            <td className="p-3">
+                              <div className="font-extrabold text-slate-900 line-clamp-1">{rec.title}</div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="font-mono text-[10px] text-[#006838] font-bold">{rec.code}</span>
+                                {attachmentCount > 0 && (
+                                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 font-medium flex items-center gap-0.5 border border-slate-200" title={`${attachmentCount} tệp đính kèm đề xuất`}>
+                                    <IconPaperclip size={10} />
+                                    <span>{attachmentCount} file</span>
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <div className="font-bold text-slate-800">{rec.creator}</div>
+                              <div className="text-[10px] text-slate-500">{rec.department}</div>
+                            </td>
+                            <td className="p-3 font-medium text-slate-700">{rec.location}</td>
+                            <td className="p-3 font-bold text-slate-800">{rec.startDate}</td>
+                            <td className="p-3 text-center font-bold text-slate-900">{rec.daysCount}</td>
+                            <td className="p-3 font-bold text-slate-800">{rec.endDate}</td>
+
+                            {/* Cột DUYỆT LỊCH (2 CẤP THUẦN TÚY KHÔNG LIÊN QUAN CHI PHÍ) */}
+                            <td className="p-3 text-center">
+                              <div className="flex flex-col items-center gap-1">
+                                {rec.status === "APPROVED" && (
+                                  <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-[#006838] text-[10px] font-extrabold uppercase flex items-center gap-1 border border-emerald-300">
+                                    <span>✓</span> Đã duyệt Lịch
+                                  </span>
+                                )}
+                                {rec.status === "PENDING" && (
+                                  <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-[10px] font-extrabold uppercase flex items-center gap-1 border border-amber-300">
+                                    <span>⏳</span> Chờ TP duyệt Lịch
+                                  </span>
+                                )}
+                                {rec.status === "PENDING_L2" && (
+                                  <span className="px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 text-[10px] font-extrabold uppercase flex items-center gap-1 border border-blue-300">
+                                    <span>⏳</span> Chờ BGĐ duyệt Lịch
+                                  </span>
+                                )}
+                                {rec.status === "REJECTED" && rec.rejectedLevel === "L1" && (
+                                  <span className="px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 text-[10px] font-extrabold uppercase flex items-center gap-1 border border-rose-300">
+                                    <span>✕</span> TP từ chối Lịch
+                                  </span>
+                                )}
+                                {rec.status === "REJECTED" && rec.rejectedLevel === "L2" && (
+                                  <span className="px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 text-[10px] font-extrabold uppercase flex items-center gap-1 border border-rose-300">
+                                    <span>✕</span> BGĐ từ chối Lịch
+                                  </span>
+                                )}
+                                {rec.status === "REJECTED" && !rec.rejectedLevel && (
+                                  <span className="px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 text-[10px] font-extrabold uppercase flex items-center gap-1 border border-rose-300">
+                                    <span>✕</span> Đã từ chối Lịch
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Cột DUYỆT NGÂN SÁCH (2 CẤP ĐỘC LẬP) */}
+                            <td className="p-3 text-center">
+                              {((rec.invoices || []).reduce((sum, inv) => sum + Number(inv.amount), 0) + Number(rec.estimatedCost || 0)) === 0 ? (
+                                <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 text-[10px] font-bold border border-slate-200">
+                                  Không phát sinh (0đ)
+                                </span>
+                              ) : (
+                                <div className="flex flex-col items-center gap-1">
+                                  {(!rec.budgetStatus || rec.budgetStatus === "pending_dept_budget") && (
+                                    <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 text-[10px] font-extrabold uppercase border border-amber-200 flex items-center gap-1">
+                                      <span>🟡</span> Chờ TP Ngân Sách
+                                    </span>
+                                  )}
+                                  {rec.budgetStatus === "pending_exec_budget" && (
+                                    <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-800 text-[10px] font-extrabold uppercase border border-blue-200 flex items-center gap-1">
+                                      <span>🔵</span> Chờ BGĐ/CFO Duyệt
+                                    </span>
+                                  )}
+                                  {rec.budgetStatus === "budget_approved" && (
+                                    <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-[#006838] text-[10px] font-extrabold uppercase border border-emerald-300 flex items-center gap-1">
+                                      <span>✓</span> Ngân Sách Đã Duyệt
+                                    </span>
+                                  )}
+                                  {rec.budgetStatus === "budget_rejected" && (
+                                    <span className="px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 text-[10px] font-extrabold uppercase border border-rose-200 flex items-center gap-1">
+                                      <span>✕</span> Ngân Sách Từ Chối
+                                    </span>
+                                  )}
+
+                                  <button
+                                    onClick={() => setActiveBudgetTrip(rec)}
+                                    className="mt-0.5 px-2.5 py-1 rounded-xl bg-amber-500 text-white font-extrabold text-[10px] hover:bg-amber-600 transition-all shadow-2xs flex items-center gap-1 cursor-pointer"
+                                    title="Mở Modal Duyệt Ngân Sách 2 Cấp"
+                                  >
+                                    <IconCash size={12} />
+                                    <span>Duyệt Ngân Sách</span>
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+
+                            <td className="p-3 font-semibold text-slate-700">{rec.transport}</td>
+
+                            {/* Cột IMPORT HÓA ĐƠN */}
+                            <td className="p-3 text-center">
+                              <button
+                                onClick={() => setActiveInvoiceTrip(rec)}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 mx-auto transition-all cursor-pointer border shadow-2xs ${
+                                  invoiceCount > 0
+                                    ? "bg-emerald-50 text-[#006838] border-emerald-300 hover:bg-[#006838] hover:text-white"
+                                    : "bg-[#e6f4ed] text-[#006838] border-emerald-200 hover:bg-[#006838] hover:text-white"
+                                }`}
+                                title="Bấm để Import hóa đơn & chứng từ chi phí"
+                              >
+                                <IconReceipt size={14} />
+                                <span>{invoiceCount > 0 ? `🧾 ${invoiceCount} HĐ` : "📥 Import HĐ"}</span>
+                              </button>
+                            </td>
+
+                            <td className="p-3">
+                              <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                {/* Detail Modal View */}
+                                <button
+                                  onClick={() => setSelectedModalRecord(rec)}
+                                  className="p-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-[#006838] hover:text-white transition-colors cursor-pointer"
+                                  title="Xem chi tiết đơn công tác"
+                                >
+                                  <IconEye size={15} />
+                                </button>
+
+                                {/* Budget Approval Modal Launcher Button - Only for trips > 0 VNĐ */}
+                                {((rec.invoices || []).reduce((sum, inv) => sum + Number(inv.amount), 0) + Number(rec.estimatedCost || 0)) > 0 && (
+                                  <button
+                                    onClick={() => setActiveBudgetTrip(rec)}
+                                    className="px-2 py-1 rounded-lg bg-amber-500 text-white font-extrabold text-[10px] hover:bg-amber-600 transition-colors cursor-pointer shadow-2xs flex items-center gap-1"
+                                    title="Duyệt Ngân Sách 2 Cấp"
+                                  >
+                                    <IconCash size={13} />
+                                    <span>Duyệt NS</span>
+                                  </button>
+                                )}
+
+                                {/* Level 1 Approval Actions */}
+                                {rec.status === "PENDING" && (
+                                  <Can permission={PERMISSIONS.TRIP_APPROVE_LEVEL1}>
+                                    {(!currentUser?.department || !rec.department || currentUser.department.trim().toLowerCase() === rec.department.trim().toLowerCase() || isExecutiveOrAdmin) && (
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          onClick={() => handleApproveTrip(rec.id, "department_head")}
+                                          className="px-2 py-1 rounded-lg bg-emerald-50 text-[#006838] hover:bg-[#006838] hover:text-white font-extrabold text-[10px] transition-colors cursor-pointer border border-emerald-200"
+                                        >
+                                          Duyệt TP
+                                        </button>
+                                        <button
+                                          onClick={() => handleOpenRejectModal(rec.id, "department_head")}
+                                          className="px-2 py-1 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white font-extrabold text-[10px] transition-colors cursor-pointer border border-rose-200"
+                                        >
+                                          Từ chối
+                                        </button>
+                                      </div>
+                                    )}
+                                  </Can>
+                                )}
+
+                                {/* Level 2 Approval Actions (TGĐ / Ban Giám Đốc - CHỈ HIỂN THỊ KHI ĐÃ QUA CẤP 1 VÀ Ở TRẠNG THÁI PENDING_L2) */}
+                                {rec.status === "PENDING_L2" && (
+                                  <Can permission={PERMISSIONS.TRIP_APPROVE_LEVEL2}>
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        onClick={() => handleApproveTrip(rec.id, "executive_board")}
+                                        className="px-2 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-700 hover:text-white font-extrabold text-[10px] transition-colors cursor-pointer border border-blue-200"
+                                      >
+                                        Duyệt BGĐ
+                                      </button>
+                                      <button
+                                        onClick={() => handleOpenRejectModal(rec.id, "executive_board")}
+                                        className="px-2 py-1 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white font-extrabold text-[10px] transition-colors cursor-pointer border border-rose-200"
+                                      >
+                                        Từ chối
+                                      </button>
+                                    </div>
+                                  </Can>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                <div className="text-sm text-slate-500 font-medium">
+                  Hiển thị <span className="font-bold text-slate-700">{records.length}</span> / <span className="font-bold text-slate-700">{totalRecords}</span> đơn công tác
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { const p = Math.max(1, currentPage - 1); setCurrentPage(p); currentPageRef.current = p; fetchD1Records(p); }}
+                    disabled={currentPage === 1}
+                    className="px-4 py-2 rounded-xl bg-slate-50 text-slate-600 font-bold text-sm hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Trước
+                  </button>
+                  <div className="flex items-center gap-1 px-2">
+                    <span className="font-black text-blue-700">{currentPage}</span>
+                    <span className="text-slate-400">/</span>
+                    <span className="font-bold text-slate-500">{totalPages}</span>
+                  </div>
+                  <button
+                    onClick={() => { const p = Math.min(totalPages, currentPage + 1); setCurrentPage(p); currentPageRef.current = p; fetchD1Records(p); }}
+                    disabled={currentPage === totalPages}
+                    className="px-4 py-2 rounded-xl bg-slate-50 text-slate-600 font-bold text-sm hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Sau
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════
+            TAB 3: DANH SÁCH XỬ LÝ HẬU CẦN (DÀNH CHO LỄ TÂN)
+           ════════════════════════════════════════════════════════════════ */}
+        {activeTab === "LOGISTICS" && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight flex items-center gap-2">
+                  <span>🚗</span>
+                  <span>DANH SÁCH ĐƠN CÔNG TÁC CẦN SẮP XẾP HẬU CẦN</span>
+                </h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Hiển thị các đơn đã qua Cấp 1 (Trưởng phòng duyệt) hoặc đơn cần xử lý hủy. Lễ tân tiến hành xếp xe/phòng hoặc hủy xe/phòng.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {/* Logistics Filter */}
+                <div className="flex items-center gap-1.5">
+                  <label className="font-bold text-slate-700">Bộ lọc hậu cần:</label>
+                  <select
+                    value={logisticsFilterStatus}
+                    onChange={(e) => setLogisticsFilterStatus(e.target.value)}
+                    className="px-3 py-1.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-blue-600 bg-white cursor-pointer"
+                  >
+                    <option value="ACTIVE">⏳ Đơn đang xử lý (Ẩn đơn hủy đã hoàn tất)</option>
+                    <option value="ALL">📋 Tất cả mọi đơn</option>
+                    <option value="PENDING">⏳ Chờ xếp xe/phòng</option>
+                    <option value="ARRANGED">✅ Đã xếp xong</option>
+                    <option value="CANCELLED">🚫 Cần xử lý HỦY xe/phòng</option>
+                    <option value="UNABLE">⚠️ Không thể bố trí</option>
+                  </select>
+                </div>
+
+                {selectedLogisticsTrips.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setActiveLogisticsUpdate({
+                        ids: selectedLogisticsTrips,
+                        isBulk: true,
+                        logistics: { vehicleId: "", driverPhone: "", note: "" }
+                      });
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <IconCar size={15} />
+                    <span>Gom {selectedLogisticsTrips.length} xe & xếp chung</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={fetchLogisticsRecords}
+                  className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <IconRefresh size={15} />
+                  <span>Tải lại</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-[#1e293b] border-b border-slate-700 text-white text-xs font-bold uppercase tracking-wider">
+                      <th className="p-3 text-center w-10">
+                        {(() => {
+                          const displayRecords = logisticsRecords.filter((rec) => {
+                            if (logisticsFilterStatus === "ACTIVE") return rec.logisticsStatus !== "CANCELLED_HANDLED";
+                            if (logisticsFilterStatus === "PENDING") return rec.logisticsStatus === "PENDING" || rec.logisticsStatus === "NOT_STARTED";
+                            if (logisticsFilterStatus === "ARRANGED") return rec.logisticsStatus === "ARRANGED";
+                            if (logisticsFilterStatus === "CANCELLED") return rec.logisticsStatus === "CANCELLED" || rec.status === "REJECTED" || rec.status === "RECALLED";
+                            if (logisticsFilterStatus === "UNABLE") return rec.logisticsStatus === "UNABLE";
+                            return true;
+                          });
+                          return (
+                            <input 
+                              type="checkbox" 
+                              className="w-4 h-4 cursor-pointer"
+                              checked={displayRecords.length > 0 && selectedLogisticsTrips.length === displayRecords.length}
+                              onChange={(e) => {
+                                if (e.target.checked) setSelectedLogisticsTrips(displayRecords.map(r => r.id));
+                                else setSelectedLogisticsTrips([]);
+                              }}
+                            />
+                          );
+                        })()}
+                      </th>
+                      <th className="p-3 text-center w-12">STT</th>
+                      <th className="p-3">Mã &amp; Tên Đề Xuất</th>
+                      <th className="p-3">Người Tạo</th>
+                      <th className="p-3">Công Tác Tại</th>
+                      <th className="p-3">Thời Gian</th>
+                      <th className="p-3 text-center">Trạng Thái Phê Duyệt</th>
+                      <th className="p-3 text-center">Trạng Thái Hậu Cần</th>
+                      <th className="p-3 text-center">Hành Động Lễ Tân</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs">
+                    {(() => {
+                      const displayRecords = logisticsRecords.filter((rec) => {
+                        if (logisticsFilterStatus === "ACTIVE") return rec.logisticsStatus !== "CANCELLED_HANDLED";
+                        if (logisticsFilterStatus === "PENDING") return rec.logisticsStatus === "PENDING" || rec.logisticsStatus === "NOT_STARTED";
+                        if (logisticsFilterStatus === "ARRANGED") return rec.logisticsStatus === "ARRANGED";
+                        if (logisticsFilterStatus === "CANCELLED") return rec.logisticsStatus === "CANCELLED" || rec.status === "REJECTED" || rec.status === "RECALLED";
+                        if (logisticsFilterStatus === "UNABLE") return rec.logisticsStatus === "UNABLE";
+                        return true;
+                      });
+
+                      if (displayRecords.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={9} className="py-12 text-center text-slate-400 font-semibold">
+                              Không có đơn công tác nào phù hợp với bộ lọc hậu cần
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      return displayRecords.map((rec, idx) => (
+                        <tr key={rec.id} className={`hover:bg-slate-50/90 transition-colors border-b border-slate-100 ${selectedLogisticsTrips.includes(rec.id) ? 'bg-blue-50/50' : ''}`}>
+                          <td className="p-3 text-center">
+                            <input 
+                              type="checkbox" 
+                              className="w-4 h-4 cursor-pointer accent-blue-600"
+                              checked={selectedLogisticsTrips.includes(rec.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) setSelectedLogisticsTrips(prev => [...prev, rec.id]);
+                                else setSelectedLogisticsTrips(prev => prev.filter(id => id !== rec.id));
+                              }}
+                            />
+                          </td>
+                          <td className="p-3 text-center font-extrabold text-slate-500">{idx + 1}</td>
+                          <td className="p-3">
+                            <div className="font-extrabold text-slate-900">{rec.title}</div>
+                            <span className="font-mono text-[10px] text-[#006838] font-bold">{rec.code}</span>
+                          </td>
+                          <td className="p-3">
+                            <div className="font-bold text-slate-800">{rec.creator}</div>
+                            <div className="text-[10px] text-slate-500">{rec.department}</div>
+                          </td>
+                          <td className="p-3 font-medium text-slate-700">{rec.location}</td>
+                          <td className="p-3 font-bold text-slate-800">{rec.startDate} - {rec.endDate}</td>
+                          
+                          {/* Trạng thái Phê Duyệt */}
+                          <td className="p-3 text-center">
+                            {rec.status === "PENDING_L2" && (
+                              <span className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 text-[10px] font-extrabold uppercase border border-amber-300 inline-block">
+                                ⏳ Đang chờ BGĐ duyệt cuối (Đã qua TP Cấp 1)
+                              </span>
+                            )}
+                            {rec.status === "APPROVED" && (
+                              <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-[#006838] text-[10px] font-extrabold uppercase border border-emerald-300 inline-block">
+                                ✓ BGĐ đã duyệt hoàn tất
+                              </span>
+                            )}
+                            {rec.status === "REJECTED" && (
+                              <span className="px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 text-[10px] font-extrabold uppercase border border-rose-300 inline-block">
+                                ✕ Đã từ chối đơn
+                              </span>
+                            )}
+                            {rec.status === "RECALLED" && (
+                              <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 text-[10px] font-extrabold uppercase border border-slate-300 inline-block">
+                                ↩️ Người tạo rút đơn
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Trạng thái Hậu Cần */}
+                          <td className="p-3 text-center">
+                            {rec.logisticsStatus === "ARRANGED" && (
+                              <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-[#006838] text-[10px] font-extrabold border border-emerald-200 inline-block">
+                                ✅ Đã xếp xong
+                              </span>
+                            )}
+                            {rec.logisticsStatus === "CANCELLED" && (
+                              <span className="px-2.5 py-1 rounded-full bg-rose-100 text-rose-800 text-[10px] font-extrabold border border-rose-300 inline-block">
+                                🚫 CẦN HỦY XE/PHÒNG ĐÃ ĐẶT
+                              </span>
+                            )}
+                            {rec.logisticsStatus === "CANCELLED_HANDLED" && (
+                              <span className="px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold border border-slate-300 inline-block">
+                                ✓ Đã xử lý hủy thành công
+                              </span>
+                            )}
+                            {rec.logisticsStatus === "UNABLE" && (
+                              <span className="px-2.5 py-1 rounded-full bg-orange-100 text-orange-900 text-[10px] font-extrabold border border-orange-300 inline-block">
+                                ⚠️ Không thể bố trí
+                              </span>
+                            )}
+                            {(!rec.logisticsStatus || rec.logisticsStatus === "PENDING" || rec.logisticsStatus === "NOT_STARTED") && (
+                              <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-800 text-[10px] font-extrabold border border-blue-200 inline-block">
+                                ⏳ Chờ xếp xe/phòng
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Thao tác Lễ tân */}
+                          <td className="p-3 text-center">
+                            <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                              <button
+                                onClick={() => setSelectedModalRecord(rec)}
+                                className="p-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-800 hover:text-white transition-colors cursor-pointer"
+                                title="Xem chi tiết đơn"
+                              >
+                                <IconEye size={15} />
+                              </button>
+
+                              {(rec.logisticsStatus === "CANCELLED" || rec.status === "REJECTED" || rec.status === "RECALLED") && rec.logisticsStatus !== "CANCELLED_HANDLED" ? (
+                                <button
+                                  onClick={() => handleConfirmCancelLogistics(rec)}
+                                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors shadow-2xs cursor-pointer flex items-center gap-1"
+                                >
+                                  <IconCheck size={14} />
+                                  <span>Xác nhận đã xử lý hủy</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setSelectedModalRecord(rec);
+                                  }}
+                                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs transition-colors shadow-2xs cursor-pointer"
+                                >
+                                  ✏️ Cập nhật Hậu cần
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ));
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════
+            TAB 4: QUẢN LÝ XE CÔNG TY
+           ════════════════════════════════════════════════════════════════ */}
+        {activeTab === "VEHICLES" && (
+          <div className="animate-in fade-in duration-200 space-y-6">
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-xl font-black text-slate-800">Quản lý Danh mục Xe Nội bộ</h2>
+                  <p className="text-sm text-slate-500 mt-1">Cập nhật danh sách xe công ty và tài xế để điều phối</p>
+                </div>
+                <button 
+                  onClick={() => setVehicleForm({ id: '', plateNumber: '', driverName: '', driverPhone: '', seatCount: 4, status: 'AVAILABLE', notes: '' })}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm transition-colors flex items-center gap-2 cursor-pointer shadow-md"
+                >
+                  <span className="text-lg leading-none">+</span>
+                  <span>Thêm xe mới</span>
+                </button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left whitespace-nowrap">
+                  <thead className="bg-slate-50 text-slate-500">
+                    <tr>
+                      <th className="p-4 font-bold rounded-l-2xl">Biển số</th>
+                      <th className="p-4 font-bold">Tài xế</th>
+                      <th className="p-4 font-bold">Số chỗ</th>
+                      <th className="p-4 font-bold">Trạng thái</th>
+                      <th className="p-4 font-bold">Ghi chú</th>
+                      <th className="p-4 font-bold text-center rounded-r-2xl">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {isVehiclesLoading ? (
+                      <tr><td colSpan={6} className="p-8 text-center text-slate-500">Đang tải...</td></tr>
+                    ) : vehicles.length === 0 ? (
+                      <tr><td colSpan={6} className="p-8 text-center text-slate-500">Chưa có xe nào trong danh mục</td></tr>
+                    ) : (
+                      vehicles.map((v) => (
+                        <tr key={v.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="p-4 font-bold text-slate-800">{v.plateNumber}</td>
+                          <td className="p-4">
+                            <div className="font-bold text-slate-700">{v.driverName}</div>
+                            <div className="text-xs text-slate-500">{v.driverPhone}</div>
+                          </td>
+                          <td className="p-4 text-slate-600">{v.seatCount}</td>
+                          <td className="p-4">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${v.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                              {v.status === 'ACTIVE' ? 'HOẠT ĐỘNG' : 'TẠM NGƯNG'}
+                            </span>
+                          </td>
+                          <td className="p-4 text-slate-500 max-w-xs truncate">{v.notes}</td>
+                          <td className="p-4 text-center">
+                            <button onClick={() => setVehicleForm(v)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                              ✏️
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════
+            TAB CFO DASHBOARD
+           ════════════════════════════════════════════════════════════════ */}
+        {activeTab === "CFO_DASHBOARD" && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <div className="p-6 rounded-3xl bg-slate-900 text-white shadow-xl flex items-center justify-between overflow-hidden relative">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
+              <div className="relative z-10">
+                <h2 className="text-2xl font-black mb-1">DASHBOARD TÀI CHÍNH (CFO)</h2>
+                <p className="text-slate-400 font-medium">Tổng quan chi phí công tác & hậu cần toàn công ty</p>
+              </div>
+              <IconChartBar size={48} className="text-purple-400 opacity-80 relative z-10" />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs hover:border-slate-300 transition-colors">
+                <div className="text-sm font-bold text-slate-500 mb-2">Tổng Ngân Sách Dự Kiến</div>
+                <div className="text-3xl font-black text-slate-900">
+                  {records.reduce((sum, rec) => sum + Number(rec.estimatedCost || 0), 0).toLocaleString()} VNĐ
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs hover:border-slate-300 transition-colors">
+                <div className="text-sm font-bold text-slate-500 mb-2">Tổng Chi Phí Thực Tế (Hóa đơn)</div>
+                <div className="text-3xl font-black text-rose-600">
+                  {records.reduce((sum, rec) => sum + (rec.invoices || []).reduce((s: number, i: any) => s + Number(i.amount || 0), 0), 0).toLocaleString()} VNĐ
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs hover:border-slate-300 transition-colors">
+                <div className="text-sm font-bold text-slate-500 mb-2">Số Đơn Hoàn Tất Thanh Toán</div>
+                <div className="text-3xl font-black text-emerald-600">
+                  {records.filter(r => r.payment_status === "FINISHED").length} <span className="text-lg text-slate-400 font-medium">/ {records.length}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+              <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+                <h3 className="text-base font-black text-slate-900">Chi phí theo phòng ban</h3>
+                <button
+                  onClick={() => showToast("Đã xuất báo cáo Tài chính CFO (Excel)!")}
+                  className="px-3 py-1.5 rounded-xl bg-purple-50 text-purple-700 font-extrabold text-xs transition-colors hover:bg-purple-100"
+                >
+                  Xuất Excel
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm border-collapse">
+                  <thead className="bg-slate-50 text-slate-500 font-bold">
+                    <tr>
+                      <th className="p-4 rounded-tl-2xl">Phòng Ban</th>
+                      <th className="p-4 text-right">Tổng Dự Kiến</th>
+                      <th className="p-4 text-right">Thực Tế Phát Sinh</th>
+                      <th className="p-4 text-center rounded-tr-2xl">Số Lượng Đơn</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {Object.entries(
+                      records.reduce((acc, rec) => {
+                        const dept = rec.department || "Khác";
+                        if (!acc[dept]) acc[dept] = { count: 0, estimated: 0, actual: 0 };
+                        acc[dept].count += 1;
+                        acc[dept].estimated += Number(rec.estimatedCost || 0);
+                        acc[dept].actual += (rec.invoices || []).reduce((s: number, i: any) => s + Number(i.amount || 0), 0);
+                        return acc;
+                      }, {} as Record<string, {count: number, estimated: number, actual: number}>)
+                    ).sort((a, b) => b[1].actual - a[1].actual).map(([dept, data]) => (
+                      <tr key={dept} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="p-4 font-bold text-slate-800">{dept}</td>
+                        <td className="p-4 text-right font-semibold text-slate-600">{data.estimated.toLocaleString()} VNĐ</td>
+                        <td className="p-4 text-right font-black text-rose-600">{data.actual.toLocaleString()} VNĐ</td>
+                        <td className="p-4 text-center font-bold text-slate-500">
+                          <span className="px-2.5 py-1 bg-slate-100 rounded-lg">{data.count} đơn</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════
+            MODAL 0: PHÊ DUYỆT NGÂN SÁCH CÔNG TÁC (QUY TRÌNH 2 CẤP ĐỘC LẬP)
+           ════════════════════════════════════════════════════════════════ */}
+        {activeBudgetTrip && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col">
+              {/* Header */}
+              <div className="p-5 bg-gradient-to-r from-amber-600 via-amber-700 to-slate-900 text-white flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center font-bold backdrop-blur-xs">
+                    <IconCash size={22} className="text-amber-200" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black">Phê Duyệt Ngân Sách Công Tác (2 Cấp)</h3>
+                    <p className="text-xs text-amber-100 font-medium">Duyệt dự toán / chi phí công tác độc lập với Lịch trình</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveBudgetTrip(null)}
+                  className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition cursor-pointer"
+                >
+                  <IconX size={18} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 space-y-5 text-xs text-slate-800">
+                {/* Trip Summary Box */}
+                <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-amber-900 text-sm">{activeBudgetTrip.title}</span>
+                    <span className="font-mono text-xs font-bold text-[#006838] bg-white px-2 py-0.5 rounded-md border border-slate-200">{activeBudgetTrip.code}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-slate-700 pt-1 border-t border-amber-200/50">
+                    <div><span className="font-bold">Người tạo:</span> {activeBudgetTrip.creator} ({activeBudgetTrip.department})</div>
+                    <div><span className="font-bold">Địa điểm:</span> {activeBudgetTrip.location}</div>
+                    <div><span className="font-bold">Thời gian:</span> {activeBudgetTrip.startDate} - {activeBudgetTrip.endDate}</div>
+                    <div><span className="font-bold">Số người:</span> {activeBudgetTrip.participantsCount} cán bộ</div>
+                  </div>
+                </div>
+
+                {/* Calculated Budget Total */}
+                <div className="p-4 rounded-2xl bg-slate-900 text-white flex items-center justify-between shadow-xs">
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-400 block uppercase tracking-wider">Tổng Ngân Sách / Chi Phí Đề Xuất</span>
+                    <span className="text-2xl font-black text-amber-400">
+                      {((activeBudgetTrip.invoices || []).reduce((sum, inv) => sum + Number(inv.amount), 0) || activeBudgetTrip.estimatedCost || 0).toLocaleString("vi-VN")} VNĐ
+                    </span>
+                  </div>
+                  <div className="text-right text-[11px] text-slate-400">
+                    <div>{activeBudgetTrip.invoices?.length || 0} hóa đơn đính kèm</div>
+                    <div className="text-emerald-400 font-semibold">✓ Đã đồng bộ D1</div>
+                  </div>
+                </div>
+
+                {/* 2-Level Budget Approval Gate Progress */}
+                <div className="space-y-3">
+                  <label className="font-extrabold text-slate-900 text-xs block uppercase">
+                    Tiến Trình Duyệt Ngân Sách 2 Cấp:
+                  </label>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Step 1 */}
+                    <div className={`p-3 rounded-2xl border ${
+                      activeBudgetTrip.budgetStatus === "pending_exec_budget" || activeBudgetTrip.budgetStatus === "budget_approved"
+                        ? "bg-emerald-50 border-emerald-300 text-[#006838]"
+                        : "bg-amber-50 border-amber-200 text-amber-800"
+                    }`}>
+                      <div className="font-extrabold text-xs">Cấp 1: TP Ngân Sách</div>
+                      <div className="text-[11px] mt-0.5">
+                        {activeBudgetTrip.budgetStatus === "pending_exec_budget" || activeBudgetTrip.budgetStatus === "budget_approved"
+                          ? "✓ Đã phê duyệt Cấp 1"
+                          : "⏳ Chờ TP Ngân sách duyệt"}
+                      </div>
+                    </div>
+
+                    {/* Step 2 */}
+                    <div className={`p-3 rounded-2xl border ${
+                      activeBudgetTrip.budgetStatus === "budget_approved"
+                        ? "bg-emerald-50 border-emerald-300 text-[#006838]"
+                        : "bg-slate-50 border-slate-200 text-slate-500"
+                    }`}>
+                      <div className="font-extrabold text-xs">Cấp 2: Ban Giám Đốc / CFO</div>
+                      <div className="text-[11px] mt-0.5">
+                        {activeBudgetTrip.budgetStatus === "budget_approved"
+                          ? "✓ Đã duyệt 2 Cấp hoàn tất"
+                          : activeBudgetTrip.budgetStatus === "pending_exec_budget"
+                          ? "⏳ Chờ BGĐ/CFO duyệt Cấp 2"
+                          : "⏸ Chưa chuyển Cấp 2"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Rejection notice if rejected */}
+                {activeBudgetTrip.budgetStatus === "budget_rejected" && (
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+                    <span className="font-bold">❌ Ngân sách đã bị từ chối:</span> {activeBudgetTrip.budgetRejectionReason || "Không đạt định mức chi tiêu"}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer Buttons */}
+              <div className="p-5 border-t border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
+                <button
+                  onClick={() => setActiveBudgetTrip(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                >
+                  Đóng
+                </button>
+
+                <div className="flex items-center gap-2">
+                  {/* Reject Button */}
+                  {activeBudgetTrip.budgetStatus !== "budget_approved" && (
+                    <button
+                      onClick={() => {
+                        const reason = prompt("Nhập lý do từ chối ngân sách công tác:");
+                        if (reason !== null) {
+                          handleRejectBudget(activeBudgetTrip.id, reason);
+                        }
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white text-xs font-bold transition cursor-pointer border border-rose-200"
+                    >
+                      ✕ Từ Chối Ngân Sách
+                    </button>
+                  )}
+
+                  {/* Level 1 Approval Button */}
+                  {(!activeBudgetTrip.budgetStatus || activeBudgetTrip.budgetStatus === "pending_dept_budget") && (
+                    <button
+                      onClick={() => handleApproveBudget(activeBudgetTrip.id, "dept_budget")}
+                      className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold transition cursor-pointer shadow-md flex items-center gap-1.5"
+                    >
+                      <IconCheck size={16} />
+                      <span>Duyệt Ngân Sách Cấp 1</span>
+                    </button>
+                  )}
+
+                  {/* Level 2 Approval Button */}
+                  {activeBudgetTrip.budgetStatus === "pending_exec_budget" && (
+                    <button
+                      onClick={() => handleApproveBudget(activeBudgetTrip.id, "exec_budget")}
+                      className="px-5 py-2 rounded-xl bg-[#006838] hover:bg-[#00522c] text-white text-xs font-black transition cursor-pointer shadow-md flex items-center gap-1.5"
+                    >
+                      <IconCheck size={16} />
+                      <span>🎉 Duyệt Ngân Sách Cấp 2 (Final)</span>
+                    </button>
+                  )}
+
+                  {/* Approved state notification */}
+                  {activeBudgetTrip.budgetStatus === "budget_approved" && (
+                    <span className="px-4 py-2 rounded-xl bg-emerald-100 text-[#006838] text-xs font-extrabold flex items-center gap-1">
+                      <span>✓</span> Ngân Sách Đã Duyệt 2 Cấp
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════
+            MODAL 1: QUẢN LÝ & IMPORT HÓA ĐƠN CHỨNG TỪ (INVOICES MODAL)
+           ════════════════════════════════════════════════════════════════ */}
+        {activeInvoiceTrip && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
+              {/* Header */}
+              <div className="p-5 bg-gradient-to-r from-[#006838] to-slate-900 text-white flex items-center justify-between flex-shrink-0">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono uppercase bg-white/20 px-2 py-0.5 rounded text-emerald-100 font-bold">
+                      {activeInvoiceTrip.code}
+                    </span>
+                    <span className="text-xs font-bold text-emerald-200">
+                      {activeInvoiceTrip.location} ({activeInvoiceTrip.startDate} - {activeInvoiceTrip.endDate})
+                    </span>
+                  </div>
+                  <h3 className="text-base font-black tracking-tight mt-1">
+                    🧾 HÓA ĐƠN &amp; CHỨNG TỪ CHI PHÍ CÔNG TÁC
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setActiveInvoiceTrip(null)}
+                  className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                >
+                  <IconX size={18} />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 space-y-5 overflow-y-auto flex-1 text-xs">
+                {/* Total Summary */}
+                <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
+                  <div>
+                    <span className="text-slate-600 font-semibold block">Tổng số hóa đơn đã đính kèm:</span>
+                    <span className="text-lg font-black text-[#006838]">
+                      {activeInvoiceTrip.invoices?.length || 0} chứng từ
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-slate-600 font-semibold block">Tổng chi phí quyết toán:</span>
+                    <span className="text-lg font-black text-slate-900">
+                      {(activeInvoiceTrip.invoices || [])
+                        .reduce((sum, inv) => sum + (inv.amount || 0), 0)
+                        .toLocaleString("vi-VN")}{" "}
+                      VND
+                    </span>
+                  </div>
+                </div>
+
+                {/* Existing Invoices List */}
+                <div className="space-y-2.5">
+                  <h4 className="font-black text-slate-800 uppercase tracking-tight text-xs flex items-center gap-1.5">
+                    <span>📋</span>
+                    <span>Danh sách chứng từ đã tải lên</span>
+                  </h4>
+
+                  {!activeInvoiceTrip.invoices || activeInvoiceTrip.invoices.length === 0 ? (
+                    <div className="p-6 rounded-2xl bg-slate-50 border border-dashed border-slate-200 text-center text-slate-400">
+                      Chưa có hóa đơn hoặc chứng từ nào được đính kèm cho chuyến công tác này.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {activeInvoiceTrip.invoices.map((inv, iIndex) => (
+                        <div
+                          key={inv.id}
+                          className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-2xs flex items-center justify-between gap-3 hover:border-emerald-300 transition-colors"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-9 h-9 rounded-xl bg-emerald-100 text-[#006838] flex items-center justify-center flex-shrink-0">
+                              {inv.fileType?.includes("pdf") ? (
+                                <IconFileTypePdf size={20} className="text-rose-600" />
+                              ) : (
+                                <IconReceipt size={20} />
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-extrabold text-slate-900 truncate">{inv.title}</div>
+                              <div className="flex items-center gap-2 text-[10px] text-slate-500 font-medium mt-0.5">
+                                <span className="px-1.5 py-0.5 rounded bg-slate-100 font-semibold text-slate-700">
+                                  {inv.category}
+                                </span>
+                                <span>•</span>
+                                <span>Ngày: {inv.invoiceDate}</span>
+                                {inv.invoiceNumber && (
+                                  <>
+                                    <span>•</span>
+                                    <span>Số HĐ: {inv.invoiceNumber}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3 flex-shrink-0">
+                            <div className="text-right">
+                              <div className="font-black text-slate-900 text-sm">
+                                {inv.amount.toLocaleString("vi-VN")} VND
+                              </div>
+                              <div className="text-[10px] text-emerald-600 font-semibold">Đã xác nhận</div>
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              {inv.fileUrl && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPreviewModal({
+                                      url: inv.fileUrl || "",
+                                      title: inv.title,
+                                      type: inv.fileType || "image/png",
+                                    })
+                                  }
+                                  className="p-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-[#006838] hover:text-white transition-colors cursor-pointer"
+                                  title="Xem chứng từ đính kèm"
+                                >
+                                  <IconEye size={15} />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteInvoice(activeInvoiceTrip.id, inv.id)}
+                                className="p-1.5 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-colors cursor-pointer border border-rose-200"
+                                title="Xóa hóa đơn"
+                              >
+                                <IconTrash size={15} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Form to add a new invoice */}
+                <div className="p-4 rounded-2xl bg-slate-50/90 border border-slate-200 space-y-3.5">
+                  <h4 className="font-black text-slate-800 uppercase tracking-tight text-xs flex items-center gap-1.5">
+                    <span>➕</span>
+                    <span>Thêm Hóa Đơn / Chứng Từ Mới</span>
+                  </h4>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-700 block">
+                        Tên chứng từ / Hóa đơn <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ví dụ: Vé máy bay Vietnam Airlines..."
+                        value={newInvoiceForm.title}
+                        onChange={(e) => setNewInvoiceForm({ ...newInvoiceForm, title: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold outline-none focus:border-[#006838] bg-white"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-700 block">Loại chi phí</label>
+                      <select
+                        value={newInvoiceForm.category}
+                        onChange={(e) => setNewInvoiceForm({ ...newInvoiceForm, category: e.target.value as any })}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] bg-white cursor-pointer"
+                      >
+                        <option value="Vé máy bay / Tàu xe">✈️ Vé máy bay / Tàu xe</option>
+                        <option value="Khách sạn / Lưu trú">🏨 Khách sạn / Lưu trú</option>
+                        <option value="Ăn uống / Tiếp khách">🍽️ Ăn uống / Tiếp khách</option>
+                        <option value="Xăng xe / Cầu đường">⛽ Xăng xe / Cầu đường</option>
+                        <option value="Chi phí khác">📦 Chi phí khác</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-700 block">
+                        Số tiền (VNĐ) <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        placeholder="Ví dụ: 1500000"
+                        value={newInvoiceForm.amount}
+                        onChange={(e) => setNewInvoiceForm({ ...newInvoiceForm, amount: e.target.value })}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] bg-white"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold text-slate-700 block">Ngày hóa đơn</label>
+                      <input
+                        type="date"
+                        value={newInvoiceForm.invoiceDate}
+                        onChange={(e) => setNewInvoiceForm({ ...newInvoiceForm, invoiceDate: e.target.value })}
+                        className="w-full px-3 py-1.5 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] bg-white cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  {/* File Upload for Invoice */}
+                  <div className="space-y-1.5 pt-1">
+                    <label className="text-[11px] font-bold text-slate-700 block">
+                      Tệp đính kèm (Ảnh hóa đơn / File PDF)
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => invoiceFileInputRef.current?.click()}
+                        className="px-3 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                      >
+                        <IconUpload size={15} />
+                        <span>Chọn ảnh / PDF hóa đơn</span>
+                      </button>
+
+                      {newInvoiceForm.fileName && (
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-[#006838]">
+                          {newInvoiceForm.fileType?.includes("pdf") ? (
+                            <IconFileTypePdf size={16} className="text-rose-600" />
+                          ) : (
+                            <IconPhoto size={16} />
+                          )}
+                          <span className="max-w-[200px] truncate">{newInvoiceForm.fileName}</span>
+                          <button
+                            type="button"
+                            onClick={() => setNewInvoiceForm({ ...newInvoiceForm, fileName: "", fileType: "", fileUrl: "" })}
+                            className="text-slate-400 hover:text-rose-600 transition-colors ml-1 cursor-pointer"
+                          >
+                            <IconX size={14} />
+                          </button>
+                        </div>
+                      )}
+
+                      <input
+                        ref={invoiceFileInputRef}
+                        type="file"
+                        accept="image/*,application/pdf"
+                        onChange={handleInvoiceFileUpload}
+                        className="hidden"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveInvoice(activeInvoiceTrip.id)}
+                      className="px-5 py-2 rounded-xl bg-[#006838] hover:bg-[#00522c] text-white text-xs font-extrabold transition-colors flex items-center gap-1.5 shadow-md cursor-pointer"
+                    >
+                      <IconCheck size={16} />
+                      <span>Lưu &amp; Đồng bộ Hóa đơn</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end">
+                <button
+                  onClick={() => setActiveInvoiceTrip(null)}
+                  className="px-5 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 font-bold hover:bg-slate-100 transition-colors text-xs"
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════
+            MODAL 2: IMPORT HÓA ĐƠN TOÀN CỤC (GLOBAL IMPORT MODAL)
+           ════════════════════════════════════════════════════════════════ */}
+        {globalImportModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="p-5 bg-gradient-to-r from-[#006838] to-slate-900 text-white flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-black tracking-tight">📥 IMPORT HÓA ĐƠN CHỨNG TỪ CÔNG TÁC</h3>
+                  <p className="text-xs text-emerald-200 mt-0.5">Chọn chuyến công tác để tải lên chứng từ</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setGlobalImportModal(false);
+                    setSelectedTripIdForImport("");
+                  }}
+                  className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                >
+                  <IconX size={18} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4 text-xs">
+                <div className="space-y-1.5">
+                  <label className="font-bold text-slate-700 block">
+                    Chọn chuyến công tác <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={selectedTripIdForImport}
+                    onChange={(e) => setSelectedTripIdForImport(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#006838] bg-white cursor-pointer"
+                  >
+                    {records.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        [{r.code}] {r.title} - {r.creator} ({r.location}, {r.startDate})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 block">
+                      Tên hóa đơn / chứng từ <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ví dụ: Hóa đơn phòng khách sạn..."
+                      value={newInvoiceForm.title}
+                      onChange={(e) => setNewInvoiceForm({ ...newInvoiceForm, title: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 font-semibold outline-none focus:border-[#006838] bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 block">Loại chi phí</label>
+                    <select
+                      value={newInvoiceForm.category}
+                      onChange={(e) => setNewInvoiceForm({ ...newInvoiceForm, category: e.target.value as any })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#006838] bg-white cursor-pointer"
+                    >
+                      <option value="Vé máy bay / Tàu xe">✈️ Vé máy bay / Tàu xe</option>
+                      <option value="Khách sạn / Lưu trú">🏨 Khách sạn / Lưu trú</option>
+                      <option value="Ăn uống / Tiếp khách">🍽️ Ăn uống / Tiếp khách</option>
+                      <option value="Xăng xe / Cầu đường">⛽ Xăng xe / Cầu đường</option>
+                      <option value="Chi phí khác">📦 Chi phí khác</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 block">
+                      Số tiền (VNĐ) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      placeholder="Ví dụ: 850000"
+                      value={newInvoiceForm.amount}
+                      onChange={(e) => setNewInvoiceForm({ ...newInvoiceForm, amount: e.target.value })}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#006838] bg-white"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 block">Ngày hóa đơn</label>
+                    <input
+                      type="date"
+                      value={newInvoiceForm.invoiceDate}
+                      onChange={(e) => setNewInvoiceForm({ ...newInvoiceForm, invoiceDate: e.target.value })}
+                      className="w-full px-3 py-1.5 rounded-xl border border-slate-300 font-bold outline-none focus:border-[#006838] bg-white cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                {/* Upload File */}
+                <div className="space-y-1.5 pt-1">
+                  <label className="font-bold text-slate-700 block">File đính kèm (Ảnh / PDF)</label>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => invoiceFileInputRef.current?.click()}
+                      className="px-3 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                    >
+                      <IconUpload size={15} />
+                      <span>Chọn file</span>
+                    </button>
+                    {newInvoiceForm.fileName && (
+                      <span className="text-emerald-700 font-bold">{newInvoiceForm.fileName}</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGlobalImportModal(false);
+                      setSelectedTripIdForImport("");
+                    }}
+                    className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold hover:bg-slate-200 cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveInvoice(selectedTripIdForImport)}
+                    className="px-5 py-2 rounded-xl bg-[#006838] text-white font-extrabold hover:bg-[#00522c] cursor-pointer shadow-md"
+                  >
+                    Lưu hóa đơn
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════
+            MODAL 3: PREVIEW FILE MODAL (IMAGES & PDFS)
+           ════════════════════════════════════════════════════════════════ */}
+        {previewModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-3xl w-full border border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+              <div className="p-4 bg-slate-900 text-white flex items-center justify-between flex-shrink-0">
+                <h4 className="text-xs sm:text-sm font-black truncate max-w-md flex items-center gap-2">
+                  <span>👁️</span>
+                  <span>{previewModal.title}</span>
+                </h4>
+                <button
+                  onClick={() => setPreviewModal(null)}
+                  className="p-1 rounded-full hover:bg-white/20 text-white cursor-pointer"
+                >
+                  <IconX size={18} />
+                </button>
+              </div>
+
+              <div className="p-4 overflow-auto flex-1 flex items-center justify-center bg-slate-100 min-h-[300px]">
+                {previewModal.type.startsWith("image/") ? (
+                  <img
+                    src={previewModal.url}
+                    alt={previewModal.title}
+                    className="max-w-full max-h-[70vh] rounded-xl object-contain shadow-md"
+                  />
+                ) : previewModal.type.includes("pdf") ? (
+                  <iframe
+                    src={previewModal.url}
+                    title={previewModal.title}
+                    className="w-full h-[70vh] rounded-xl border border-slate-300"
+                  />
+                ) : (
+                  <div className="text-center p-8 text-slate-600 space-y-2">
+                    <IconFileText size={48} className="mx-auto text-slate-400" />
+                    <p className="font-bold">{previewModal.title}</p>
+                    <a
+                      href={previewModal.url}
+                      download={previewModal.title}
+                      className="inline-block px-4 py-2 rounded-xl bg-[#006838] text-white font-bold text-xs"
+                    >
+                      Tải về tệp
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 🔴 REJECTION REASON MODAL POPUP */}
+        {rejectionTarget && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="p-4 bg-rose-600 text-white flex items-center justify-between">
+                <h3 className="text-sm font-extrabold flex items-center gap-2">
+                  <span>⚠️</span>
+                  <span>Từ chối đơn công tác ({rejectionTarget.level === "department_head" ? "Trưởng phòng" : "Ban Giám Đốc"})</span>
+                </h3>
+                <button
+                  onClick={() => setRejectionTarget(null)}
+                  className="p-1 rounded-full hover:bg-white/20 text-white cursor-pointer"
+                >
+                  <IconX size={16} />
+                </button>
+              </div>
+              <div className="p-5 space-y-3 text-xs">
+                <label className="font-bold text-slate-700 block">
+                  Vui lòng nhập lý do từ chối <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  value={rejectionReasonInput}
+                  onChange={(e) => setRejectionReasonInput(e.target.value)}
+                  placeholder="Ví dụ: Lịch trình chưa hợp lý / Thiếu hồ sơ đính kèm..."
+                  className="w-full p-3 rounded-xl border border-slate-300 font-medium outline-none focus:border-rose-500 bg-slate-50"
+                />
+                <div className="pt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRejectionTarget(null)}
+                    className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold hover:bg-slate-200 cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmReject}
+                    className="px-4 py-2 rounded-xl bg-rose-600 text-white font-bold hover:bg-rose-700 cursor-pointer"
+                  >
+                    Xác nhận từ chối
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════════
+            MODAL POPUP: CHI TIẾT ĐỀ XUẤT ĐĂNG KÝ CÔNG TÁC
+           ════════════════════════════════════════════════════════════════ */}
+        {selectedModalRecord && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+              {/* Modal Header */}
+              <div className="p-5 bg-gradient-to-r from-[#006838] to-slate-900 text-white flex items-center justify-between">
+                <div>
+                  <span className="text-[11px] font-mono text-emerald-200 font-bold block uppercase">
+                    {selectedModalRecord.code}
+                  </span>
+                  <h3 className="text-base font-black tracking-tight">{selectedModalRecord.title}</h3>
+                </div>
+                <button
+                  onClick={() => setSelectedModalRecord(null)}
+                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                >
+                  <IconX size={18} />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto text-xs">
+                <div className="grid grid-cols-2 gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+                  <div>
+                    <span className="text-slate-500 font-semibold block">Người tạo đề xuất:</span>
+                    <span className="text-slate-900 font-extrabold text-sm block mt-0.5">
+                      {selectedModalRecord.creator} ({selectedModalRecord.department})
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 font-semibold block">Khu vực / Nhà máy:</span>
+                    <span className="text-slate-900 font-extrabold text-sm block mt-0.5">
+                      {selectedModalRecord.region} {selectedModalRecord.factory ? `- ${selectedModalRecord.factory}` : ""}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 font-semibold block">Địa điểm công tác:</span>
+                    <span className="text-slate-900 font-extrabold text-sm block mt-0.5">
+                      {selectedModalRecord.location}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 font-semibold block">Thời gian &amp; Phương tiện:</span>
+                    <span className="text-slate-900 font-extrabold text-sm block mt-0.5">
+                      {selectedModalRecord.startDate} - {selectedModalRecord.endDate} ({selectedModalRecord.daysCount} ngày) | {selectedModalRecord.transport}
+                    </span>
+                  </div>
+                </div>
+
+                {selectedModalRecord.purpose && (
+                  <div className="space-y-1 p-3 rounded-xl bg-emerald-50/60 border border-emerald-100">
+                    <span className="font-extrabold text-[#006838] block uppercase text-[11px]">🎯 Mục đích công tác:</span>
+                    <p className="text-slate-800 leading-relaxed font-medium">{selectedModalRecord.purpose}</p>
+                  </div>
+                )}
+
+                {/* Proposal Text & Attachments */}
+                {selectedModalRecord.proposalText && (
+                  <div className="space-y-1 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                    <span className="font-extrabold text-slate-800 block uppercase text-[11px]">📝 Đề xuất phụ cấp / hỗ trợ:</span>
+                    <p className="text-slate-800 leading-relaxed font-medium">{selectedModalRecord.proposalText}</p>
+                  </div>
+                )}
+
+                {/* Attachments */}
+                {selectedModalRecord.attachments && selectedModalRecord.attachments.length > 0 && (
+                  <div className="space-y-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                    <span className="font-extrabold text-slate-800 block uppercase text-[11px]">
+                      📎 Tệp đính kèm ({selectedModalRecord.attachments.length}):
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedModalRecord.attachments.map((att) => (
+                        <button
+                          key={att.id}
+                          type="button"
+                          onClick={() => setPreviewModal({ url: att.dataUrl, title: att.name, type: att.type })}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:border-[#006838] transition-colors cursor-pointer text-xs font-bold text-slate-800"
+                        >
+                          {att.type.includes("pdf") ? (
+                            <IconFileTypePdf size={16} className="text-rose-600" />
+                          ) : (
+                            <IconPhoto size={16} className="text-[#006838]" />
+                          )}
+                          <span className="max-w-[150px] truncate">{att.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Invoices List */}
+                {selectedModalRecord.invoices && selectedModalRecord.invoices.length > 0 && (
+                  <div className="space-y-2 p-3 rounded-xl bg-emerald-50/50 border border-emerald-200">
+                    <span className="font-extrabold text-[#006838] block uppercase text-[11px]">
+                      🧾 Hóa đơn chứng từ đã hoàn ứng ({selectedModalRecord.invoices.length}):
+                    </span>
+                    <div className="space-y-1.5">
+                      {selectedModalRecord.invoices.map((inv) => (
+                        <div key={inv.id} className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200 text-xs">
+                          <div>
+                            <span className="font-bold text-slate-900">{inv.title}</span>
+                            <span className="text-slate-500 text-[10px] ml-2">({inv.category})</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-slate-900">{inv.amount.toLocaleString("vi-VN")} VND</span>
+                            {inv.fileUrl && (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewModal({ url: inv.fileUrl || "", title: inv.title, type: inv.fileType || "image/png" })}
+                                className="p-1 rounded bg-slate-100 hover:bg-[#006838] hover:text-white transition-colors cursor-pointer"
+                              >
+                                <IconEye size={13} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+
+                {/* ════════════════════════════════════════════════════════════════
+                    THÔNG TIN HẬU CẦN
+                   ════════════════════════════════════════════════════════════════ */}
+                {(selectedModalRecord.logistics?.companyVehicle || 
+                  (selectedModalRecord.logistics?.accommodations && selectedModalRecord.logistics.accommodations.length > 0) || 
+                  (selectedModalRecord.logistics?.tickets && selectedModalRecord.logistics.tickets.length > 0) || 
+                  activeTab === "LOGISTICS") && (
+                  <div className="space-y-4 p-4 rounded-xl bg-blue-50/50 border border-blue-200 mt-4">
+                    <div className="flex items-center justify-between border-b border-blue-100 pb-2">
+                       <span className="font-black text-blue-900 uppercase text-xs">🚗 Thông tin hậu cần</span>
+                    </div>
+                    
+                    <div className="space-y-4">
+
+                       {selectedModalRecord.logistics?.companyVehicle && (
+                         <div className="space-y-3 p-3 bg-emerald-50 rounded-xl border border-emerald-100 mb-4">
+                            <h5 className="text-[11px] font-black uppercase text-emerald-800">Thông tin Xe Công Ty (Đã xếp)</h5>
+                            <div className="flex flex-col p-2 bg-white rounded border border-emerald-200 text-xs gap-1">
+                               <div className="flex justify-between">
+                                 <span className="font-bold text-slate-800">Tài xế: {selectedModalRecord.logistics.companyVehicle.driverName || 'Chưa có'}</span>
+                                 <span className="font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded uppercase">{selectedModalRecord.logistics.companyVehicle.licensePlate || ''}</span>
+                               </div>
+                               <span className="text-slate-600">SĐT: <a href={`tel:${selectedModalRecord.logistics.companyVehicle.driverPhone}`} className="text-blue-600 font-bold hover:underline">{selectedModalRecord.logistics.companyVehicle.driverPhone || 'Chưa có'}</a></span>
+                               <span className="text-slate-600 font-medium text-emerald-800">Đón lúc: {selectedModalRecord.logistics.companyVehicle.pickupTime || 'Chưa có'}</span>
+                            </div>
+                         </div>
+                       )}
+                       <div className="space-y-3 p-3 bg-white rounded-xl border border-blue-100">
+                          <h5 className="text-[11px] font-black uppercase text-blue-800">1. Lưu trú & Khách sạn</h5>
+                          {selectedModalRecord.logistics?.accommodations && selectedModalRecord.logistics.accommodations.length > 0 ? (
+                            <div className="space-y-2">
+                              {selectedModalRecord.logistics.accommodations.map((acc: any, i: number) => (
+                                <div key={i} className="flex flex-col p-2 bg-slate-50 rounded border border-slate-200 text-xs gap-1">
+                                  <div className="flex justify-between">
+                                    <span className="font-bold text-slate-800">{acc.type === 'COMPANY_DORM' ? 'Ký túc xá CT' : 'Khách sạn / Nhà nghỉ'}</span>
+                                    <span className="font-bold text-blue-700">{acc.cost ? Number(acc.cost).toLocaleString('vi-VN') + ' VND' : ''}</span>
+                                  </div>
+                                  <span className="text-slate-600">Tên/Phòng: {acc.provider} {acc.roomNo ? `(P. ${acc.roomNo})` : ''}</span>
+                                  {acc.bookingRef && <span className="text-slate-600">Mã Booking: {acc.bookingRef}</span>}
+                                  {acc.notes && <span className="text-slate-500 italic">{acc.notes}</span>}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-slate-500 italic">Chưa bố trí lưu trú.</div>
+                          )}
+                       </div>
+
+                       <div className="space-y-3 p-3 bg-white rounded-xl border border-blue-100">
+                          <h5 className="text-[11px] font-black uppercase text-blue-800">2. Phương tiện (Vé máy bay/Tàu/Xe)</h5>
+                          {selectedModalRecord.logistics?.tickets && selectedModalRecord.logistics.tickets.length > 0 ? (
+                            <div className="space-y-2">
+                              {selectedModalRecord.logistics.tickets.map((t: any, i: number) => (
+                                <div key={i} className="flex flex-col p-2 bg-slate-50 rounded border border-slate-200 text-xs gap-1">
+                                  <div className="flex justify-between">
+                                    <span className="font-bold text-slate-800">{t.provider} {t.flightNo ? `(${t.flightNo})` : ''}</span>
+                                    <span className="font-bold text-blue-700">{t.cost ? Number(t.cost).toLocaleString('vi-VN') + ' VND' : ''}</span>
+                                  </div>
+                                  <span className="text-slate-600">Thời gian đi: {t.departureTime}</span>
+                                  {t.bookingRef && <span className="text-slate-600">Mã vé/PNR: {t.bookingRef}</span>}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-slate-500 italic">Chưa đặt vé.</div>
+                          )}
+                       </div>
+
+                       {selectedModalRecord.logistics?.notes && (
+                         <div className="space-y-1 p-3 bg-amber-50 rounded-xl border border-amber-100 text-xs">
+                           <span className="font-black text-amber-800 uppercase text-[10px]">Ghi chú cho người đi:</span>
+                           <p className="text-amber-900 font-medium">{selectedModalRecord.logistics.notes}</p>
+                         </div>
+                       )}
+                       
+                       {can(PERMISSIONS.TRIP_DISPATCH_VEHICLE) && (
+                         <div className="pt-2">
+                            <button 
+                               onClick={() => setActiveLogisticsUpdate(selectedModalRecord)}
+                               className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-md transition-colors"
+                            >
+                               CẬP NHẬT MÃ BOOKING / CHI PHÍ (Dành cho Lễ tân)
+                            </button>
+                         </div>
+                       )}
+                    </div>
+                  </div>
+                )}
+                {/* ════════════════════════════════════════════════════════════════
+                    GIẤY ĐI ĐƯỜNG ĐÃ DUYỆT / ĐÓNG DẤU (SIGNED TRAVEL PAPER)
+                   ════════════════════════════════════════════════════════════════ */}
+                <div className="space-y-3 p-4 rounded-xl bg-slate-50 border border-slate-200 mt-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <span className="font-extrabold text-slate-900 block uppercase text-xs">
+                      📄 Giấy đi đường đã ký / đóng dấu
+                    </span>
+                    <label className="px-3 py-1.5 rounded-xl bg-[#006838] hover:bg-[#00522c] text-white font-bold text-xs cursor-pointer flex items-center gap-1 transition-colors shadow-2xs">
+                      <IconUpload size={14} />
+                      <span>{isLoading ? "Đang tải..." : "Upload Giấy Đã Ký (R2)"}</span>
+                      <input
+                        type="file"
+                        accept="image/*,application/pdf"
+                        onChange={(e) => handleUploadSignedTravelPaper(selectedModalRecord.id, e)}
+                        className="hidden"
+                        disabled={isLoading}
+                      />
+                    </label>
+                  </div>
+
+                  {(selectedModalRecord as any).signedTravelPaper && (selectedModalRecord as any).signedTravelPaper.length > 0 ? (
+                    <div className="space-y-2">
+                      {(selectedModalRecord as any).signedTravelPaper.map((paper: any, pIdx: number) => (
+                        <div key={paper.id || pIdx} className="flex items-center justify-between p-2.5 bg-white rounded-xl border border-slate-200 text-xs">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {paper.type?.includes("pdf") ? (
+                              <IconFileTypePdf size={18} className="text-rose-600 flex-shrink-0" />
+                            ) : (
+                              <IconPhoto size={18} className="text-blue-600 flex-shrink-0" />
+                            )}
+                            <div className="min-w-0">
+                              <span className="font-bold text-slate-800 block truncate">{paper.name || 'Giấy đi đường đã ký'}</span>
+                              <span className="text-[10px] text-slate-500 block">Tải lên: {paper.uploadedAt || 'N/A'}</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setPreviewModal({ url: paper.url, title: paper.name || "Giấy đi đường đã ký", type: paper.type || "application/pdf" })}
+                            className="px-3 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-extrabold text-[11px] cursor-pointer transition-colors flex items-center gap-1"
+                          >
+                            <IconEye size={14} />
+                            <span>Xem / Tải</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-slate-400 text-xs italic">
+                      Chưa có Giấy đi đường đã ký/đóng dấu. Nhấn "Upload Giấy Đã Ký" ở trên để tải lên bản PDF/Ảnh từ thiết bị.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                  <span className="text-slate-500 font-semibold">Trạng thái phê duyệt D1:</span>
+                  <div>
+                    {selectedModalRecord.status === "APPROVED" && (
+                      <span className="px-3 py-1 rounded-full bg-emerald-100 text-[#006838] text-xs font-black uppercase">
+                        ✓ Đã phê duyệt
+                      </span>
+                    )}
+                    {selectedModalRecord.status === "PENDING" && (
+                      <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-black uppercase">
+                        ⏳ Chờ phê duyệt
+                      </span>
+                    )}
+                    {selectedModalRecord.status === "REJECTED" && (
+                      <span className="px-3 py-1 rounded-full bg-rose-100 text-rose-700 text-xs font-black uppercase">
+                        ✕ Từ chối
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const rec = selectedModalRecord;
+                    setSelectedModalRecord(null);
+                    setActiveInvoiceTrip(rec);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-emerald-50 hover:bg-[#006838] hover:text-white text-[#006838] font-bold text-xs transition-colors border border-emerald-200 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <IconReceipt size={15} />
+                  <span>Quản lý Hóa Đơn</span>
+                </button>
+
+                <button
+                  onClick={() => setSelectedModalRecord(null)}
+                  className="px-5 py-2 rounded-xl bg-white border border-slate-300 text-slate-700 font-bold hover:bg-slate-100 transition-colors text-xs cursor-pointer"
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* AUTH RE-LOGIN MODAL */}
+        <AuthReLoginModal
+          isOpen={showAuthModal}
+          onSuccess={() => {
+            setShowAuthModal(false);
+            showToast("✅ Đã khôi phục phiên làm việc! Vui lòng bấm lưu lại dữ liệu.");
+          }}
+          onCancel={() => setShowAuthModal(false)}
+        />
+
+
+
+      </main>
+
+      {/* TOAST NOTIFICATION */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl z-50 flex items-center gap-3 animate-in slide-in-from-bottom-3 duration-200 border border-slate-700">
+          <div className="w-7 h-7 rounded-full bg-emerald-500 text-white flex items-center justify-center flex-shrink-0">
+            <IconCheck size={16} />
+          </div>
+          <span className="text-xs font-bold">{toastMessage}</span>
+        </div>
+      )}
+
+
+      {/* ════════════════════════════════════════════════════════════════
+          MODAL: CẬP NHẬT HẬU CẦN (LỄ TÂN)
+         ════════════════════════════════════════════════════════════════ */}
+      {activeLogisticsUpdate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-4 sm:p-6 border-b border-slate-100 bg-blue-50/50">
+              <h3 className="text-lg font-black text-blue-900">
+                {activeLogisticsUpdate.isBulk ? `Gom chung ${activeLogisticsUpdate.ids?.length} đơn công tác` : "Cập nhật chi tiết Hậu cần"}
+              </h3>
+              <button 
+                onClick={() => setActiveLogisticsUpdate(null)}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 transition-colors"
+              >
+                <IconX size={18} />
+              </button>
+            </div>
+            
+            <form onSubmit={handleSaveLogistics} className="flex-1 overflow-auto p-4 sm:p-6 space-y-6">
+               <div className="space-y-4">
+                  <h4 className="font-bold text-slate-800 border-b pb-2">1. Thông tin Xe Công Ty / Tài Xế</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Chọn từ Danh mục Xe nội bộ</label>
+                      <select 
+                        className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-slate-50"
+                        onChange={(e) => {
+                          const v = vehicles.find(x => x.id === e.target.value);
+                          if (v) {
+                            setActiveLogisticsUpdate({
+                              ...activeLogisticsUpdate, 
+                              logistics: {
+                                ...(activeLogisticsUpdate.logistics||{}), 
+                                companyVehicle: {
+                                  ...(activeLogisticsUpdate.logistics?.companyVehicle||{}), 
+                                  driverName: v.driverName, 
+                                  driverPhone: v.driverPhone, 
+                                  licensePlate: v.plateNumber
+                                }
+                              }
+                            });
+                          }
+                        }}
+                      >
+                        <option value="">-- Chọn xe có sẵn (Tự động điền) --</option>
+                        {vehicles.filter(v => v.status === 'ACTIVE').map(v => (
+                          <option key={v.id} value={v.id}>{v.plateNumber} - {v.driverName} ({v.seatCount} chỗ)</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Tên tài xế</label>
+                      <input 
+                        type="text" 
+                        value={activeLogisticsUpdate.logistics?.companyVehicle?.driverName || ''} 
+                        onChange={(e) => setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...(activeLogisticsUpdate.logistics||{}), companyVehicle: {...(activeLogisticsUpdate.logistics?.companyVehicle||{}), driverName: e.target.value}}})}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500" 
+                        placeholder="VD: Anh Hải"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">SĐT Tài xế</label>
+                      <input 
+                        type="text" 
+                        value={activeLogisticsUpdate.logistics?.companyVehicle?.driverPhone || ''} 
+                        onChange={(e) => setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...(activeLogisticsUpdate.logistics||{}), companyVehicle: {...(activeLogisticsUpdate.logistics?.companyVehicle||{}), driverPhone: e.target.value}}})}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500" 
+                        placeholder="VD: 0912345678"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Biển số xe</label>
+                      <input 
+                        type="text" 
+                        value={activeLogisticsUpdate.logistics?.companyVehicle?.licensePlate || ''} 
+                        onChange={(e) => setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...(activeLogisticsUpdate.logistics||{}), companyVehicle: {...(activeLogisticsUpdate.logistics?.companyVehicle||{}), licensePlate: e.target.value}}})}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500" 
+                        placeholder="VD: 51H-123.45"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Giờ & Điểm đón</label>
+                      <input 
+                        type="text" 
+                        value={activeLogisticsUpdate.logistics?.companyVehicle?.pickupTime || ''} 
+                        onChange={(e) => setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...(activeLogisticsUpdate.logistics||{}), companyVehicle: {...(activeLogisticsUpdate.logistics?.companyVehicle||{}), pickupTime: e.target.value}}})}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500" 
+                        placeholder="VD: 07:00 tại Cổng CT"
+                      />
+                    </div>
+                  </div>
+               </div>
+
+               <div className="space-y-4">
+                  <div className="flex justify-between items-center border-b pb-2">
+                    <h4 className="font-bold text-slate-800">2. Đặt Khách sạn / KTX</h4>
+                    <button type="button" onClick={() => {
+                        const acc = [...(activeLogisticsUpdate.logistics?.accommodations || []), {type: 'HOTEL'}];
+                        setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...(activeLogisticsUpdate.logistics||{}), accommodations: acc}});
+                    }} className="text-xs text-blue-600 font-bold hover:underline">+ Thêm phòng</button>
+                  </div>
+                  {(activeLogisticsUpdate.logistics?.accommodations || []).map((acc: any, idx: number) => (
+                    <div key={idx} className="bg-slate-50 p-3 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3 relative">
+                       <button type="button" onClick={() => {
+                          const arr = [...activeLogisticsUpdate.logistics.accommodations];
+                          arr.splice(idx, 1);
+                          setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...activeLogisticsUpdate.logistics, accommodations: arr}});
+                       }} className="absolute top-2 right-2 text-rose-500 hover:text-rose-700"><IconX size={14}/></button>
+                       <div className="sm:col-span-2">
+                         <label className="block text-xs font-bold text-slate-700 mb-1">Khách sạn / Nhà nghỉ</label>
+                         <input type="text" value={acc.provider||''} onChange={(e) => {
+                             const arr = [...activeLogisticsUpdate.logistics.accommodations];
+                             arr[idx].provider = e.target.value;
+                             setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...activeLogisticsUpdate.logistics, accommodations: arr}});
+                         }} className="w-full px-2 py-1.5 border rounded text-xs" placeholder="Tên KS..." />
+                       </div>
+                       <div>
+                         <label className="block text-xs font-bold text-slate-700 mb-1">Mã Booking</label>
+                         <input type="text" value={acc.bookingRef||''} onChange={(e) => {
+                             const arr = [...activeLogisticsUpdate.logistics.accommodations];
+                             arr[idx].bookingRef = e.target.value;
+                             setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...activeLogisticsUpdate.logistics, accommodations: arr}});
+                         }} className="w-full px-2 py-1.5 border rounded text-xs" />
+                       </div>
+                       <div>
+                         <label className="block text-xs font-bold text-slate-700 mb-1">Chi phí (VND)</label>
+                         <input type="number" value={acc.cost||''} onChange={(e) => {
+                             const arr = [...activeLogisticsUpdate.logistics.accommodations];
+                             arr[idx].cost = e.target.value;
+                             setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...activeLogisticsUpdate.logistics, accommodations: arr}});
+                         }} className="w-full px-2 py-1.5 border rounded text-xs" />
+                       </div>
+                    </div>
+                  ))}
+               </div>
+
+               <div className="space-y-4">
+                  <div className="flex justify-between items-center border-b pb-2">
+                    <h4 className="font-bold text-slate-800">3. Đặt Vé (Máy bay / Tàu / Xe)</h4>
+                    <button type="button" onClick={() => {
+                        const tk = [...(activeLogisticsUpdate.logistics?.tickets || []), {}];
+                        setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...(activeLogisticsUpdate.logistics||{}), tickets: tk}});
+                    }} className="text-xs text-blue-600 font-bold hover:underline">+ Thêm vé</button>
+                  </div>
+                  {(activeLogisticsUpdate.logistics?.tickets || []).map((t: any, idx: number) => (
+                    <div key={idx} className="bg-slate-50 p-3 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3 relative">
+                       <button type="button" onClick={() => {
+                          const arr = [...activeLogisticsUpdate.logistics.tickets];
+                          arr.splice(idx, 1);
+                          setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...activeLogisticsUpdate.logistics, tickets: arr}});
+                       }} className="absolute top-2 right-2 text-rose-500 hover:text-rose-700"><IconX size={14}/></button>
+                       <div>
+                         <label className="block text-xs font-bold text-slate-700 mb-1">Hãng bay / Nhà xe</label>
+                         <input type="text" value={t.provider||''} onChange={(e) => {
+                             const arr = [...activeLogisticsUpdate.logistics.tickets];
+                             arr[idx].provider = e.target.value;
+                             setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...activeLogisticsUpdate.logistics, tickets: arr}});
+                         }} className="w-full px-2 py-1.5 border rounded text-xs" placeholder="Vietnam Airlines..." />
+                       </div>
+                       <div>
+                         <label className="block text-xs font-bold text-slate-700 mb-1">Số hiệu chuyến / Giờ đi</label>
+                         <input type="text" value={t.flightNo||''} onChange={(e) => {
+                             const arr = [...activeLogisticsUpdate.logistics.tickets];
+                             arr[idx].flightNo = e.target.value;
+                             setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...activeLogisticsUpdate.logistics, tickets: arr}});
+                         }} className="w-full px-2 py-1.5 border rounded text-xs" />
+                       </div>
+                       <div>
+                         <label className="block text-xs font-bold text-slate-700 mb-1">Mã Vé / PNR</label>
+                         <input type="text" value={t.bookingRef||''} onChange={(e) => {
+                             const arr = [...activeLogisticsUpdate.logistics.tickets];
+                             arr[idx].bookingRef = e.target.value;
+                             setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...activeLogisticsUpdate.logistics, tickets: arr}});
+                         }} className="w-full px-2 py-1.5 border rounded text-xs" />
+                       </div>
+                       <div>
+                         <label className="block text-xs font-bold text-slate-700 mb-1">Chi phí (VND)</label>
+                         <input type="number" value={t.cost||''} onChange={(e) => {
+                             const arr = [...activeLogisticsUpdate.logistics.tickets];
+                             arr[idx].cost = e.target.value;
+                             setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...activeLogisticsUpdate.logistics, tickets: arr}});
+                         }} className="w-full px-2 py-1.5 border rounded text-xs" />
+                       </div>
+                    </div>
+                  ))}
+               </div>
+               
+               <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 border-b pb-2">4. Ghi chú gửi người đi công tác</label>
+                  <textarea 
+                    value={activeLogisticsUpdate.logistics?.notes || ''}
+                    onChange={(e) => setActiveLogisticsUpdate({...activeLogisticsUpdate, logistics: {...(activeLogisticsUpdate.logistics||{}), notes: e.target.value}})}
+                    rows={3} 
+                    className="w-full mt-2 px-3 py-2 border border-slate-300 rounded-xl text-sm focus:border-blue-500 focus:ring-1" 
+                    placeholder="VD: Vui lòng có mặt trước 15p..."
+                  ></textarea>
+               </div>
+               
+               <div className="pt-4 border-t flex justify-end gap-3">
+                  <button type="button" onClick={() => setActiveLogisticsUpdate(null)} className="px-5 py-2.5 rounded-xl font-bold text-sm text-slate-600 bg-slate-100 hover:bg-slate-200">
+                     Hủy
+                  </button>
+                  <button type="submit" disabled={isLoading} className="px-5 py-2.5 rounded-xl font-black text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
+                     {isLoading ? "Đang lưu..." : "Lưu & Xác nhận Hậu cần"}
+                  </button>
+               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* VEHICLE FORM MODAL */}
+      {vehicleForm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-4 sm:p-6 border-b border-slate-100 bg-emerald-50/50">
+              <h3 className="text-lg font-black text-emerald-900">{vehicleForm.id ? "Cập nhật Xe" : "Thêm Xe mới"}</h3>
+              <button 
+                onClick={() => setVehicleForm(null)}
+                className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 transition-colors"
+              >
+                <IconX size={18} />
+              </button>
+            </div>
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              try {
+                setIsLoading(true);
+                const res = await fetch('/api/company-vehicles', {
+                  method: 'POST',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({...vehicleForm, action: 'UPSERT'})
+                });
+                if(res.ok) {
+                  showToast("Lưu thông tin xe thành công!");
+                  setVehicleForm(null);
+                  fetchVehicles();
+                } else showToast("Lỗi lưu xe");
+              } catch(err) { showToast("Lỗi mạng"); }
+              finally { setIsLoading(false); }
+            }} className="p-4 sm:p-6 space-y-4">
+              <div><label className="block text-xs font-bold text-slate-700 mb-1">Biển số xe</label><input required type="text" value={vehicleForm.plateNumber} onChange={e => setVehicleForm({...vehicleForm, plateNumber: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-xl" /></div>
+              <div><label className="block text-xs font-bold text-slate-700 mb-1">Tên tài xế</label><input required type="text" value={vehicleForm.driverName} onChange={e => setVehicleForm({...vehicleForm, driverName: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-xl" /></div>
+              <div><label className="block text-xs font-bold text-slate-700 mb-1">SĐT Tài xế</label><input type="text" value={vehicleForm.driverPhone} onChange={e => setVehicleForm({...vehicleForm, driverPhone: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-xl" /></div>
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="block text-xs font-bold text-slate-700 mb-1">Số chỗ</label><input type="number" value={vehicleForm.seatCount} onChange={e => setVehicleForm({...vehicleForm, seatCount: Number(e.target.value)})} className="w-full px-3 py-2 border border-slate-300 rounded-xl" /></div>
+                <div><label className="block text-xs font-bold text-slate-700 mb-1">Trạng thái</label><select value={vehicleForm.status || 'ACTIVE'} onChange={e => setVehicleForm({...vehicleForm, status: e.target.value})} className="w-full px-3 py-2 border border-slate-300 rounded-xl"><option value="ACTIVE">Đang hoạt động</option><option value="INACTIVE">Tạm ngưng/Bảo trì</option></select></div>
+              </div>
+              <div><label className="block text-xs font-bold text-slate-700 mb-1">Ghi chú</label><textarea value={vehicleForm.notes} onChange={e => setVehicleForm({...vehicleForm, notes: e.target.value})} rows={2} className="w-full px-3 py-2 border border-slate-300 rounded-xl" /></div>
+              <div className="flex justify-between pt-4 border-t mt-6">
+                {vehicleForm.id ? (
+                  <button type="button" onClick={async () => {
+                    if(confirm("Bạn có chắc muốn tạm ngưng xe này?")) {
+                      try {
+                        setIsLoading(true);
+                        await fetch('/api/company-vehicles', {
+                          method: 'POST',
+                          headers: {'Content-Type': 'application/json'},
+                          body: JSON.stringify({id: vehicleForm.id, action: 'DELETE'})
+                        });
+                        setVehicleForm(null);
+                        fetchVehicles();
+                      } finally { setIsLoading(false); }
+                    }
+                  }} className="text-rose-600 font-bold text-sm px-3 hover:bg-rose-50 rounded-xl">Tạm ngưng</button>
+                ) : <div></div>}
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setVehicleForm(null)} className="px-5 py-2.5 rounded-xl font-bold text-sm bg-slate-100 hover:bg-slate-200">Hủy</button>
+                  <button type="submit" disabled={isLoading} className="px-5 py-2.5 rounded-xl font-black text-sm text-white bg-emerald-600 hover:bg-emerald-700">Lưu Xe</button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* FOOTER */}
+      <footer className="py-3 px-6 border-t border-slate-200 text-xs text-slate-500 text-center bg-white">
+        <span>© 2026 TBS Group System - Skechers Miền Đông. Tất cả các quyền được bảo lưu.</span>
+      </footer>
+    </div>
+  );
+}

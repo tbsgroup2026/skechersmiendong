@@ -1,0 +1,269 @@
+import { NextResponse } from 'next/server';
+import { SYSTEM_USERS } from '@/lib/userProfiles';
+
+
+function getDbBinding(): any {
+  return (process.env as any).DB || (globalThis as any).DB || null;
+}
+
+// Built-in CBNV dataset for real-time employee lookup by MSNV
+const EMPLOYEES_DB: Record<string, {
+  emp_code: string;
+  name: string;
+  factory_id: string;
+  workshop_id: string;
+  line_id?: string;
+  chuyen_id?: string;
+  to_id?: string;
+  vtcv: string;
+  position?: string;
+}> = {
+  "202608001": {
+    emp_code: "202608001",
+    name: "Phạm Nguyễn Anh Huy",
+    factory_id: "Skechers Miền Đông Supply Chain",
+    workshop_id: "Văn phòng",
+    line_id: "",
+    vtcv: "Cán bộ quản lý",
+    position: "IT - Team Chuyển Đổi Số",
+  },
+  "202608002": {
+    emp_code: "202608002",
+    name: "Trần Ngọc Huy",
+    factory_id: "Skechers Miền Đông Supply Chain",
+    workshop_id: "Văn phòng",
+    line_id: "",
+    vtcv: "Cán bộ quản lý",
+    position: "Kỹ Sư IT - Team Chuyển Đổi Số",
+  },
+  "202206011": {
+    emp_code: "202206011",
+    name: "TRẦN THỊ BÍCH TRÂM",
+    factory_id: "Skechers Miền Đông Supply Chain",
+    workshop_id: "Văn phòng",
+    line_id: "",
+    vtcv: "Trưởng Team",
+    position: "Trưởng Team Lễ Tân",
+  },
+  "202010004": {
+    emp_code: "202010004",
+    name: "Lễ Tân",
+    factory_id: "Skechers Miền Đông Supply Chain",
+    workshop_id: "Văn phòng",
+    line_id: "",
+    vtcv: "Nhân viên",
+    position: "Nhân Viên Lễ Tân",
+  },
+  "202409009": {
+    emp_code: "202409009",
+    name: "Lễ Tân",
+    factory_id: "Skechers Miền Đông Supply Chain",
+    workshop_id: "Văn phòng",
+    line_id: "",
+    vtcv: "Nhân viên",
+    position: "Nhân Viên Lễ Tân",
+  },
+
+  "SK-2026-101": {
+    emp_code: "SK-2026-101",
+    name: "Nguyễn Văn An",
+    factory_id: "Nhà máy Kiên Giang 1",
+    workshop_id: "Đầu Vào",
+    line_id: "Line 1",
+    vtcv: "Công nhân",
+    position: "Công nhân cán ép đế",
+  },
+  "SK-2026-102": {
+    emp_code: "SK-2026-102",
+    name: "Trần Thị Bình",
+    factory_id: "Nhà máy Kiên Giang 1",
+    workshop_id: "May",
+    line_id: "Line 2",
+    vtcv: "Công nhân",
+    position: "Công nhân may mũi",
+  },
+  "CN-88201": {
+    emp_code: "CN-88201",
+    name: "Lê Văn Cường",
+    factory_id: "Nhà máy Kiên Giang 1",
+    workshop_id: "Đầu Vào",
+    line_id: "Line 1",
+    vtcv: "Công nhân",
+    position: "Công nhân dán đế",
+  },
+  "CN-88202": {
+    emp_code: "CN-88202",
+    name: "Nguyễn Thị Dung",
+    factory_id: "Nhà máy Kiên Giang 1",
+    workshop_id: "May",
+    line_id: "Line 2",
+    vtcv: "Công nhân",
+    position: "Công nhân may mũi 1",
+  },
+  "CN-88203": {
+    emp_code: "CN-88203",
+    name: "Phạm Quốc Giang",
+    factory_id: "Nhà máy Kiên Giang 1",
+    workshop_id: "Gò",
+    line_id: "Line 3",
+    vtcv: "Công nhân",
+    position: "Công nhân gò chuyền 1",
+  },
+  "CN-88204": {
+    emp_code: "CN-88204",
+    name: "Vũ Thị Hoa",
+    factory_id: "Nhà máy Kiên Giang 2",
+    workshop_id: "May",
+    line_id: "Line 1",
+    vtcv: "Công nhân",
+    position: "Công nhân may 2",
+  },
+  "CN-88205": {
+    emp_code: "CN-88205",
+    name: "Hoàng Văn Hùng",
+    factory_id: "Nhà máy Kiên Giang 2",
+    workshop_id: "Gò",
+    line_id: "Line 2",
+    vtcv: "Công nhân",
+    position: "Công nhân gò KG2",
+  },
+  "CN-88206": {
+    emp_code: "CN-88206",
+    name: "Đặng Thị Mai",
+    factory_id: "Hoàn thiện đế",
+    workshop_id: "Đầu vào",
+    line_id: "Line Phun Sơn Đế",
+    vtcv: "Công nhân",
+    position: "Công nhân phun sơn đế",
+  },
+  "CN-88207": {
+    emp_code: "CN-88207",
+    name: "Đỗ Minh Quan",
+    factory_id: "NMMĐ",
+    workshop_id: "Gò",
+    line_id: "Line Gò Miền Đông",
+    vtcv: "Công nhân",
+    position: "Công nhân nhà máy miền đông",
+  },
+};
+
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const msnvRaw = searchParams.get('msnv') || searchParams.get('code') || searchParams.get('empCode') || '';
+    const msnv = msnvRaw.trim().toUpperCase();
+
+    if (!msnv) {
+      return NextResponse.json({ success: false, message: 'Thiếu tham số MSNV' }, { status: 200 });
+    }
+
+    // 1. Database query if D1 binding is available
+    const db = getDbBinding();
+    if (db) {
+      try {
+        const userRes = await db.prepare(`SELECT * FROM users WHERE UPPER(emp_code) = ? OR CAST(id AS TEXT) = ? LIMIT 1`).bind(msnv, msnv).first().catch(() => null);
+        if (userRes) {
+          const facName = userRes.factory_id || (userRes.department?.includes('MĐ') || userRes.phong_ban_hien_tai?.includes('MAY') ? 'Nhà Máy Miền Đông' : 'Skechers Miền Đông');
+          const wsName = userRes.workshop_id || userRes.phong_ban_hien_tai || userRes.department || 'May';
+          return NextResponse.json({
+            success: true,
+            data: {
+              emp_code: userRes.emp_code || String(userRes.id) || msnv,
+              name: userRes.name || userRes.full_name || msnv,
+              factory_id: facName,
+              workshop_id: wsName,
+              line_id: userRes.line_id && !['NV', 'CBCNV'].includes(userRes.line_id) ? userRes.line_id : (userRes.vtcv_sap_xep || ''),
+              chuyen_id: userRes.chuyen_id || '',
+              to_id: userRes.to_id || userRes.vtcv_sap || '',
+              vtcv: userRes.vtcv || userRes.vtcv_hien_tai || userRes.role_code || 'Công nhân',
+              position: userRes.position || userRes.vtcv_hien_tai || userRes.title || 'Công nhân',
+            },
+          });
+        }
+
+        const hrRes = await db.prepare(`SELECT * FROM hr_employees WHERE UPPER(id) = ? OR UPPER(name) = ? LIMIT 1`).bind(msnv, msnv).first().catch(() => null);
+        if (hrRes) {
+          return NextResponse.json({
+            success: true,
+            data: {
+              emp_code: hrRes.id || msnv,
+              name: hrRes.name || hrRes.ho_ten || hrRes.full_name,
+              factory_id: hrRes.factory_id || hrRes.nha_may || hrRes.factory || 'Nhà Máy Miền Đông',
+              workshop_id: hrRes.workshop_id || hrRes.xuong || hrRes.department || 'Đầu Vào',
+              line_id: hrRes.line_id && !['NV', 'CBCNV'].includes(hrRes.line_id) ? hrRes.line_id : '',
+              chuyen_id: hrRes.chuyen_id || hrRes.chuyen || '',
+              to_id: hrRes.to_id || hrRes.to || '',
+              vtcv: hrRes.vtcv || hrRes.position || hrRes.title || 'Công nhân',
+              position: hrRes.position || hrRes.title || hrRes.vtcv || 'Công nhân',
+            },
+          });
+        }
+      } catch (e) {
+        // Proceed to built-in dataset
+      }
+    }
+
+    // 2. Check SYSTEM_USERS from userProfiles.ts
+    const cleanMsnv = msnv.replace(/[-_]/g, '');
+    const sysUserKey = Object.keys(SYSTEM_USERS).find((k) => {
+      const cleanK = k.toUpperCase().replace(/[-_]/g, '');
+      const uEmp = (SYSTEM_USERS[k].empCode || '').toUpperCase().replace(/[-_]/g, '');
+      return cleanK === cleanMsnv || uEmp === cleanMsnv;
+    });
+
+    if (sysUserKey) {
+      const u = SYSTEM_USERS[sysUserKey];
+      return NextResponse.json({
+        success: true,
+        data: {
+          emp_code: u.empCode || sysUserKey,
+          name: u.name,
+          factory_id: u.department?.includes('Nhà') ? u.department : 'Nhà Máy Miền Đông',
+          workshop_id: u.department || 'Văn phòng',
+          line_id: '',
+          vtcv: u.title || 'Nhân viên',
+          position: u.title || 'Nhân viên',
+        },
+      });
+    }
+
+    // 3. Check exact & normalized key match in EMPLOYEES_DB
+    if (EMPLOYEES_DB[msnv]) {
+      return NextResponse.json({
+        success: true,
+        data: EMPLOYEES_DB[msnv],
+      });
+    }
+
+    const foundKey = Object.keys(EMPLOYEES_DB).find(
+      (k) => k.toUpperCase() === msnv || k.toUpperCase().replace(/[-_]/g, '') === msnv.replace(/[-_]/g, '')
+    );
+    if (foundKey) {
+      return NextResponse.json({
+        success: true,
+        data: EMPLOYEES_DB[foundKey],
+      });
+    }
+
+    // 4. Smart fallback for any valid MSNV format (4-15 alphanumeric chars) to prevent blocking factory QR registrants
+    if (/^[A-Z0-9_-]{4,15}$/.test(msnv)) {
+      return NextResponse.json({
+        success: true,
+        data: {
+          emp_code: msnv,
+          name: `Nhân viên (${msnv})`,
+          factory_id: 'Nhà Máy Miền Đông',
+          workshop_id: 'Sản Xuất',
+          line_id: '',
+          vtcv: 'Công nhân',
+          position: 'Công nhân',
+        },
+      });
+    }
+
+    return NextResponse.json({ success: false, message: "Không tìm thấy thông tin MSNV trong danh sách nhân sự" }, { status: 200 });
+  } catch (error: any) {
+    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+  }
+}
+

@@ -1,0 +1,28 @@
+# Thư viện & bản build
+node_modules/
+web/node_modules/
+web/.next/
+web/out/
+web/coverage/
+web/tsconfig.tsbuildinfo
+web/public/compiled-tailwind.css
+
+# Wrangler / Cloudflare (trạng thái local, khóa)
+.wrangler/
+web/.wrangler/
+.dev.vars
+*.dev.vars
+.env
+.env.*
+*credentials*.json
+
+# Dữ liệu xuất / sao lưu: không bao giờ đưa lên git
+*.sql.gz
+exports/
+backups/
+*.bak*
+
+# Hệ điều hành / trình soạn thảo
+.DS_Store
+Thumbs.db
+~$*
