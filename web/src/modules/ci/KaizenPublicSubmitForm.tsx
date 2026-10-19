@@ -65,22 +65,10 @@ export function normalizeCategoryId(catRaw?: string): string {
 
 export const REAL_FACTORIES = [
   "Nhà Máy Miền Đông",
-  "Skechers Miền Đông",
-  "Kiên Giang 1",
-  "Kiên Giang 2",
-  "Kiên Giang 3",
-  "Hoàn Thiện Đế",
 ];
 
-export function normalizeFactoryName(fac?: string): string {
-  if (!fac) return "Nhà Máy Miền Đông";
-  const f = fac.trim().toUpperCase();
-  if (f.includes("MIỀN ĐÔNG") || f.includes("MIEN DONG") || f === "NMMĐ" || f === "NMMD") return "Nhà Máy Miền Đông";
-  if (f.includes("SKECHERS MIỀN ĐÔNG") || f.includes("VP CHUỖI") || f.includes("VP CHUOI") || f.includes("SKECHERS")) return "Skechers Miền Đông";
-  if (f === "KG1" || f === "KG 1" || f.includes("KIÊN GIANG 1") || f.includes("KIEN GIANG 1")) return "Kiên Giang 1";
-  if (f === "KG2" || f === "KG 2" || f.includes("KIÊN GIANG 2") || f.includes("KIEN GIANG 2")) return "Kiên Giang 2";
-  if (f === "KG3" || f === "KG 3" || f.includes("KIÊN GIANG 3") || f.includes("KIEN GIANG 3")) return "Kiên Giang 3";
-  if (f.includes("HOÀN THIỆN ĐẾ") || f.includes("HTĐ") || f === "HTD") return "Hoàn Thiện Đế";
+/** Hệ thống Skechers Miền Đông: mọi sáng kiến thuộc Nhà Máy Miền Đông */
+export function normalizeFactoryName(_fac?: string): string {
   return "Nhà Máy Miền Đông";
 }
 
@@ -95,12 +83,7 @@ export function normalizeWorkshopName(facNormalized: string, wsRaw?: string): st
 }
 
 export const REAL_DEPARTMENTS = [
-  "Skechers Miền Đông",
   "Nhà Máy Miền Đông",
-  "Kiên Giang 1",
-  "Kiên Giang 2",
-  "Kiên Giang 3",
-  "Hoàn Thiện Đế",
 ];
 
 const VTCV_OPTIONS = [
@@ -166,10 +149,7 @@ export default function KaizenPublicSubmitForm({
         const cleanRegion = decodeURIComponent(rawRegion).replace(/\/register$/i, "").trim();
         targetFac = normalizeFactoryName(cleanRegion);
       } else {
-        const host = window.location.hostname.toLowerCase();
-        if (host.includes("vpchuoi")) {
-          targetFac = "Skechers Miền Đông";
-        }
+        // Skechers Miền Đông: chỉ có Nhà Máy Miền Đông
       }
 
       const defaultWs = "Phân Xưởng Mẫu";
@@ -208,6 +188,22 @@ export default function KaizenPublicSubmitForm({
   const [selectedFormLine, setSelectedFormLine] = useState<string>("");
   const [selectedFormChuyen, setSelectedFormChuyen] = useState<string>("");
   const [selectedFormTo, setSelectedFormTo] = useState<string>("");
+
+  // Phân xưởng Mẫu và Văn phòng không có line/chuyền sản xuất
+  const isSampleWorkshop = useMemo(() => {
+    if (!selectedFormWorkshop) return false;
+    const ws = selectedFormWorkshop.trim().toLowerCase();
+    return ws.includes("mẫu") || ws.includes("mau") || ws.includes("văn phòng") || ws.includes("van phong");
+  }, [selectedFormWorkshop]);
+
+  // Tự động dọn dẹp line/chuyền khi chuyển sang Phân xưởng Mẫu
+  useEffect(() => {
+    if (isSampleWorkshop && selectedFormLine) {
+      setSelectedFormLine("");
+      setSelectedFormChuyen("");
+      setSelectedFormTo("");
+    }
+  }, [isSampleWorkshop, selectedFormLine]);
 
   // Available sub-level items
   const availableFormWorkshops = useMemo(() => {
@@ -559,7 +555,7 @@ export default function KaizenPublicSubmitForm({
     e.preventDefault();
 
     const targetDept = selectedFormWorkshop
-      ? `${selectedFormWorkshop}${selectedFormLine ? ` - ${selectedFormLine}` : ""}`
+      ? `${selectedFormWorkshop}${!isSampleWorkshop && selectedFormLine ? ` - ${selectedFormLine}` : ""}`
       : form.department || "Xưởng Sản Xuất";
 
     const targetFactory = form.factory || selectedFormFactory || "Nhà Máy Miền Đông";
@@ -637,7 +633,7 @@ export default function KaizenPublicSubmitForm({
           factory: targetFactory,
           region: targetFactory,
           department: targetDept,
-          line: selectedFormLine,
+          line: isSampleWorkshop ? "" : selectedFormLine,
           proposerMonth: currentMonth,
           proposerYear: currentYear,
           proposer_position: form.proposerPosition,
@@ -686,7 +682,7 @@ export default function KaizenPublicSubmitForm({
             body: JSON.stringify({
               factory: targetFactory,
               region: targetFactory,
-              line: selectedFormLine,
+              line: isSampleWorkshop ? "" : selectedFormLine,
               category: form.category,
               beforeDescription: form.beforeDescription,
               afterSolution: form.afterSolution,
@@ -962,61 +958,13 @@ export default function KaizenPublicSubmitForm({
                 </div>
               </div>
 
-              {/* Hàng 2: Line | Phân xưởng | Nhà máy */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-200/80">
-                {/* 1. Line */}
-                <div className="space-y-1">
-                  <label className="font-black text-slate-900 text-[11px]">Line / Chuyền</label>
-                  <select
-                    value={selectedFormLine}
-                    onChange={(e) => {
-                      setSelectedFormLine(e.target.value);
-                      setSelectedFormChuyen("");
-                      setSelectedFormTo("");
-                    }}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] bg-white"
-                  >
-                    <option value="">-- Chọn Line / Chuyền --</option>
-                    {availableFormLines.map((ln) => (
-                      <option key={ln} value={ln}>
-                        {ln}
-                      </option>
-                    ))}
-                    {selectedFormLine && !availableFormLines.includes(selectedFormLine) && (
-                      <option value={selectedFormLine}>{selectedFormLine}</option>
-                    )}
-                  </select>
-                </div>
-
-                {/* 2. Phân Xưởng */}
-                <div className="space-y-1">
-                  <label className="font-black text-slate-900 text-[11px]">
-                    Phân Xưởng <span className="text-rose-600 font-bold ml-0.5">*</span>
-                  </label>
-                  <select
-                    required
-                    value={selectedFormWorkshop}
-                    onChange={(e) => {
-                      setSelectedFormWorkshop(e.target.value);
-                      setSelectedFormLine("");
-                      setSelectedFormChuyen("");
-                      setSelectedFormTo("");
-                    }}
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] bg-white"
-                  >
-                    <option value="">-- Chọn Phân Xưởng --</option>
-                    {availableFormWorkshops.map((ws) => (
-                      <option key={ws} value={ws}>
-                        {ws}
-                      </option>
-                    ))}
-                    {selectedFormWorkshop && !availableFormWorkshops.includes(selectedFormWorkshop) && (
-                      <option value={selectedFormWorkshop}>{selectedFormWorkshop}</option>
-                    )}
-                  </select>
-                </div>
-
-                {/* 3. Nhà Máy */}
+              {/* Hàng 2: Nhà máy | Phân xưởng | Line (Ẩn Line nếu chọn Phân Xưởng Mẫu) */}
+              <div
+                className={`grid grid-cols-1 ${
+                  isSampleWorkshop ? "sm:grid-cols-2" : "sm:grid-cols-3"
+                } gap-3 pt-2 border-t border-slate-200/80 transition-all duration-200`}
+              >
+                {/* 1. Nhà Máy */}
                 <div className="space-y-1">
                   <label className="font-black text-slate-900 text-[11px]">
                     Nhà Máy <span className="text-rose-600 font-bold ml-0.5">*</span>
@@ -1046,6 +994,61 @@ export default function KaizenPublicSubmitForm({
                     )}
                   </select>
                 </div>
+
+                {/* 2. Phân Xưởng */}
+                <div className="space-y-1">
+                  <label className="font-black text-slate-900 text-[11px]">
+                    Phân Xưởng <span className="text-rose-600 font-bold ml-0.5">*</span>
+                  </label>
+                  <select
+                    required
+                    value={selectedFormWorkshop}
+                    onChange={(e) => {
+                      const newWs = e.target.value;
+                      setSelectedFormWorkshop(newWs);
+                      setSelectedFormLine("");
+                      setSelectedFormChuyen("");
+                      setSelectedFormTo("");
+                    }}
+                    className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] bg-white"
+                  >
+                    <option value="">-- Chọn Phân Xưởng --</option>
+                    {availableFormWorkshops.map((ws) => (
+                      <option key={ws} value={ws}>
+                        {ws}
+                      </option>
+                    ))}
+                    {selectedFormWorkshop && !availableFormWorkshops.includes(selectedFormWorkshop) && (
+                      <option value={selectedFormWorkshop}>{selectedFormWorkshop}</option>
+                    )}
+                  </select>
+                </div>
+
+                {/* 3. Line (Ẩn hoàn toàn nếu là Phân Xưởng Mẫu hoặc Văn phòng) */}
+                {!isSampleWorkshop && (
+                  <div className="space-y-1 animate-in fade-in duration-200">
+                    <label className="font-black text-slate-900 text-[11px]">Line / Chuyền</label>
+                    <select
+                      value={selectedFormLine}
+                      onChange={(e) => {
+                        setSelectedFormLine(e.target.value);
+                        setSelectedFormChuyen("");
+                        setSelectedFormTo("");
+                      }}
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-none focus:border-[#006838] bg-white"
+                    >
+                      <option value="">-- Chọn Line / Chuyền --</option>
+                      {availableFormLines.map((ln) => (
+                        <option key={ln} value={ln}>
+                          {ln}
+                        </option>
+                      ))}
+                      {selectedFormLine && !availableFormLines.includes(selectedFormLine) && (
+                        <option value={selectedFormLine}>{selectedFormLine}</option>
+                      )}
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
           </div>
