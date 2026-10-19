@@ -17,12 +17,7 @@ export interface OrgNodeMap {
 }
 
 export const KIEN_GIANG_FACTORIES = [
-  "Skechers Miền Đông",
   "Nhà Máy Miền Đông",
-  "Kiên Giang 1",
-  "Kiên Giang 2",
-  "Kiên Giang 3",
-  "Hoàn Thiện Đế",
 ];
 
 export function isKienGiangFactory(factory: string): boolean {
@@ -78,20 +73,10 @@ const VP_WORKSHOPS = {
   ...STANDARD_WORKSHOPS,
 };
 
+// Hệ thống Skechers Miền Đông: chỉ có Nhà Máy Miền Đông
 export const INITIAL_ORG_TREE: OrgNodeMap = {
   "Nhà Máy Miền Đông": MIEN_DONG_WORKSHOPS,
   "NMMĐ": MIEN_DONG_WORKSHOPS,
-  "Kiên Giang 1": STANDARD_WORKSHOPS,
-  "Nhà máy Kiên Giang 1": STANDARD_WORKSHOPS,
-  "Kiên Giang 2": STANDARD_WORKSHOPS,
-  "Nhà máy Kiên Giang 2": STANDARD_WORKSHOPS,
-  "Kiên Giang 3": STANDARD_WORKSHOPS,
-  "Nhà máy Kiên Giang 3": STANDARD_WORKSHOPS,
-  "Hoàn Thiện Đế": STANDARD_WORKSHOPS,
-  "Skechers Miền Đông": VP_WORKSHOPS,
-  "Skechers Miền Đông": VP_WORKSHOPS,
-  "Skechers Miền Đông Supply Chain": VP_WORKSHOPS,
-  "Miền Đông": VP_WORKSHOPS,
 };
 
 /**
