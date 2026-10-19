@@ -3,8 +3,9 @@
  * Handles site-isolated folders, unique public_id generation, and cache-busting versioning.
  */
 
-export const CLOUDINARY_CLOUD_NAME = "dwl2xtbqa";
-export const CLOUDINARY_PRESET = "vpchuoisk";
+// Miền Đông: không dùng tài khoản Cloudinary của Văn phòng Chuỗi; tệp lưu R2 riêng qua /api/files/upload
+export const CLOUDINARY_CLOUD_NAME = "";
+export const CLOUDINARY_PRESET = "";
 
 export interface CloudinaryUploadOptions {
   category?: string;
@@ -74,64 +75,34 @@ export async function uploadCloudinaryFile(
   file: File | string,
   options: CloudinaryUploadOptions = {}
 ): Promise<{ secure_url: string; public_id: string; folder: string }> {
-  const { category = "general", fileType = "image" } = options;
+  const { category = "general" } = options;
 
-  let uploadPayload: File | string = file;
+  // Data URL / blob URL → Blob để gửi lên máy chủ
+  let uploadPayload: File | Blob = typeof file === "string" ? await (await fetch(file)).blob() : file;
 
-  // Auto-compress large image files on client before upload
-  if (typeof file !== "string" && file.type && file.type.startsWith("image/")) {
+  // Nén ảnh lớn ngay trên trình duyệt trước khi tải
+  if (uploadPayload.type && uploadPayload.type.startsWith("image/") && !uploadPayload.type.includes("gif")) {
     try {
-      const compressed = await compressImage(file, { maxWidth: 1600, maxHeight: 1600, quality: 0.8 });
+      const asFile = uploadPayload instanceof File ? uploadPayload : new File([uploadPayload], "image.jpg", { type: uploadPayload.type });
+      const compressed = await compressImage(asFile, { maxWidth: 1600, maxHeight: 1600, quality: 0.8 });
       uploadPayload = compressed.file;
     } catch (err) {
       console.warn("Client compression fallback, uploading original:", err);
     }
   }
 
-  const siteInfo = getSiteFolder();
-  const targetFolder = options.folder || siteInfo.folder;
-
-  const fileName = typeof uploadPayload === "string" ? "dataurl" : uploadPayload.name;
-  const uniquePublicId = generateUniquePublicId(category, fileName, siteInfo.prefix);
-
-  const endpoint = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${fileType === "video" ? "video" : "image"}/upload`;
-
-  // Attempt 1: With folder & custom public_id
   const formData = new FormData();
-  formData.append("file", uploadPayload);
-  formData.append("upload_preset", CLOUDINARY_PRESET);
-  formData.append("folder", targetFolder);
-  formData.append("public_id", uniquePublicId);
-
-  let res = await fetch(endpoint, {
+  formData.append("file", uploadPayload, uploadPayload instanceof File ? uploadPayload.name : "upload");
+  formData.append("fileType", category);
+  const token = typeof window !== "undefined" ? localStorage.getItem("tbs_token") || sessionStorage.getItem("tbs_token") || "" : "";
+  const res = await fetch("/api/files/upload", {
     method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: formData,
   });
-
-  let data = await res.json();
-
-  // Attempt 2: If failed due to public_id restriction in unsigned preset, retry without public_id
-  if (!res.ok && (data.error?.message?.includes("public_id") || data.error?.message?.includes("preset"))) {
-    const fallbackFormData = new FormData();
-    fallbackFormData.append("file", file);
-    fallbackFormData.append("upload_preset", CLOUDINARY_PRESET);
-
-    res = await fetch(endpoint, {
-      method: "POST",
-      body: fallbackFormData,
-    });
-    data = await res.json();
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.success || !data.data?.url) {
+    throw new Error(data?.message || "Không thể tải tệp lên!");
   }
-
-  if (!res.ok || !data.secure_url) {
-    throw new Error(data.error?.message || "Không thể tải tệp lên Cloudinary!");
-  }
-
-  const versionedUrl = formatCloudinaryUrl(data.secure_url, data.version || Date.now());
-
-  return {
-    secure_url: versionedUrl,
-    public_id: data.public_id || uniquePublicId,
-    folder: targetFolder,
-  };
+  return { secure_url: data.data.url, public_id: data.data.r2Key, folder: "r2" };
 }

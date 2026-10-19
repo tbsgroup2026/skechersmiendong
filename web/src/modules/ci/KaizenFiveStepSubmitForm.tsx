@@ -28,6 +28,7 @@ import {
 } from "@tabler/icons-react";
 import { getValidKaizenImageUrl } from "@/lib/kaizenImageHelper";
 import { compressImageFile } from "@/lib/imageCompressor";
+import { uploadCloudinaryFile } from "@/lib/cloudinary";
 
 const TOPIC_GROUPS = [
   { id: "PRODUCTIVITY", label: "3. Tăng Năng Suất", category: "NĂNG SUẤT", color: "bg-blue-600 text-white", desc: "Tối ưu thao tác, tăng sản lượng, giảm thời gian sản xuất" },
@@ -43,10 +44,10 @@ import { REAL_DEPARTMENTS, normalizeFactoryName, normalizeWorkshopName } from ".
 
 const REGIONS = REAL_DEPARTMENTS;
 
-const CLOUDINARY_CLOUD_NAME = "dwl2xtbqa";
+const CLOUDINARY_CLOUD_NAME = "";
 const CLOUDINARY_PRESETS = {
-  image: "vpchuoisk",
-  video: "vpchuoisk",
+  image: "",
+  video: "",
 };
 
 interface KaizenFiveStepSubmitFormProps {
@@ -213,37 +214,8 @@ export default function KaizenFiveStepSubmitForm({ onSuccessClose, onCancel }: K
 
   // Cloudinary File Upload
   const uploadToCloudinary = async (fileOrDataUrl: File | string, fileType: "image" | "video"): Promise<string> => {
-    try {
-      const formData = new FormData();
-      const preset = CLOUDINARY_PRESETS[fileType];
-
-      let upload: Blob = typeof fileOrDataUrl === "string" ? await (await fetch(fileOrDataUrl)).blob() : fileOrDataUrl;
-      // Ảnh chụp điện thoại 6-10MB: nén còn tối đa 1600px, < 1.5MB trước khi gửi (mạng xưởng yếu)
-      if (fileType === "image" && upload.type.startsWith("image/") && upload.size > 300 * 1024) {
-        try {
-          upload = await compressImageFile(new File([upload], "anh-kaizen.jpg", { type: upload.type }));
-        } catch {}
-      }
-      formData.append("file", upload);
-
-      formData.append("upload_preset", preset);
-
-      const res = await fetch(
-        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${fileType}/upload`,
-        { method: "POST", body: formData }
-      );
-
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error?.message || `Lỗi tải lên ${fileType}`);
-      }
-
-      const data = await res.json();
-      return data.secure_url;
-    } catch (err) {
-      console.error(`Cloudinary ${fileType} upload error:`, err);
-      throw err;
-    }
+    // Miền Đông: lưu R2 riêng (không dùng Cloudinary của Văn phòng Chuỗi)
+    return (await uploadCloudinaryFile(fileOrDataUrl, { category: "kaizen", fileType })).secure_url;
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, fieldName: "beforeImageUrl" | "afterImageUrl") => {

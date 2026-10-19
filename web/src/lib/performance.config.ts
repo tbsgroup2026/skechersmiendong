@@ -21,7 +21,7 @@ export const PERF_CONFIG: PerformanceConfig = {
   enableSmartImage: true,
   enableServiceWorker: true,
   enableReducedMotion: true,
-  cloudinaryCloudName: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || "dwl2xtbqa",
+  cloudinaryCloudName: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || "",
   defaultQuality: {
     high: "q_auto:best,f_auto",
     medium: "q_auto:good,f_auto",

@@ -3089,6 +3089,7 @@ export default {
         ((p === "/api/ci-kaizen") && (m === "POST" || m === "PUT")) ||  // trang nộp Kaizen công khai /work/kaizen/register
         ((p === "/api/ci-kaizen/check-duplicate" || p === "/api/ci-kaizen/merge") && m === "POST") ||
         (p === "/api/employees/lookup" && m === "GET") ||
+        (p === "/api/files/upload" && m === "POST") ||           // tải ảnh/video (công khai cho form Kaizen, tự giới hạn bên trong)
         // PPH: tổ trưởng quét QR nhập/sửa sản lượng (/pph-scan) và màn hình TV xưởng (/pph-view*) không đăng nhập.
         // Các thao tác ghi cấu hình (org, factory-config, slot-windows, shoe-models, xóa số liệu, tv-short-link…) vẫn bắt đăng nhập.
         (p === "/api/pph/scan" && (m === "POST" || m === "PUT")) ||
@@ -3297,7 +3298,7 @@ export default {
         name: "Phạm Nguyễn Anh Huy",
         title: "TGĐ / Trưởng Phòng IT & CĐS",
         department: "IT - Team Chuyển Đổi Số",
-        avatar: "https://res.cloudinary.com/dwl2xtbqa/image/upload/v1787117525/nzcft200bebofw7b4uzg.jpg",
+        avatar: "",
         email: "anhy.work.2004@gmail.com",
         phone: "0522511245",
         roleCode: "SUPER_ADMIN",
@@ -3371,7 +3372,7 @@ export default {
         name: "Phạm Nguyễn Anh Huy",
         title: "IT - Team Chuyển Đổi Số",
         department: "IT - Team Chuyển Đổi Số",
-        avatar: "https://res.cloudinary.com/dwl2xtbqa/image/upload/v1787117525/nzcft200bebofw7b4uzg.jpg",
+        avatar: "",
         email: "anhy.work.2004@gmail.com",
         phone: "0522511245",
         roleCode: "TRUONG_PHONG",
@@ -3382,7 +3383,7 @@ export default {
         name: "Phạm Nguyễn Anh Huy",
         title: "IT - Team Chuyển Đổi Số",
         department: "IT - Team Chuyển Đổi Số",
-        avatar: "https://res.cloudinary.com/dwl2xtbqa/image/upload/v1787117525/nzcft200bebofw7b4uzg.jpg",
+        avatar: "",
         email: "anhy.work.2004@gmail.com",
         phone: "0522511245",
         roleCode: "TRUONG_PHONG",
@@ -8458,6 +8459,66 @@ export default {
     // POST /api/upload-avatar: lưu ảnh đại diện vào R2 (IMAGE_BUCKET, dự phòng BUCKET) cho CHÍNH người đăng nhập.
     // Nhận multipart (field "file") hoặc JSON { image: "data:image/...;base64,..." }. Chỉ JPEG/PNG/WebP, tối đa 2MB.
     // Ảnh phục vụ qua /cdn-r2/avatars/<MSNV>/<thời điểm>.<đuôi>; ảnh cũ của người đó bị xóa.
+    // ── POST /api/files/upload: tải file lên R2 riêng của Miền Đông (thay Cloudinary) ──
+    // Đã đăng nhập: ảnh ≤ 10MB, video ≤ 50MB, tài liệu (PDF/Word/Excel/PowerPoint) ≤ 20MB.
+    // Chưa đăng nhập (form Kaizen công khai): chỉ ảnh / video, tối đa 20 lần mỗi giờ cho 1 IP.
+    // Loại file xác định theo byte đầu file (không tin tên file / Content-Type), không nhận SVG/HTML.
+    if (url.pathname === "/api/files/upload" && request.method === "POST") {
+      const J = SECURE_JSON_HEADERS;
+      const fail = (status, error, message) => new Response(JSON.stringify({ success: false, error, message }), { status, headers: J });
+      try {
+        const loggedIn = Boolean(__legacySession && __legacySession.empCode);
+        const ip = request.headers.get("cf-connecting-ip") || "";
+        if (!loggedIn && ip && env.DB) {
+          await env.DB.prepare("CREATE TABLE IF NOT EXISTS upload_rate_log (ip TEXT NOT NULL, at INTEGER NOT NULL)").run().catch(() => {});
+          const since = Date.now() - 3600 * 1000;
+          const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM upload_rate_log WHERE ip = ? AND at > ?").bind(ip, since).first().catch(() => null);
+          if (row && Number(row.n) >= 20) return fail(429, "RATE_LIMITED", "Bạn đã tải quá nhiều tệp, vui lòng thử lại sau 1 giờ");
+          await env.DB.prepare("INSERT INTO upload_rate_log (ip, at) VALUES (?, ?)").bind(ip, Date.now()).run().catch(() => {});
+          await env.DB.prepare("DELETE FROM upload_rate_log WHERE at < ?").bind(since).run().catch(() => {});
+        }
+        const form = await request.formData().catch(() => null);
+        const file = form && form.get("file");
+        if (!file || typeof file === "string") return fail(400, "NO_FILE", "Chưa chọn tệp");
+        const category = String((form.get("fileType") || form.get("category") || "general")).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 30) || "general";
+        const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+        const sig = (arr, off = 0) => arr.every((v, i) => head[off + i] === v);
+        const name = String(file.name || "file");
+        const ext0 = (name.split(".").pop() || "").toLowerCase();
+        let kind = "", mime = "", ext = "";
+        if (sig([0xff, 0xd8, 0xff])) { kind = "image"; mime = "image/jpeg"; ext = "jpg"; }
+        else if (sig([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) { kind = "image"; mime = "image/png"; ext = "png"; }
+        else if (sig([0x52, 0x49, 0x46, 0x46]) && sig([0x57, 0x45, 0x42, 0x50], 8)) { kind = "image"; mime = "image/webp"; ext = "webp"; }
+        else if (sig([0x47, 0x49, 0x46, 0x38])) { kind = "image"; mime = "image/gif"; ext = "gif"; }
+        else if (sig([0x66, 0x74, 0x79, 0x70], 4)) { kind = "video"; mime = ext0 === "mov" ? "video/quicktime" : "video/mp4"; ext = ext0 === "mov" ? "mov" : "mp4"; }
+        else if (sig([0x1a, 0x45, 0xdf, 0xa3])) { kind = "video"; mime = "video/webm"; ext = "webm"; }
+        else if (sig([0x25, 0x50, 0x44, 0x46])) { kind = "doc"; mime = "application/pdf"; ext = "pdf"; }
+        else if (sig([0x50, 0x4b, 0x03, 0x04]) && ["docx", "xlsx", "pptx"].includes(ext0)) {
+          kind = "doc"; ext = ext0;
+          mime = { docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }[ext0];
+        }
+        if (!kind) return fail(400, "BAD_TYPE", "Chỉ nhận ảnh (JPG, PNG, WEBP, GIF), video (MP4, MOV, WEBM) hoặc tài liệu PDF/Word/Excel/PowerPoint");
+        if (!loggedIn && kind === "doc") return fail(401, "UNAUTHORIZED", "Vui lòng đăng nhập để tải tài liệu");
+        const MAX = kind === "image" ? 10 : kind === "video" ? 50 : 20;
+        if (file.size > MAX * 1024 * 1024) return fail(400, "TOO_LARGE", `Tệp vượt quá ${MAX}MB`);
+        const bucket = kind === "doc" ? (env.BUCKET || env.IMAGE_BUCKET) : (env.IMAGE_BUCKET || env.BUCKET);
+        if (!bucket || typeof bucket.put !== "function") return fail(500, "NO_STORAGE", "Chưa cấu hình kho lưu tệp (R2)");
+        const now = new Date();
+        const rand = [...crypto.getRandomValues(new Uint8Array(9))].map((x) => x.toString(16).padStart(2, "0")).join("");
+        const key = `uploads/${category}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, "0")}/${Date.now()}_${rand}.${ext}`;
+        const uploader = loggedIn ? String(__legacySession.empCode) : `PUBLIC:${ip || "unknown"}`;
+        await bucket.put(key, await file.arrayBuffer(), {
+          httpMetadata: { contentType: mime, cacheControl: "public, max-age=31536000, immutable", ...(kind === "doc" ? { contentDisposition: `attachment; filename="${name.replace(/[^\w.\-]/g, "_").slice(0, 100)}"` } : {}) },
+          customMetadata: { uploader, category, originalName: name.slice(0, 200) },
+        });
+        const fileUrl = `${url.origin}/cdn-r2/${key}`;
+        if (loggedIn) await recordAuditLog(__legacySession, "FILES", "UPLOAD", key, null, { size: file.size, type: mime, category }, request).catch(() => {});
+        return new Response(JSON.stringify({ success: true, data: { id: key, r2Key: key, url: fileUrl, fileUrl, dataUrl: "", name: key.split("/").pop(), originalName: name, mimeType: mime, type: mime, size: file.size, fileType: category } }), { headers: J });
+      } catch (err) {
+        return fail(500, "UPLOAD_ERROR", "Không tải được tệp, vui lòng thử lại");
+      }
+    }
+
     if (url.pathname === "/api/upload-avatar" && request.method === "POST") {
       const J = { "Content-Type": "application/json", "Cache-Control": "no-store" };
       const fail = (status, error, message) => new Response(JSON.stringify({ success: false, error, message }), { status, headers: J });
@@ -9603,7 +9664,7 @@ export default {
             email: "anhy.work.2004@gmail.com",
             phone: "0522511245",
             roleCode: "TRUONG_PHONG",
-            avatar: "https://res.cloudinary.com/dwl2xtbqa/image/upload/v1787117525/nzcft200bebofw7b4uzg.jpg",
+            avatar: "",
             redirectUrl: "/work",
           },
           "202608002": {

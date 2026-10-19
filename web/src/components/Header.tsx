@@ -132,41 +132,6 @@ export default function Header() {
     }
   }, [profileModalOpen, userInfo]);
 
-  const uploadImageToCloudinary = async (fileOrDataUrl: File | string): Promise<string> => {
-    const presets = ["vpchuoisk", "unsigned", "ml_default"];
-    for (const preset of presets) {
-      try {
-        const formData = new FormData();
-        formData.append("file", fileOrDataUrl);
-        formData.append("upload_preset", preset);
-        formData.append("folder", "skechersmiendong");
-
-        const res = await fetch("https://api.cloudinary.com/v1_1/dwl2xtbqa/image/upload", {
-          method: "POST",
-          body: formData,
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (data.secure_url) {
-            return data.secure_url;
-          }
-        }
-      } catch (e) {
-        console.warn(`Cloudinary upload with preset ${preset} failed:`, e);
-      }
-    }
-
-    if (fileOrDataUrl instanceof File) {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.readAsDataURL(fileOrDataUrl);
-      });
-    }
-
-    return typeof fileOrDataUrl === "string" ? fileOrDataUrl : "";
-  };
 
   const handleAvatarUpload = async (file: File) => {
     try {

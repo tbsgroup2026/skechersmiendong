@@ -921,7 +921,7 @@ export default function CIModule({ initialUnitSlug }: CIModuleProps = {}) {
   }>({
     name: "Phạm Nguyễn Anh Huy",
     title: "IT - Team Chuyển Đổi Số",
-    avatar: "https://res.cloudinary.com/dwl2xtbqa/image/upload/v1787117525/nzcft200bebofw7b4uzg.jpg",
+    avatar: "",
     empCode: "202608001",
     roleCode: "TRUONG_PHONG",
   });

@@ -25,8 +25,7 @@ interface PreliminaryReviewModalProps {
 }
 
 // Cloudinary Configuration
-const CLOUDINARY_CLOUD_NAME = "dwl2xtbqa";
-const CLOUDINARY_PRESET = "vpchuoisk";
+import { uploadCloudinaryFile } from "@/lib/cloudinary";
 
 export default function PreliminaryReviewModal({
   proposal,
@@ -62,17 +61,8 @@ export default function PreliminaryReviewModal({
     try {
       setUploading(true);
       showToast("☁️ Đang tải ảnh kiểm chứng hiện trường lên...");
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("upload_preset", CLOUDINARY_PRESET);
-
-      const res = await fetch(
-        `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`,
-        { method: "POST", body: formData }
-      );
-
-      if (!res.ok) throw new Error("Upload error");
-      const data = await res.json();
+      // Lưu ảnh lên R2 riêng của Miền Đông
+      const data = await uploadCloudinaryFile(file, { category: "kaizen" });
       setVerificationPhotos((prev) => [...prev, data.secure_url]);
       showToast("✅ Đã đính kèm ảnh kiểm chứng hiện trường thành công!");
     } catch (err) {
