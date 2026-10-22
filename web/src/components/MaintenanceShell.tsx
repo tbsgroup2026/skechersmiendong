@@ -173,7 +173,7 @@ function MaintenanceShellInner({
           </div>
           <div>
             <h2 className="text-base font-bold text-white tracking-tight">Hệ Thống MMTB Production</h2>
-            <p className="text-xs text-emerald-400/80 font-medium mt-1">Skechers Miền Đông / TBS Group II</p>
+            <p className="text-xs text-emerald-400/80 font-medium mt-1">Văn Phòng Chuỗi SKECHERS / TBS Group II</p>
           </div>
           <div className="flex items-center justify-center gap-2 py-2">
             <div className="w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
@@ -192,7 +192,7 @@ function MaintenanceShellInner({
   // MMTB/Bảo Dưỡng MMTB/Nhu Cầu Sửa Chữa/Đề Xuất/Danh Mục (các mục đó chỉ có ý nghĩa khi đang xem 1
   // nhà máy cụ thể).
   // "Test Biểu Đồ" chỉ có ý nghĩa ở trang Tổng Quan SO SÁNH 6 đơn vị (scope=ALL) — ẩn hẳn khi đang
-  // xem riêng 1 nhà máy/khu vực cụ thể (Kiên Giang/Miền Đông/Skechers Miền Đông).
+  // xem riêng 1 nhà máy/khu vực cụ thể (Kiên Giang/Miền Đông/Văn Phòng Chuỗi).
   const visibleNav =
     activeScope === 'ALL'
       ? MMTB_NAV.filter((entry) => entry.id === 'overview' || entry.id === 'kpi' || entry.id === 'chart-lab')
@@ -206,10 +206,9 @@ function MaintenanceShellInner({
       >
         <div className="p-4 flex items-center justify-between border-b border-white/10 min-h-[64px]">
           {!collapsed ? (
-            <Link href="/work" className="flex items-center gap-2.5 min-w-0 group">
+            <Link href="/work" className="flex items-center gap-2 min-w-0 group">
               <img src="/images/tbs-logo.png" alt="TBS Group Logo" className="h-7 w-auto object-contain flex-shrink-0 group-hover:scale-105 transition-transform" />
-              <div className="h-4 w-[1px] bg-white/20 mx-0.5" />
-              <span className="text-xs font-bold text-white truncate tracking-tight uppercase">MMTB Operations</span>
+              <span className="text-xs font-bold text-white truncate tracking-tight">Quản Lý MMTB</span>
             </Link>
           ) : (
             <Link href="/work" className="mx-auto">
@@ -224,7 +223,7 @@ function MaintenanceShellInner({
           </button>
         </div>
 
-        {/* Khu vực đang xem — để dữ liệu trống (Skechers Miền Đông/Nhà Máy Miền Đông chưa kết nối hệ
+        {/* Khu vực đang xem — để dữ liệu trống (Văn phòng Chuỗi/Nhà Máy Miền Đông chưa kết nối hệ
             thống MMTB thật) không bị hiểu nhầm là lỗi tải trang. */}
         {!collapsed && (
           <div className={`mx-3 mt-3 px-3 py-1.5 rounded-lg border ${currentScopeMeta.badgeBg} ${currentScopeMeta.badgeBorder} flex items-center gap-1.5`}>
@@ -258,12 +257,12 @@ function MaintenanceShellInner({
                 <div key={entry.id} className="space-y-1">
                   <button
                     onClick={() => toggleGroup(entry.id)}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-150 ${
-                      hasActiveChild ? 'text-emerald-300 font-bold' : 'text-slate-400 hover:bg-white/[0.06] hover:text-white'
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 ${
+                      hasActiveChild ? 'text-emerald-300 font-bold' : 'text-slate-300 hover:bg-white/[0.08] hover:text-white'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 truncate">
-                      <Icon size={17} className={hasActiveChild ? 'text-emerald-400' : 'text-slate-400'} />
+                      <Icon size={18} className={hasActiveChild ? 'text-emerald-400' : 'text-slate-300'} />
                       {!collapsed && <span className="truncate">{entry.label}</span>}
                     </div>
                     {!collapsed && (
@@ -284,13 +283,13 @@ function MaintenanceShellInner({
                           <Link
                             key={child.id}
                             href={getScopedHref(child.href)}
-                            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-[11px] font-medium transition-all duration-150 border-l-2 ${
+                            className={`flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium transition-all duration-150 border-l-2 ${
                               isChildActive
                                 ? 'bg-[#006838]/30 text-emerald-300 font-bold border-emerald-400'
-                                : 'border-transparent text-slate-400 hover:bg-white/[0.06] hover:text-white'
+                                : 'border-transparent text-slate-300 hover:bg-white/[0.08] hover:text-white'
                             }`}
                           >
-                            <ChildIcon size={14} className={isChildActive ? 'text-emerald-400' : 'text-slate-500'} />
+                            <ChildIcon size={15} className={isChildActive ? 'text-emerald-400' : 'text-slate-400'} />
                             <span className="truncate">{child.label}</span>
                           </Link>
                         );
@@ -306,13 +305,13 @@ function MaintenanceShellInner({
               <Link
                 key={entry.id}
                 href={getScopedHref(entry.href)}
-                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-all duration-150 border-l-2 ${
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 border-l-2 ${
                   isActive
                     ? 'bg-[#006838]/30 text-emerald-300 font-bold border-emerald-400'
-                    : 'border-transparent text-slate-400 hover:bg-white/[0.06] hover:text-white'
+                    : 'border-transparent text-slate-300 hover:bg-white/[0.08] hover:text-white'
                 }`}
               >
-                <Icon size={17} className={isActive ? 'text-emerald-400' : 'text-slate-400'} />
+                <Icon size={18} className={isActive ? 'text-emerald-400' : 'text-slate-300'} />
                 {!collapsed && <span className="truncate">{entry.label}</span>}
               </Link>
             );

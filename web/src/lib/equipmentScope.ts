@@ -115,17 +115,11 @@ export function isScopeAllowed(
   return allowedScopes.includes(targetScope);
 }
 
-// Đọc ?scope= thẳng từ window.location.search — dùng ở các trang con /maintenance/* (Danh Sách
-// MMTB, Bảo Dưỡng MMTB...) để KHÔNG cần tự import useSearchParams()/bọc Suspense riêng ở từng
-// trang (Next.js static export bắt buộc useSearchParams phải nằm trong Suspense). Đọc trực tiếp
-// window.location là đủ chính xác vì trong app này, scope chỉ đổi qua 1 lượt điều hướng ĐẦY ĐỦ từ
-// trang /work (không có UI đổi scope ngay trong lúc đang đứng ở 1 trang con).
+// Hệ thống Skechers Miền Đông — CHỈ riêng Nhà Máy Miền Đông (tách khỏi vpchuoiskechers, không có
+// Kiên Giang/Văn Phòng Chuỗi/Tổng Quan nhiều đơn vị ở đây) nên scope luôn CỐ ĐỊNH là EAST, bỏ qua
+// ?scope= trên URL hay localStorage — không còn đường nào để lỡ xem nhầm/gọi nhầm dữ liệu khu vực
+// khác. Giữ nguyên các hàm/type khác (getEffectiveScope, isScopeAllowed, EquipmentScope đủ 4 giá
+// trị) để không phải sửa lại những chỗ khác đang tham chiếu tới chúng.
 export function getCurrentMmtbScope(): EquipmentScope {
-  if (typeof window === 'undefined') return 'ALL';
-  try {
-    const params = new URLSearchParams(window.location.search);
-    return getEffectiveScope(params.get('scope'));
-  } catch {
-    return 'ALL';
-  }
+  return 'EAST';
 }

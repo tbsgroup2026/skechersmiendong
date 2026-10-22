@@ -25,7 +25,10 @@
     "VAPID_CONTACT": "mailto:admin@tbsgroup.vn"
   },
   "d1_databases": [
-    { "binding": "DB", "database_name": "skechersmiendong-db", "database_id": "de11286c-1962-4d55-8a11-1f88f09b2fce" }
+    // remote: true -> `wrangler dev` local nối thẳng D1 thật trên Cloudflare (không dùng bản
+    // SQLite mô phỏng rỗng cục bộ) để test thấy đúng dữ liệu thật — CHÚ Ý: ghi (POST/PUT/DELETE)
+    // lúc test cũng sẽ ghi THẬT vào D1 production, không phải bản nháp an toàn.
+    { "binding": "DB", "database_name": "skechersmiendong-db", "database_id": "de11286c-1962-4d55-8a11-1f88f09b2fce", "remote": true }
   ],
   "r2_buckets": [
     { "binding": "BUCKET", "bucket_name": "skechersmiendong-files" },

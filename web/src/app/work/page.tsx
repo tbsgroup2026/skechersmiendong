@@ -894,10 +894,7 @@ function WorkDashboardPage({ initialDept }: { initialDept?: string | null }) {
     const allowedModules = getAllowedModules(activeUser, sysUser);
 
     if (allowedModules === "ALL") {
-      // Executives/Admins see all except gemba for Trưởng phòng (kept for backwards compatibility if needed, but getAllowedModules already handles it)
-      const roles = (activeUser?.roles || []).concat(sysUser?.roles || []);
-      const isTP = roles.includes("TRUONG_PHONG") || roles.includes("MANAGER") || roles.includes("DEPARTMENT_HEAD");
-      if (isTP) return departments.filter((d) => d.id !== "gemba");
+      // Skechers Miền Đông — không chia quyền module nữa, ai đăng nhập cũng thấy đầy đủ sidebar.
       return departments;
     }
 

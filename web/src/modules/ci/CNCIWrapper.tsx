@@ -236,25 +236,7 @@ export default function CNCIWrapper() {
                     <IconChevronRight size={18} className="text-slate-400 group-hover:text-[#006838] group-hover:translate-x-0.5 transition-all" />
                   </Link>
 
-                  {/* Button 4: Tổ Hợp Kiên Giang */}
-                  <a
-                    href="https://thkiengiangshoes.tbsgroup2026.workers.dev/work/kaizen"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-slate-50/80 hover:bg-emerald-50/60 active:bg-emerald-100/70 border border-slate-200/80 hover:border-emerald-300 active:scale-[0.98] transition-all duration-200 group cursor-pointer shadow-2xs"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-emerald-100/80 text-[#006838] flex items-center justify-center shrink-0 font-bold border border-emerald-200/50 group-hover:scale-105 transition-transform">
-                        <IconMapPin size={20} />
-                      </div>
-                      <span className="text-xs font-black text-slate-800 group-hover:text-[#006838] transition-colors">
-                        Tổ Hợp Kiên Giang
-                      </span>
-                    </div>
-                    <IconChevronRight size={18} className="text-slate-400 group-hover:text-[#006838] group-hover:translate-x-0.5 transition-all" />
-                  </a>
-
-                  {/* Button 5: Thư Viện Cải Tiến của Ngành */}
+                  {/* Button 4: Thư Viện Cải Tiến của Ngành */}
                   <a
                     href="https://script.google.com/macros/s/AKfycbyIpvFGkvd022GKMKRBzFUR11mvH7RIuKyh-hX7-ans-R296oIn9CNMyLCq4CmqNOm9zg/exec"
                     target="_blank"
@@ -345,23 +327,6 @@ export default function CNCIWrapper() {
                     <IconChevronRight size={18} className="text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
                   </Link>
 
-                  {/* Button 4: Tổ Hợp Kiên Giang */}
-                  <a
-                    href="https://thkiengiangshoes.tbsgroup2026.workers.dev/work/gemba"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-slate-50/80 hover:bg-blue-50/60 active:bg-blue-100/70 border border-slate-200/80 hover:border-blue-300 active:scale-[0.98] transition-all duration-200 group cursor-pointer shadow-2xs"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-blue-100/80 text-blue-600 flex items-center justify-center shrink-0 font-bold border border-blue-200/50 group-hover:scale-105 transition-transform">
-                        <IconMapPin size={20} />
-                      </div>
-                      <span className="text-xs font-black text-slate-800 group-hover:text-blue-600 transition-colors">
-                        Tổ Hợp Kiên Giang
-                      </span>
-                    </div>
-                    <IconChevronRight size={18} className="text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
-                  </a>
                 </div>
               </div>
             </div>
@@ -448,25 +413,6 @@ export default function CNCIWrapper() {
                     <IconChevronRight size={18} className="text-slate-400 group-hover:text-amber-600 group-hover:translate-x-0.5 transition-all" />
                   </button>
 
-                  {/* Button 4: Tổ Hợp Kiên Giang */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleSelectMmtbScope("KIEN_GIANG");
-                      router.push("/maintenance?scope=KIEN_GIANG");
-                    }}
-                    className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-slate-50/80 hover:bg-amber-50/60 active:bg-amber-100/70 border border-slate-200/80 hover:border-amber-300 active:scale-[0.98] transition-all duration-200 group cursor-pointer shadow-2xs"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-amber-100/80 text-amber-600 flex items-center justify-center shrink-0 font-bold border border-amber-200/50 group-hover:scale-105 transition-transform">
-                        <IconMapPin size={20} />
-                      </div>
-                      <span className="text-xs font-black text-slate-800 group-hover:text-amber-600 transition-colors">
-                        Tổ Hợp Kiên Giang
-                      </span>
-                    </div>
-                    <IconChevronRight size={18} className="text-slate-400 group-hover:text-amber-600 group-hover:translate-x-0.5 transition-all" />
-                  </button>
                 </div>
               </div>
             </div>
