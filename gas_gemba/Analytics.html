@@ -1,0 +1,1058 @@
+<style>
+    #page-analytics,
+    .an-modal-bg {
+        --ink: #101825;
+        --ink-soft: #4f5d6e;
+        --ink-faint: #8695a7;
+        --line: #dbe2e9;
+        --line-soft: #e9eef2;
+        --surface: #fff;
+        --surface-2: #f5f7fa;
+        --surface-3: #eceff3;
+        --navy: #0a1c2e;
+        --navy-2: #12283f;
+        --amber: #e8890a;
+        --amber-ink: #8a4f00;
+        --amber-soft: #fbedd8;
+        --teal: #0e8a76;
+        --teal-soft: #dcf1ec;
+        --blue: #2c68ac;
+        --blue-soft: #dfe9f6;
+        --rose: #cf3f4c;
+        --rose-soft: #f8e0e2;
+        --violet: #6e55bf;
+        --mono: 'Be Vietnam Pro', 'Inter', system-ui, sans-serif;
+    }
+
+    #page-analytics svg.an-ic,
+    .an-modal-bg svg.an-ic {
+        width: 15px;
+        height: 15px;
+        flex: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round
+    }
+
+    #page-analytics .an-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px 16px;
+        margin-bottom: 14px;
+        padding: 11px 14px;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: var(--shadow-xs)
+    }
+
+    #page-analytics .an-pills {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap
+    }
+
+    #page-analytics .an-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        color: var(--ink-soft);
+        padding: 5px 11px;
+        border-radius: 7px;
+        font-size: 11.8px;
+        font-weight: 500
+    }
+
+    #page-analytics .an-pill b {
+        color: var(--ink);
+        font-weight: 700
+    }
+
+    #page-analytics .an-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--teal);
+        box-shadow: 0 0 0 3px rgba(14, 138, 118, .2);
+        flex: none
+    }
+
+    #page-analytics .an-dot.off {
+        background: var(--rose);
+        box-shadow: 0 0 0 3px rgba(207, 63, 76, .2)
+    }
+
+    #page-analytics .an-iconbtn {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        color: var(--ink-soft);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer
+    }
+
+    #page-analytics .an-iconbtn:hover {
+        color: var(--blue);
+        border-color: var(--blue)
+    }
+
+    #page-analytics .an-summary {
+        flex: 1;
+        min-width: 260px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12.5px;
+        color: var(--ink-soft)
+    }
+
+    #page-analytics .an-summary svg {
+        color: var(--amber)
+    }
+
+    #page-analytics .an-summary b {
+        color: var(--ink);
+        font-weight: 700
+    }
+
+    #page-analytics .an-summary .an-tag {
+        color: var(--blue)
+    }
+
+    #page-analytics .an-layout {
+        display: grid;
+        grid-template-columns: 260px 1fr;
+        gap: 16px;
+        align-items: start
+    }
+
+    @media(max-width:980px) {
+        #page-analytics .an-layout {
+            grid-template-columns: 1fr
+        }
+    }
+
+    #page-analytics .an-main {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 16px
+    }
+
+    #page-analytics .an-filters {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: var(--shadow-xs);
+        padding: 15px 14px 16px;
+        position: sticky;
+        top: 78px;
+        max-height: calc(100vh - 92px);
+        overflow-y: auto
+    }
+
+    @media(max-width:980px) {
+        #page-analytics .an-filters {
+            position: static;
+            max-height: none
+        }
+    }
+
+    #page-analytics .an-filters-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+        padding-bottom: 11px;
+        border-bottom: 1px solid var(--line-soft)
+    }
+
+    #page-analytics .an-filters-head h2 {
+        margin: 0;
+        font-size: 11.5px;
+        font-weight: 800;
+        letter-spacing: .6px;
+        text-transform: uppercase;
+        color: var(--ink-soft);
+        display: flex;
+        align-items: center;
+        gap: 7px
+    }
+
+    #page-analytics .an-filters-head h2 svg {
+        color: var(--amber)
+    }
+
+    #page-analytics .an-reset {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        border: none;
+        background: none;
+        color: var(--blue);
+        font-size: 11.5px;
+        font-weight: 700;
+        cursor: pointer;
+        padding: 4px 6px;
+        border-radius: 6px
+    }
+
+    #page-analytics .an-reset:hover {
+        background: var(--blue-soft)
+    }
+
+    #page-analytics .an-fgroup {
+        margin-bottom: 14px
+    }
+
+    #page-analytics .an-flabel {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--ink-faint);
+        text-transform: uppercase;
+        letter-spacing: .45px;
+        margin-bottom: 7px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between
+    }
+
+    #page-analytics .an-flabel .an-cnt {
+        background: var(--surface-3);
+        color: var(--ink-soft);
+        border-radius: 999px;
+        padding: 1px 7px;
+        font-size: 10.2px;
+        font-weight: 700
+    }
+
+    #page-analytics .an-msel {
+        position: relative
+    }
+
+    #page-analytics .an-msel-btn {
+        width: 100%;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 12.5px;
+        color: var(--ink);
+        cursor: pointer
+    }
+
+    #page-analytics .an-msel-btn:hover {
+        border-color: var(--blue)
+    }
+
+    #page-analytics .an-msel-btn.active-filter {
+        border-color: var(--amber);
+        background: var(--amber-soft)
+    }
+
+    #page-analytics .an-chev {
+        font-size: 10px;
+        color: var(--ink-faint);
+        transition: transform .15s
+    }
+
+    #page-analytics .an-msel.open .an-chev {
+        transform: rotate(180deg)
+    }
+
+    #page-analytics .an-msel-pop {
+        display: none;
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: calc(100% + 6px);
+        z-index: 40;
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        box-shadow: 0 14px 32px -12px rgba(8, 18, 32, .35);
+        max-height: 280px;
+        flex-direction: column
+    }
+
+    #page-analytics .an-msel.open .an-msel-pop {
+        display: flex
+    }
+
+    #page-analytics .an-msel-search {
+        padding: 7px;
+        border-bottom: 1px solid var(--line-soft);
+        display: flex;
+        align-items: center;
+        gap: 6px
+    }
+
+    #page-analytics .an-msel-search svg {
+        color: var(--ink-faint);
+        margin-left: 4px
+    }
+
+    #page-analytics .an-msel-search input {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 8px;
+        font-size: 12.2px;
+        background: var(--surface-2);
+        color: var(--ink)
+    }
+
+    #page-analytics .an-msel-list {
+        overflow-y: auto;
+        padding: 4px
+    }
+
+    #page-analytics .an-msel-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 12.2px;
+        margin: 0
+    }
+
+    #page-analytics .an-msel-item:hover {
+        background: var(--surface-2)
+    }
+
+    #page-analytics .an-msel-item input {
+        margin: 0;
+        accent-color: var(--blue)
+    }
+
+    #page-analytics .an-msel-item .an-n {
+        color: var(--ink-faint);
+        font-size: 10.5px;
+        margin-left: auto
+    }
+
+    #page-analytics .an-msel-actions {
+        display: flex;
+        justify-content: space-between;
+        padding: 6px 9px;
+        border-top: 1px solid var(--line-soft)
+    }
+
+    #page-analytics .an-msel-actions button {
+        border: none;
+        background: none;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--blue);
+        cursor: pointer
+    }
+
+    #page-analytics .an-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px
+    }
+
+    #page-analytics .an-chip {
+        padding: 5px 11px;
+        border-radius: 999px;
+        font-size: 11.6px;
+        font-weight: 600;
+        border: 1px solid var(--line);
+        background: var(--surface-2);
+        color: var(--ink-soft);
+        cursor: pointer
+    }
+
+    #page-analytics .an-chip:hover {
+        border-color: var(--ink-faint)
+    }
+
+    #page-analytics .an-chip.on {
+        color: #fff
+    }
+
+    #page-analytics .an-date-row {
+        display: flex;
+        gap: 8px
+    }
+
+    #page-analytics .an-date-row input {
+        width: 100%;
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 7px 8px;
+        font-size: 12.2px;
+        background: var(--surface-2);
+        color: var(--ink)
+    }
+
+    #page-analytics .an-search {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 8px 10px
+    }
+
+    #page-analytics .an-search svg {
+        color: var(--ink-faint)
+    }
+
+    #page-analytics .an-search input {
+        border: none;
+        background: none;
+        outline: none;
+        font-size: 12.6px;
+        color: var(--ink);
+        width: 100%
+    }
+
+    #page-analytics .an-kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 12px
+    }
+
+    @media(max-width:1400px) {
+        #page-analytics .an-kpi-grid {
+            grid-template-columns: repeat(3, 1fr)
+        }
+    }
+
+    @media(max-width:640px) {
+        #page-analytics .an-kpi-grid {
+            grid-template-columns: repeat(2, 1fr)
+        }
+    }
+
+    #page-analytics .an-kpi {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 13px 14px 12px;
+        box-shadow: var(--shadow-xs);
+        position: relative;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        gap: 2px
+    }
+
+    #page-analytics .an-kpi::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background: var(--accent, var(--blue))
+    }
+
+    #page-analytics .an-kpi .an-lbl {
+        font-size: 10.4px;
+        font-weight: 800;
+        color: var(--ink-faint);
+        text-transform: uppercase;
+        letter-spacing: .45px
+    }
+
+    #page-analytics .an-kpi .an-val {
+        font-family: var(--mono);
+        font-size: 25px;
+        font-weight: 800;
+        letter-spacing: -.5px;
+        margin-top: 2px;
+        font-variant-numeric: tabular-nums
+    }
+
+    #page-analytics .an-kpi .an-sub {
+        font-size: 11px;
+        color: var(--ink-soft);
+        font-weight: 500
+    }
+
+    #page-analytics .an-kpi .an-spark {
+        margin-top: 6px;
+        height: 26px
+    }
+
+    #page-analytics .an-kpi .an-spark svg {
+        width: 100%;
+        height: 100%;
+        display: block
+    }
+
+    #page-analytics .an-card {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: var(--shadow-xs);
+        padding: 15px 17px 16px;
+        min-width: 0
+    }
+
+    #page-analytics .an-card-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 2px;
+        gap: 10px;
+        flex-wrap: wrap
+    }
+
+    #page-analytics .an-card-head h3 {
+        margin: 0;
+        font-size: 13.6px;
+        font-weight: 700
+    }
+
+    #page-analytics .an-card-head .an-desc {
+        font-size: 11.2px;
+        color: var(--ink-faint);
+        font-weight: 500
+    }
+
+    #page-analytics .an-chart-wrap {
+        position: relative;
+        margin-top: 8px
+    }
+
+    #page-analytics .an-chart-wrap canvas {
+        max-width: 100%
+    }
+
+    #page-analytics .an-insight {
+        display: flex;
+        align-items: flex-start;
+        gap: 7px;
+        margin-top: 12px;
+        padding-top: 11px;
+        border-top: 1px dashed var(--line);
+        font-size: 11.8px;
+        color: var(--ink-soft);
+        line-height: 1.5
+    }
+
+    #page-analytics .an-insight:empty {
+        display: none
+    }
+
+    #page-analytics .an-insight svg {
+        color: var(--amber);
+        flex: none;
+        margin-top: 1px
+    }
+
+    #page-analytics .an-insight b {
+        color: var(--ink);
+        font-weight: 700
+    }
+
+    #page-analytics .an-grid-2 {
+        display: grid;
+        grid-template-columns: 1.3fr 1fr;
+        gap: 16px
+    }
+
+    #page-analytics .an-grid-2b {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px
+    }
+
+    @media(max-width:1180px) {
+
+        #page-analytics .an-grid-2,
+        #page-analytics .an-grid-2b {
+            grid-template-columns: 1fr
+        }
+    }
+
+    #page-analytics .an-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        border: 1px solid var(--line);
+        background: var(--surface-2);
+        color: var(--ink);
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer
+    }
+
+    #page-analytics .an-btn:hover {
+        border-color: var(--blue);
+        color: var(--blue)
+    }
+
+    #page-analytics .an-select {
+        font: inherit;
+        padding: 3px 6px;
+        border-radius: 6px;
+        border: 1px solid var(--line);
+        background: var(--surface-2);
+        color: var(--ink)
+    }
+
+    #page-analytics .an-empty {
+        padding: 30px 14px;
+        text-align: center;
+        color: var(--ink-faint);
+        font-size: 12.5px
+    }
+
+    #page-analytics .an-empty svg {
+        width: 30px;
+        height: 30px;
+        margin-bottom: 8px
+    }
+
+    #page-analytics .an-mr-strip {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        margin-top: 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden
+    }
+
+    #page-analytics .an-mr-cell {
+        padding: 8px 12px;
+        border-right: 1px solid var(--line-soft);
+        background: var(--surface-2)
+    }
+
+    #page-analytics .an-mr-cell:last-child {
+        border-right: none
+    }
+
+    #page-analytics .an-mr-cell .an-l {
+        font-size: 10.4px;
+        color: var(--ink-faint);
+        font-weight: 700
+    }
+
+    #page-analytics .an-mr-cell .an-v {
+        font-family: var(--mono);
+        font-size: 15px;
+        font-weight: 700;
+        margin-top: 1px
+    }
+
+    @media(max-width:900px) {
+        #page-analytics .an-mr-strip {
+            grid-template-columns: repeat(3, 1fr)
+        }
+    }
+
+    #page-analytics .an-repeat-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 8px
+    }
+
+    #page-analytics .an-repeat-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 11px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface-2);
+        cursor: pointer
+    }
+
+    #page-analytics .an-repeat-item:hover {
+        filter: brightness(.97);
+        box-shadow: var(--shadow-sm)
+    }
+
+    #page-analytics .an-ri-rank {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        background: var(--surface-3);
+        color: var(--ink-faint);
+        font-weight: 800;
+        font-size: 11px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: none
+    }
+
+    #page-analytics .an-ri-main {
+        min-width: 0;
+        flex: 1
+    }
+
+    #page-analytics .an-ri-title {
+        font-size: 12.4px;
+        font-weight: 700;
+        color: var(--ink);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis
+    }
+
+    #page-analytics .an-ri-sub {
+        font-size: 11px;
+        color: var(--ink-faint);
+        margin-top: 1px
+    }
+
+    #page-analytics .an-ri-count {
+        font-family: var(--mono);
+        font-weight: 800;
+        font-size: 13px;
+        color: var(--rose);
+        flex: none;
+        text-align: right
+    }
+
+    #page-analytics .an-ri-count small {
+        display: block;
+        font-weight: 600;
+        font-size: 9.5px;
+        color: var(--ink-faint);
+        text-transform: uppercase
+    }
+
+    #page-analytics .an-repeat-item.sev-critical {
+        border-color: var(--rose);
+        background: var(--rose-soft)
+    }
+
+    #page-analytics .an-repeat-item.sev-warn {
+        border-color: var(--amber);
+        background: var(--amber-soft)
+    }
+
+    .an-modal-bg {
+        position: fixed;
+        inset: 0;
+        background: rgba(6, 13, 23, .55);
+        backdrop-filter: blur(2px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+        padding: 24px;
+        font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif;
+        font-size: 13.5px;
+        color: var(--ink)
+    }
+
+    .an-modal-bg.show {
+        display: flex
+    }
+
+    .an-modal {
+        background: #fff;
+        border-radius: 12px;
+        max-width: 640px;
+        width: 100%;
+        max-height: 85vh;
+        overflow-y: auto;
+        box-shadow: 0 30px 60px -20px rgba(0, 0, 0, .4)
+    }
+
+    .an-modal-head {
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        position: sticky;
+        top: 0;
+        background: #fff
+    }
+
+    .an-modal-head h3 {
+        margin: 0;
+        font-size: 14.5px;
+        font-weight: 800
+    }
+
+    .an-modal-head .an-x {
+        cursor: pointer;
+        color: var(--ink-faint);
+        border: none;
+        background: none;
+        font-size: 18px;
+        line-height: 1
+    }
+
+    .an-modal-body {
+        padding: 16px 20px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px
+    }
+
+    .an-rep-row {
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface-2);
+        font-size: 12.4px;
+        line-height: 1.5
+    }
+</style>
+
+<div class="an-head">
+    <div class="an-pills">
+        <div class="an-pill"><span class="an-dot" id="an-liveDot"></span>Cập nhật lúc <b id="an-lastSync">–</b></div>
+        <div class="an-pill"><b id="an-pillRange">–</b></div>
+        <div class="an-pill">Hiển thị <b id="an-pillCount">0</b>&nbsp;/&nbsp;<span id="an-pillTotal">0</span></div>
+        <button class="an-iconbtn" id="an-refreshBtn" type="button" title="Làm mới ngay"><svg class="an-ic"
+                viewBox="0 0 24 24">
+                <path d="M3 12a9 9 0 0 1 15.4-6.4L21 8M21 3v5h-5" />
+                <path d="M21 12a9 9 0 0 1-15.4 6.4L3 16M3 21v-5h5" />
+            </svg></button>
+    </div>
+    <div class="an-summary">
+        <svg class="an-ic" viewBox="0 0 24 24">
+            <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z" />
+        </svg>
+        <span id="an-execSummary">Đang tổng hợp dữ liệu…</span>
+    </div>
+</div>
+
+<div class="an-layout">
+
+    <aside class="an-filters">
+        <div class="an-filters-head">
+            <h2><svg class="an-ic" viewBox="0 0 24 24">
+                    <path d="M4 6h16M7 12h10M10 18h4" />
+                </svg>Bộ lọc phân tích</h2>
+            <button class="an-reset" id="an-resetFilters" type="button">Xoá lọc</button>
+        </div>
+
+        <div class="an-fgroup">
+            <div class="an-search">
+                <svg class="an-ic" viewBox="0 0 24 24">
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m21 21-4.3-4.3" />
+                </svg>
+                <input type="text" id="an-searchInput" placeholder="Tìm ID, vấn đề, mô tả, vị trí…">
+            </div>
+        </div>
+
+        <div class="an-fgroup">
+            <div class="an-flabel">Khoảng thời gian ghi nhận</div>
+            <div class="an-date-row">
+                <input type="date" id="an-dateFrom"><input type="date" id="an-dateTo">
+            </div>
+        </div>
+
+        <div class="an-fgroup">
+            <div class="an-flabel">Nhà máy <span class="an-cnt" id="an-cnt-nhaMay">0</span></div>
+            <div class="an-msel" id="an-msel-nhaMay"></div>
+        </div>
+        <div class="an-fgroup">
+            <div class="an-flabel">Phân xưởng / Line <span class="an-cnt" id="an-cnt-line">0</span></div>
+            <div class="an-msel" id="an-msel-line"></div>
+        </div>
+        <div class="an-fgroup">
+            <div class="an-flabel">Tổ <span class="an-cnt" id="an-cnt-to">0</span></div>
+            <div class="an-msel" id="an-msel-to"></div>
+        </div>
+        <div class="an-fgroup">
+            <div class="an-flabel">Trạng thái</div>
+            <div class="an-chips" id="an-chips-trangThai"></div>
+        </div>
+        <div class="an-fgroup">
+            <div class="an-flabel">Mức ưu tiên</div>
+            <div class="an-chips" id="an-chips-mucUuTien"></div>
+        </div>
+        <div class="an-fgroup">
+            <div class="an-flabel">Mức độ nghiêm trọng</div>
+            <div class="an-chips" id="an-chips-mucNghiemTrong"></div>
+        </div>
+        <div class="an-fgroup">
+            <div class="an-flabel">Loại vấn đề (7S / 8W / MMTB…)</div>
+            <div class="an-chips" id="an-chips-loaiVanDe"></div>
+        </div>
+        <div class="an-fgroup">
+            <div class="an-flabel">Lỗi lặp lại</div>
+            <div class="an-chips" id="an-chips-lapLai"></div>
+        </div>
+    </aside>
+
+    <div class="an-main">
+        <div class="an-kpi-grid" id="an-kpiGrid"></div>
+
+        <div class="an-card">
+            <div class="an-card-head">
+                <h3>Báo cáo nhanh theo tháng</h3>
+                <span class="an-desc"><select id="an-mrMonth" class="an-select"></select>
+                    <button class="an-btn" id="an-mrCopy" type="button" style="margin-left:6px">Sao chép</button></span>
+            </div>
+            <div id="an-mrBody"></div>
+        </div>
+
+        <div class="an-grid-2">
+            <div class="an-card">
+                <div class="an-card-head">
+                    <h3>Xu hướng ghi nhận theo tuần</h3><span class="an-desc">Số vấn đề phát hiện &amp; hoàn thành theo
+                        từng tuần</span>
+                </div>
+                <div class="an-chart-wrap" style="height:250px"><canvas id="an-chartTrend"></canvas></div>
+                <div class="an-insight" id="an-insight-trend"></div>
+            </div>
+            <div class="an-card">
+                <div class="an-card-head">
+                    <h3>Phân bố theo trạng thái</h3><span class="an-desc">Tỷ lệ xử lý hiện tại</span>
+                </div>
+                <div class="an-chart-wrap" style="height:250px"><canvas id="an-chartStatus"></canvas></div>
+            </div>
+        </div>
+
+        <div class="an-grid-2b">
+            <div class="an-card">
+                <div class="an-card-head">
+                    <h3>Xu hướng cải thiện theo tháng</h3><span class="an-desc">Tổng lỗi, lỗi lặp lại &amp; % cải thiện
+                        so với tháng trước</span>
+                </div>
+                <div class="an-chart-wrap" style="height:270px"><canvas id="an-chartMonthly"></canvas></div>
+                <div class="an-insight" id="an-insight-monthly"></div>
+            </div>
+            <div class="an-card">
+                <div class="an-card-head">
+                    <h3>Phân cấp mức độ nghiêm trọng</h3><span class="an-desc">Nghiêm trọng / Nặng / Nhẹ — suy ra từ mức
+                        ưu tiên</span>
+                </div>
+                <div class="an-chart-wrap" style="height:270px"><canvas id="an-chartSeverity"></canvas></div>
+                <div class="an-insight" id="an-insight-severity"></div>
+            </div>
+        </div>
+
+        <div class="an-grid-2b">
+            <div class="an-card">
+                <div class="an-card-head">
+                    <h3>Pareto theo loại vấn đề</h3><span class="an-desc">Tần suất theo mã loại vấn đề (nguyên tắc
+                        80/20)</span>
+                </div>
+                <div class="an-chart-wrap" style="height:270px"><canvas id="an-chartPareto"></canvas></div>
+                <div class="an-insight" id="an-insight-pareto"></div>
+            </div>
+            <div class="an-card">
+                <div class="an-card-head">
+                    <h3>Phân bố theo mức ưu tiên</h3><span class="an-desc">Mức độ nghiêm trọng của các phát hiện</span>
+                </div>
+                <div class="an-chart-wrap" style="height:270px"><canvas id="an-chartPriority"></canvas></div>
+            </div>
+        </div>
+
+        <div class="an-card">
+            <div class="an-card-head">
+                <h3>Số phiếu theo Phân xưởng</h3><span class="an-desc">Phân xưởng gặp nhóm lỗi nào, bao nhiêu phiếu ·
+                    bấm vào đoạn màu để xem phiếu</span>
+            </div>
+            <div class="an-chart-wrap" style="height:300px"><canvas id="an-chartPX"></canvas></div>
+            <div class="an-insight" id="an-insight-px"></div>
+        </div>
+
+        <div class="an-card">
+            <div class="an-card-head">
+                <h3>Phân tích 8W — 8 loại lãng phí</h3><span class="an-desc">Số phiếu theo từng loại lãng phí (mã vấn đề
+                    8W)</span>
+            </div>
+            <div class="an-chart-wrap" style="height:340px"><canvas id="an-chart8W"></canvas></div>
+            <div class="an-insight" id="an-insight-8w"></div>
+        </div>
+
+        <div class="an-grid-2b">
+            <div class="an-card">
+                <div class="an-card-head">
+                    <h3>So sánh trạng thái theo Nhà máy</h3><span class="an-desc">Khối lượng &amp; tiến độ xử lý mỗi nhà
+                        máy</span>
+                </div>
+                <div class="an-chart-wrap" style="height:270px"><canvas id="an-chartFactory"></canvas></div>
+            </div>
+            <div class="an-card">
+                <div class="an-card-head">
+                    <h3>Top 10 Line / Phân xưởng nhiều phát hiện nhất</h3><span class="an-desc">Điểm nóng cần tập trung
+                        cải tiến</span>
+                </div>
+                <div class="an-chart-wrap" style="height:270px"><canvas id="an-chartTopLine"></canvas></div>
+                <div class="an-insight" id="an-insight-topline"></div>
+            </div>
+        </div>
+
+        <div class="an-grid-2b">
+            <div class="an-card">
+                <div class="an-card-head">
+                    <h3>Thời gian xử lý trung bình theo Nhà máy</h3><span class="an-desc">Đơn vị: giờ, tính trên các vấn
+                        đề đã hoàn thành</span>
+                </div>
+                <div class="an-chart-wrap" style="height:250px"><canvas id="an-chartResTime"></canvas></div>
+            </div>
+            <div class="an-card">
+                <div class="an-card-head">
+                    <h3>Top người phụ trách xử lý</h3><span class="an-desc">Số vấn đề đã tiếp nhận xử lý</span>
+                </div>
+                <div class="an-chart-wrap" style="height:250px"><canvas id="an-chartAssignee"></canvas></div>
+            </div>
+        </div>
+
+        <div class="an-card">
+            <div class="an-card-head">
+                <h3>Top người tạo Gemba</h3><span class="an-desc">Số phiếu do mỗi người ghi nhận / phát hiện</span>
+            </div>
+            <div class="an-chart-wrap" style="height:270px"><canvas id="an-chartCreator"></canvas></div>
+            <div class="an-insight" id="an-insight-creator"></div>
+        </div>
+
+        <div class="an-grid-2b">
+            <div class="an-card">
+                <div class="an-card-head">
+                    <h3>Số người của phòng ban</h3><span class="an-desc">Tổng nhân sự Active theo từng đơn vị</span>
+                </div>
+                <div class="an-chart-wrap" style="height:280px"><canvas id="an-chartDeptHeadcount"></canvas></div>
+            </div>
+            <div class="an-card">
+                <div class="an-card-head">
+                    <h3>Số người đã đi Gemba</h3><span class="an-desc">Số nhân sự đã từng tạo ít nhất 1 phiếu, theo
+                        phòng ban</span>
+                </div>
+                <div class="an-chart-wrap" style="height:280px"><canvas id="an-chartDeptParticipants"></canvas></div>
+                <div class="an-insight" id="an-insight-dept"></div>
+            </div>
+        </div>
+
+        <div class="an-card">
+            <div class="an-card-head">
+                <h3>Lỗi lặp lại (≥2 lần / 30–90 ngày)</h3><span class="an-desc">Nhóm theo Line + Tổ + Loại vấn đề — cảnh
+                    báo các nhóm lặp lại nhiều nhất</span>
+            </div>
+            <div class="an-repeat-list" id="an-repeatList"></div>
+        </div>
+    </div>
+</div>

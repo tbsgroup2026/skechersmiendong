@@ -1,0 +1,1869 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemba.Pro — TBS Group | Quản lý Gemba NM SK Miền Đông</title>
+    <meta name="description" content="Hệ thống quản lý Gemba - TBS Group - NM SK Miền Đông">
+    <link rel="icon" type="image/png" href="https://tbs-group.info/wp-content/uploads/2025/11/TBS-Group-logo.png">
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Be+Vietnam+Pro:wght@600;700;800;900&display=swap"
+        rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <?!= include('CSS'); ?>
+</head>
+
+<body>
+
+    <div id="globalLoader" class="global-loader">
+        <div class="loader-box">
+            <div class="loader-spinner"></div>
+            <div class="loader-msg">Đang xử lý...</div>
+        </div>
+    </div>
+
+    <div id="toastContainer" class="toast-container-app"></div>
+
+    <div id="loginScreen" class="login-wrapper">
+        <div class="login-bg-shapes">
+            <div class="shape shape-1"></div>
+            <div class="shape shape-2"></div>
+            <div class="shape shape-3"></div>
+        </div>
+
+        <div class="login-container">
+            <div class="login-form-side">
+                <div class="login-logo">
+                    <img src="https://tbs-group.info/wp-content/uploads/2025/11/TBS-Group-logo.png" alt="TBS Group"
+                        class="login-logo-img">
+                    <div class="login-logo-divider"></div>
+                    <div class="logo-text-wrap">
+                        <div class="logo-text">Gemba<span class="logo-dot">.</span>Pro</div>
+                        <div class="logo-subtitle">NM SK Miền Đông</div>
+                    </div>
+                </div>
+
+                <h1 class="login-title">Chào mừng đến TBS Group!</h1>
+                <p class="login-subtitle">Hệ thống quản lý Gemba — Nhà máy SK Miền Đông</p>
+
+                <div id="loginError" class="login-error"></div>
+
+                <div class="auth-tabs">
+                    <button type="button" class="auth-tab active" data-tab="login" onclick="switchAuthTab('login')">
+                        <i class="fas fa-sign-in-alt"></i> Đăng nhập
+                    </button>
+                    <button type="button" class="auth-tab" data-tab="register" onclick="switchAuthTab('register')">
+                        <i class="fas fa-user-plus"></i> Đăng ký
+                    </button>
+                </div>
+
+                <form id="loginForm" autocomplete="off" class="auth-form active">
+                    <div class="form-floating-app">
+                        <label><i class="fas fa-layer-group"></i> Nhóm đăng nhập <span
+                                style="color:#e25b5b">*</span></label>
+                        <select id="loginGroup" class="form-input-app" required>
+                            <option value="">-- Chọn nhóm --</option>
+                        </select>
+                    </div>
+
+                    <div class="form-floating-app">
+                        <label><i class="fas fa-user"></i> Người dùng <span style="color:#e25b5b">*</span></label>
+                        <select id="loginUsername" class="form-input-app" required disabled>
+                            <option value="">⬆ Vui lòng chọn nhóm trước</option>
+                        </select>
+                        <small id="loginUserHint" style="display:block;margin-top:4px;color:#94a3b8;font-size:.74rem">
+                            <i class="fas fa-info-circle"></i> Danh sách người dùng sẽ hiện sau khi chọn nhóm
+                        </small>
+                    </div>
+
+                    <div class="form-floating-app">
+                        <label><i class="fas fa-lock"></i> Mật khẩu <span style="color:#e25b5b">*</span></label>
+                        <div class="input-with-action">
+                            <input type="password" id="loginPassword" class="form-input-app" placeholder="Nhập mật khẩu"
+                                required disabled>
+                            <button type="button" class="input-action-btn" onclick="togglePwd('loginPassword', this)">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mb-3 d-flex justify-content-between align-items-center" style="flex-wrap:wrap;gap:8px">
+                        <label class="checkbox-app">
+                            <input type="checkbox" id="rememberMe" checked>
+                            <span>Ghi nhớ 30 ngày</span>
+                        </label>
+                        <a href="javascript:void(0)" onclick="openForgotPasswordModal()" class="auth-link">Quên mật
+                            khẩu?</a>
+                    </div>
+
+                    <button type="submit" id="loginSubmitBtn" class="btn-app btn-primary-app btn-block-app" disabled>
+                        <i class="fas fa-sign-in-alt"></i>
+                        <span>Đăng nhập</span>
+                    </button>
+                </form>
+
+                <form id="registerForm" autocomplete="off" class="auth-form" style="display:none">
+                    <div class="register-notice">
+                        <i class="fas fa-info-circle"></i>
+                        <div>
+                            <strong>Đăng ký tài khoản mới</strong>
+                            <small>Mật khẩu sẽ được gửi qua email của bạn. Tài khoản mặc định ở quyền
+                                <strong>Viewer</strong>, Admin sẽ cấp quyền sau.</small>
+                        </div>
+                    </div>
+
+                    <div class="form-floating-app">
+                        <label><i class="fas fa-user"></i> Tên đăng nhập <span style="color:#e25b5b">*</span></label>
+                        <input type="text" id="regUsername" class="form-input-app" required maxlength="30"
+                            placeholder="VD: nguyenvana (3-30 ký tự, không dấu)">
+                    </div>
+
+                    <div class="form-floating-app">
+                        <label><i class="fas fa-id-card"></i> Họ và tên <span style="color:#e25b5b">*</span></label>
+                        <input type="text" id="regFullName" class="form-input-app" required maxlength="100"
+                            placeholder="VD: Nguyễn Văn A">
+                    </div>
+
+                    <div class="form-floating-app">
+                        <label><i class="fas fa-envelope"></i> Email <span style="color:#e25b5b">*</span></label>
+                        <input type="email" id="regEmail" class="form-input-app" required
+                            placeholder="email@tbs-group.com">
+                        <small style="display:block;margin-top:4px;color:#94a3b8;font-size:.74rem">
+                            <i class="fas fa-key"></i> Mật khẩu sẽ được gửi tới email này
+                        </small>
+                    </div>
+
+                    <div class="form-floating-app">
+                        <label><i class="fas fa-layer-group"></i> Nhóm đăng nhập <span
+                                style="color:#e25b5b">*</span></label>
+                        <select id="regGroup" class="form-input-app" required>
+                            <option value="">-- Chọn nhóm --</option>
+                        </select>
+                        <small id="regGroupHint" style="display:block;margin-top:4px;color:#94a3b8;font-size:.74rem">
+                            <i class="fas fa-info-circle"></i> Chọn nhóm để hiển thị các trường liên quan
+                        </small>
+                    </div>
+
+                    <div id="regFactoryBlock" style="display:none">
+                        <div class="form-floating-app">
+                            <label><i class="fas fa-industry"></i> Nhà máy <span style="color:#e25b5b">*</span></label>
+                            <input type="text" id="regFactory" class="form-input-app" readonly
+                                style="background:#f4f7fb;cursor:not-allowed" placeholder="Tự động theo nhóm đăng nhập">
+                            <small style="display:block;margin-top:4px;color:#94a3b8;font-size:.74rem">
+                                <i class="fas fa-lock"></i> Tự động theo nhóm đăng nhập đã chọn
+                            </small>
+                        </div>
+
+                        <div class="form-floating-app">
+                            <label><i class="fas fa-stream"></i> Line <span style="color:#e25b5b">*</span></label>
+                            <select id="regLine" class="form-input-app" disabled>
+                                <option value="">-- Chọn Nhà máy trước --</option>
+                            </select>
+                        </div>
+
+                        <div class="form-floating-app">
+                            <label><i class="fas fa-users"></i> Tổ <span style="color:#e25b5b">*</span></label>
+                            <select id="regTo" class="form-input-app" disabled>
+                                <option value="">-- Chọn Line trước --</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="regVpNotice" class="register-notice"
+                        style="display:none;background:#eef4ff;border-color:#bfdbfe">
+                        <i class="fas fa-globe" style="color:#4d85f3"></i>
+                        <div>
+                            <strong>Quyền xem toàn hệ thống</strong>
+                            <small>Với nhóm này, bạn sẽ xem được dữ liệu của tất cả nhà máy. Không cần chọn Nhà máy /
+                                Line / Tổ.</small>
+                        </div>
+                    </div>
+
+                    <div class="form-floating-app">
+                        <label><i class="fas fa-phone"></i> Số điện thoại</label>
+                        <input type="tel" id="regPhone" class="form-input-app" placeholder="0xxx xxx xxx">
+                    </div>
+
+                    <button type="submit" id="registerSubmitBtn" class="btn-app btn-primary-app btn-block-app">
+                        <i class="fas fa-user-plus"></i>
+                        <span>Đăng ký tài khoản</span>
+                    </button>
+                </form>
+
+                <div class="login-footer-text">
+                    © 2026 <strong>TBS Group</strong> · NM SK Miền Đông · Gemba.Pro v1.0
+                </div>
+            </div>
+
+            <div class="login-banner-side">
+                <div class="banner-content">
+                    <div class="banner-brand">
+                        <img src="https://tbs-group.info/wp-content/uploads/2025/11/TBS-Group-logo.png" alt="TBS Group"
+                            class="banner-brand-logo">
+                        <div class="banner-brand-text">
+                            <strong>TBS GROUP</strong>
+                            <small>NM SK Miền Đông</small>
+                        </div>
+                    </div>
+
+                    <div class="banner-badge">
+                        <i class="fas fa-bolt"></i>
+                        <span>Hiệu quả tại hiện trường</span>
+                    </div>
+
+                    <h2>Quản lý Gemba<br><span class="text-gradient">chuẩn xác</span> cho ngành sản xuất công nghiệp
+                    </h2>
+                    <p>Theo dõi chất lượng sản xuất tại từng chuyền — ghi nhận, xử lý và cải tiến hiện trường nhanh
+                        chóng, minh bạch tại các nhà máy SK Miền Đông của TBS Group.</p>
+
+                    <ul class="banner-features">
+                        <li>
+                            <div class="feature-icon"><i class="fas fa-bolt"></i></div>
+                            <div>
+                                <strong>3 bước thao tác</strong>
+                                <small>Nhanh, rõ ràng, dễ dùng tại xưởng sản xuất </small>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="feature-icon"><i class="fas fa-user-check"></i></div>
+                            <div>
+                                <strong>Auto-assign</strong>
+                                <small>Tự động gán quản đốc theo Tổ / Line / Chuyền</small>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="feature-icon"><i class="fas fa-images"></i></div>
+                            <div>
+                                <strong>Before / After</strong>
+                                <small>Lưu ảnh minh chứng trước và sau cải tiến</small>
+                            </div>
+                        </li>
+                        <li>
+                            <div class="feature-icon"><i class="fas fa-chart-line"></i></div>
+                            <div>
+                                <strong>Dashboard realtime</strong>
+                                <small>KPI sản xuất theo thời gian thực</small>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="mainApp" class="app-shell" style="display:none">
+        <div id="sidebarBackdrop" class="sidebar-backdrop" onclick="toggleSidebar()"></div>
+
+        <aside id="sidebar" class="app-sidebar">
+            <div class="sidebar-header">
+                <img src="https://tbs-group.info/wp-content/uploads/2025/11/TBS-Group-logo.png" alt="TBS"
+                    class="sidebar-logo-img">
+                <div class="logo-text-sm-wrap">
+                    <div class="logo-text-sm">Gemba<span class="logo-dot">.</span>Pro</div>
+                    <small class="logo-text-sub">NM SK Miền Đông</small>
+                </div>
+            </div>
+
+            <div class="user-card">
+                <div class="user-avatar" id="sidebarUserAvatar">U</div>
+                <div class="user-meta">
+                    <div class="user-name" id="sidebarUserName">User</div>
+                    <div class="user-role" id="sidebarUserRole">Role</div>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                <div class="nav-section-title">MENU CHÍNH</div>
+
+                <a class="nav-item active dashboard-only" data-page="dashboard" onclick="navigateTo('dashboard')">
+                    <i class="fas fa-chart-pie"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a class="nav-item dashboard-only" data-page="kpi" onclick="navigateTo('kpi')">
+                    <i class="fas fa-gauge-high"></i><span>KPIs</span>
+                </a>
+                <a class="nav-item" data-page="analytics" onclick="navigateTo('analytics')">
+                    <i class="fas fa-chart-line"></i><span>Phân tích Gemba</span>
+                </a>
+
+                <div class="nav-tree-wrap">
+                    <a class="nav-item" data-page="gemba" onclick="navigateTo('gemba')">
+                        <i class="fas fa-clipboard-list"></i>
+                        <span>Quản lý Gemba</span>
+                        <span class="nav-badge" id="navTotalGemba">0</span>
+                    </a>
+                    <div class="nav-tree" id="navGembaTree"></div>
+                </div>
+
+                <a class="nav-item" data-page="mytasks" onclick="navigateTo('mytasks')">
+                    <i class="fas fa-tasks"></i>
+                    <span>Việc của tôi</span>
+                    <span class="nav-badge" id="navMyTasks">0</span>
+                </a>
+
+                <a class="nav-item admin-only" data-page="users" onclick="navigateTo('users')">
+                    <i class="fas fa-users-cog"></i>
+                    <span>Quản lý User</span>
+                </a>
+
+                <a class="nav-item admin-only" onclick="openAdminSettings()">
+                    <i class="fas fa-sliders-h"></i>
+                    <span>Cài đặt hệ thống</span>
+                </a>
+
+                <div class="nav-section-title mt-3">CÁ NHÂN</div>
+
+                <a class="nav-item" data-page="account" onclick="navigateTo('account')">
+                    <i class="fas fa-user-circle"></i>
+                    <span>Tài khoản</span>
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button class="btn-logout-app" onclick="handleLogout()">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>Đăng xuất</span>
+                </button>
+            </div>
+        </aside>
+
+        <main class="app-main">
+            <header class="app-topbar">
+                <div class="d-flex align-items-center gap-3">
+                    <button class="btn-menu-toggle" onclick="toggleSidebar()">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div>
+                        <h1 id="pageTitle" class="topbar-title">Dashboard</h1>
+                        <div id="pageBreadcrumb" class="topbar-breadcrumb">
+                            <i class="fas fa-home"></i> Tổng quan
+                        </div>
+                    </div>
+                </div>
+
+                <div class="topbar-actions">
+                    <button class="btn-quick-create" onclick="openCreateGembaModal()" title="Tạo Gemba nhanh">
+                        <i class="fas fa-plus"></i>
+                    </button>
+
+                    <div class="notif-wrap">
+                        <button class="notif-bell" onclick="toggleNotifPanel(event)" title="Thông báo">
+                            <i class="fas fa-bell"></i>
+                            <span class="notif-badge" id="notifBadge" style="display:none">0</span>
+                        </button>
+
+                        <div class="notif-panel" id="notifPanel">
+                            <div class="notif-panel-head">
+                                <strong><i class="fas fa-bell"></i> Thông báo</strong>
+                                <button class="notif-mark-all" onclick="markAllNotifRead()">
+                                    <i class="fas fa-check-double"></i> Đọc tất cả
+                                </button>
+                            </div>
+                            <div class="notif-list" id="notifList">
+                                <div class="notif-empty">Đang tải...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="topbar-clock d-none d-md-flex">
+                        <i class="far fa-clock"></i>
+                        <span id="currentDateTime"></span>
+                    </div>
+                </div>
+            </header>
+
+            <section id="page-dashboard" class="app-page">
+                <div class="filter-bar">
+                    <div class="filter-tabs" id="dashboardFilterTime">
+                        <button class="filter-tab" data-range="today">Hôm nay</button>
+                        <button class="filter-tab" data-range="week">Tuần này</button>
+                        <button class="filter-tab" data-range="month">Tháng này</button>
+                        <button class="filter-tab" data-range="quarter">Quý</button>
+                        <button class="filter-tab" data-range="year">Năm</button>
+                        <button class="filter-tab active" data-range="all">Tất cả</button>
+                    </div>
+
+                    <div class="filter-actions">
+                        <select id="dashFactoryFilter" class="form-input-app form-input-sm">
+                            <option value="">Tất cả nhà máy</option>
+                        </select>
+
+                        <button class="btn-app btn-secondary-app btn-sm-app" onclick="loadDashboard()">
+                            <i class="fas fa-sync-alt"></i>
+                            <span class="d-none d-md-inline">Làm mới</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="kpi-grid">
+                    <div class="kpi-card-app kpi-primary">
+                        <div class="kpi-content">
+                            <div class="kpi-label">Tổng Gemba</div>
+                            <div class="kpi-value" id="kpiTotal">0</div>
+                            <div class="kpi-trend"><i class="fas fa-clipboard-list"></i> Tất cả phiếu</div>
+                        </div>
+                        <div class="kpi-icon-wrap"><i class="fas fa-clipboard-list"></i></div>
+                    </div>
+
+                    <div class="kpi-card-app kpi-warning">
+                        <div class="kpi-content">
+                            <div class="kpi-label">Mới</div>
+                            <div class="kpi-value" id="kpiOpen">0</div>
+                            <div class="kpi-trend"><i class="fas fa-hourglass-half"></i> Chờ tiếp nhận</div>
+                        </div>
+                        <div class="kpi-icon-wrap"><i class="fas fa-hourglass-half"></i></div>
+                    </div>
+
+                    <div class="kpi-card-app kpi-info">
+                        <div class="kpi-content">
+                            <div class="kpi-label">Đang xử lý</div>
+                            <div class="kpi-value" id="kpiInProgress">0</div>
+                            <div class="kpi-trend"><i class="fas fa-spinner"></i> Đang triển khai</div>
+                        </div>
+                        <div class="kpi-icon-wrap"><i class="fas fa-spinner"></i></div>
+                    </div>
+
+                    <div class="kpi-card-app kpi-success">
+                        <div class="kpi-content">
+                            <div class="kpi-label">Hoàn thành</div>
+                            <div class="kpi-value" id="kpiDone">0</div>
+                            <div class="kpi-trend"><i class="fas fa-check-circle"></i> Đã đóng</div>
+                        </div>
+                        <div class="kpi-icon-wrap"><i class="fas fa-check-circle"></i></div>
+                    </div>
+
+                    <div class="kpi-card-app kpi-danger">
+                        <div class="kpi-content">
+                            <div class="kpi-label">Quá hạn</div>
+                            <div class="kpi-value" id="kpiOverdue">0</div>
+                            <div class="kpi-trend"><i class="fas fa-exclamation-triangle"></i> Cần ưu tiên</div>
+                        </div>
+                        <div class="kpi-icon-wrap"><i class="fas fa-exclamation-triangle"></i></div>
+                    </div>
+
+                    <div class="kpi-card-app kpi-purple">
+                        <div class="kpi-content">
+                            <div class="kpi-label">Tháng này</div>
+                            <div class="kpi-value" id="kpiThisMonth">0</div>
+                            <div class="kpi-trend"><i class="fas fa-calendar"></i> Phiếu phát sinh</div>
+                        </div>
+                        <div class="kpi-icon-wrap"><i class="fas fa-calendar"></i></div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-4 col-md-6">
+                        <div class="card-app h-100">
+                            <div class="card-app-header">
+                                <h3 class="card-app-title"><i class="fas fa-chart-bar"></i> Gemba theo Nhà máy</h3>
+                            </div>
+                            <div class="chart-wrapper chart-wrapper-sm lazy-pending" data-chart="factory">
+                                <canvas id="chartFactory"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-4 col-md-6">
+                        <div class="card-app h-100">
+                            <div class="card-app-header">
+                                <h3 class="card-app-title"><i class="fas fa-chart-pie"></i> Tỷ lệ trạng thái</h3>
+                            </div>
+                            <div class="chart-wrapper chart-wrapper-sm lazy-pending" data-chart="status">
+                                <canvas id="chartStatus"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-4 col-md-12 mobile-hide-chart">
+                        <div class="card-app h-100">
+                            <div class="card-app-header">
+                                <h3 class="card-app-title"><i class="fas fa-chart-pie"></i> Lũy kế vấn đề trong tháng
+                                </h3>
+                            </div>
+                            <div class="chart-wrapper chart-wrapper-sm lazy-pending" data-chart="advMonthIssues">
+                                <canvas id="advChartMonthIssues"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="adv-section-divider">
+                    <span><i class="fas fa-chart-area"></i> Phân tích chi tiết</span>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card-app h-100">
+                            <div class="card-app-header">
+                                <h3 class="card-app-title"><i class="fas fa-chart-bar"></i> Hiện trạng xử lý vấn đề</h3>
+                            </div>
+                            <div class="chart-wrapper chart-wrapper-sm lazy-pending" data-chart="advStatusCurrent">
+                                <canvas id="advChartStatusCurrent"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-6 mobile-hide-chart">
+                        <div class="card-app h-100">
+                            <div class="card-app-header">
+                                <h3 class="card-app-title"><i class="fas fa-layer-group"></i> Nhóm các vấn đề Gemba</h3>
+                            </div>
+                            <div class="chart-wrapper chart-wrapper-sm lazy-pending" data-chart="advGroupIssues">
+                                <canvas id="advChartGroupIssues"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-12">
+                        <div class="card-app">
+                            <div class="card-app-header">
+                                <h3 class="card-app-title"><i class="fas fa-table"></i> Lũy kế Gemba Tháng - Năm</h3>
+                            </div>
+                            <div class="adv-table-wrap">
+                                <table class="adv-table" id="advMonthTable"></table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3" id="advTopByFactoryRow"></div>
+
+                <div class="row g-3 mb-3 mobile-hide-chart">
+                    <div class="col-lg-6">
+                        <div class="card-app h-100">
+                            <div class="card-app-header">
+                                <h3 class="card-app-title"><i class="fas fa-clock"></i> Thời gian xử lý vấn đề (ngày)
+                                </h3>
+                            </div>
+                            <div class="chart-wrapper chart-wrapper-sm lazy-pending" data-chart="advProcessTime">
+                                <canvas id="advChartProcessTime"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-6">
+                        <div class="card-app h-100">
+                            <div class="card-app-header">
+                                <h3 class="card-app-title"><i class="fas fa-hourglass-half"></i> Top 5 vấn đề xử lý lâu
+                                    nhất (ngày)</h3>
+                            </div>
+                            <div class="chart-wrapper chart-wrapper-sm lazy-pending" data-chart="advTop5Long">
+                                <canvas id="advChartTop5Long"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-app">
+                    <div class="card-app-header">
+                        <div>
+                            <h3 class="card-app-title"><i class="fas fa-clock"></i> Gemba gần đây</h3>
+                        </div>
+                        <button class="btn-app btn-secondary-app btn-sm-app" onclick="navigateTo('gemba')">
+                            Xem tất cả <i class="fas fa-arrow-right"></i>
+                        </button>
+                    </div>
+
+                    <div class="table-wrap-app">
+                        <table class="table-app">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Tiêu đề</th>
+                                    <th>Nhà máy</th>
+                                    <th>Line</th>
+                                    <th>Tổ</th>
+                                    <th>Trạng thái</th>
+                                    <th>Người tạo</th>
+                                    <th>Ngày tạo</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recentGembaBody">
+                                <tr>
+                                    <td colspan="8" class="text-center text-muted py-4">Đang tải...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="recentGembaCardList" class="mobile-card-list" style="padding:10px"></div>
+                </div>
+            </section>
+            <section id="page-kpi" class="app-page" style="display:none">
+                <?!= include('Kpi'); ?>
+            </section>
+
+            <section id="page-analytics" class="app-page" style="display:none">
+                <?!= include('Analytics'); ?>
+            </section>
+
+
+            <section id="page-gemba" class="app-page" style="display:none">
+                <div class="toolbar-app">
+                    <div class="toolbar-left">
+                        <button class="btn-app btn-primary-app btn-sm-app" onclick="openCreateGembaModal()">
+                            <i class="fas fa-plus"></i>
+                            <span>Tạo Gemba</span>
+                        </button>
+
+                        <label class="toggle-done-wrap" title="Hiện/ẩn các phiếu đã đóng (Hoàn thành/Từ chối)">
+                            <input type="checkbox" id="toggleShowDone">
+                            <span class="toggle-done-slider"></span>
+                            <span class="toggle-done-text">
+                                <i class="fas fa-check-circle"></i> Hiện tất cả phiếu đã đóng
+                            </span>
+                        </label>
+                    </div>
+
+                    <div class="toolbar-right">
+                        <div id="treeFilterChip" class="filter-chip" style="display:none">
+                            <i class="fas fa-filter"></i>
+                            <span id="treeFilterText"></span>
+                            <button onclick="clearTreeFilter()"><i class="fas fa-times"></i></button>
+                        </div>
+
+                        <div class="search-box-app">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="gembaSearch" placeholder="Tìm kiếm...">
+                        </div>
+
+                        <select id="filterStatus" class="form-input-app form-input-sm">
+                            <option value="">Tất cả TT</option>
+                            <option value="Mới">Mới</option>
+                            <option value="Chờ xử lý lại">Chờ xử lý lại</option>
+                            <option value="Đang xử lý">Đang xử lý</option>
+                            <option value="Hoàn thành">Hoàn thành</option>
+                            <option value="Quá hạn">Quá hạn</option>
+                            <option value="Từ chối">Từ chối</option>
+                        </select>
+
+                        <select id="pageSize" class="form-input-app form-input-sm" title="Số phiếu mỗi trang">
+                            <option value="20" selected>20/trang</option>
+                            <option value="50">50/trang</option>
+                            <option value="100">100/trang</option>
+                            <option value="9999">Tất cả</option>
+                        </select>
+
+                        <div class="view-mode-switch">
+                            <button class="view-mode-btn active" data-view="card" onclick="setGembaView('card')"
+                                title="Card">
+                                <i class="fas fa-th-large"></i>
+                            </button>
+                            <button class="view-mode-btn" data-view="table" onclick="setGembaView('table')"
+                                title="Bảng">
+                                <i class="fas fa-list"></i>
+                            </button>
+                        </div>
+
+                        <button class="btn-app btn-secondary-app btn-sm-app" onclick="loadGembaList({force:true})">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="gembaInfoBar" class="gemba-info-bar"></div>
+
+                <div id="gembaCardView">
+                    <div id="gembaCardContainer" class="gemba-card-grid"></div>
+                </div>
+
+                <div id="gembaTableView" class="card-app p-0" style="display:none">
+                    <div class="table-wrap-app">
+                        <table class="table-app">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Trạng thái</th>
+                                    <th>Tiêu đề</th>
+                                    <th>Nhà máy</th>
+                                    <th>Line</th>
+                                    <th>Tổ</th>
+                                    <th>Loại</th>
+                                    <th>Ưu tiên</th>
+                                    <th>Người tạo</th>
+                                    <th>Phụ trách</th>
+                                    <th>Ngày tạo</th>
+                                    <th>Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody id="gembaTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="gembaPagination" class="gemba-pagination"></div>
+            </section>
+
+            <section id="page-mytasks" class="app-page" style="display:none">
+                <div class="toolbar-app">
+                    <div class="toolbar-left">
+                        <h3 class="card-app-title" style="margin:0">
+                            <i class="fas fa-tasks"></i> Việc cần tôi xử lý
+                        </h3>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn-app btn-primary-app btn-sm-app manager-only" onclick="openSendNotifModal()">
+                            <i class="fas fa-paper-plane"></i>
+                            <span>Gửi thông báo</span>
+                        </button>
+
+                        <button class="btn-app btn-warning-app btn-sm-app" onclick="openMmtbRequest()"
+                            title="Gửi yêu cầu MMTB">
+                            <i class="fas fa-tools"></i>
+                            <span>Gửi yêu cầu MMTB</span>
+                        </button>
+
+                        <button class="btn-app btn-secondary-app btn-sm-app"
+                            onclick="loadMyTasks({force:true,showLoader:true})">
+                            <i class="fas fa-sync-alt"></i>
+                            <span class="d-none d-md-inline">Làm mới</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card-app p-0">
+                    <div class="table-wrap-app">
+                        <table class="table-app">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Trạng thái</th>
+                                    <th>Tiêu đề</th>
+                                    <th>Line/Tổ</th>
+                                    <th>Ưu tiên</th>
+                                    <th>Ngày tạo</th>
+                                    <th>Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody id="myTasksBody"></tbody>
+                        </table>
+                    </div>
+                    <div id="myTasksCardList" class="mobile-card-list" style="padding:10px"></div>
+                </div>
+            </section>
+
+            <section id="page-users" class="app-page" style="display:none">
+                <div class="toolbar-app">
+                    <div class="toolbar-left">
+                        <button class="btn-app btn-primary-app btn-sm-app" onclick="openUserModal(null)">
+                            <i class="fas fa-user-plus"></i>
+                            <span>Thêm User</span>
+                        </button>
+                        <button class="btn-app btn-secondary-app btn-sm-app" onclick="openImportUserModal()">
+                            <i class="fas fa-file-import"></i>
+                            <span>Import CSV</span>
+                        </button>
+                        <button class="btn-app btn-secondary-app btn-sm-app" onclick="adminClearCache()"
+                            title="Xoá cache máy chủ (dùng khi sửa trực tiếp trên Sheet)">
+                            <i class="fas fa-broom"></i>
+                            <span>Xoá cache</span>
+                        </button>
+                        <button class="btn-app btn-secondary-app" onclick="loadUsers({force:true})"
+                            title="Tải lại danh sách">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+
+                    <div class="toolbar-right">
+                        <div class="search-box-app">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="userSearchInput" placeholder="Tìm..." oninput="renderUserTable()">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-app p-0">
+                    <div class="table-wrap-app">
+                        <table class="table-app">
+                            <thead>
+                                <tr>
+                                    <th>Username</th>
+                                    <th>Họ tên</th>
+                                    <th>Nhóm</th>
+                                    <th>Nhà máy</th>
+                                    <th>Line/Tổ</th>
+                                    <th>Quyền</th>
+                                    <th>Token MMTB</th>
+                                    <th>Trạng thái</th>
+                                    <th>Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody id="userTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div id="userCardList" class="mobile-card-list" style="padding:10px"></div>
+                </div>
+            </section>
+
+            <section id="page-account" class="app-page" style="display:none">
+                <div class="row g-3">
+                    <div class="col-lg-4">
+                        <div class="card-app text-center account-profile-card">
+                            <div class="account-avatar" id="accountAvatar">U</div>
+                            <h3 class="account-name" id="accountName">User</h3>
+                            <div class="account-role-badge" id="accountRoleBadge">User</div>
+
+                            <div class="account-stats">
+                                <div class="stat-item">
+                                    <i class="fas fa-envelope"></i>
+                                    <span id="accountEmailDisplay">—</span>
+                                </div>
+                                <div class="stat-item">
+                                    <i class="fas fa-building"></i>
+                                    <span id="accountFactoryDisplay">—</span>
+                                </div>
+                                <div class="stat-item">
+                                    <i class="fas fa-layer-group"></i>
+                                    <span id="accountGroupDisplay">—</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-8">
+                        <div class="card-app">
+                            <div class="card-app-header">
+                                <h3 class="card-app-title"><i class="fas fa-id-card"></i> Thông tin tài khoản</h3>
+                            </div>
+
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label-app">Username</label>
+                                    <input class="form-input-app" id="accUsername" disabled>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label-app">Họ và tên</label>
+                                    <input class="form-input-app" id="accFullName" disabled>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label-app">Email</label>
+                                    <input class="form-input-app" id="accEmail" disabled>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label-app">Phòng ban</label>
+                                    <input class="form-input-app" id="accDepartment" disabled>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label-app">Nhà máy</label>
+                                    <input class="form-input-app" id="accFactory" disabled>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label-app">Quyền</label>
+                                    <input class="form-input-app" id="accRole" disabled>
+                                </div>
+                            </div>
+
+                            <hr class="my-4">
+
+                            <button class="btn-app btn-primary-app" onclick="openModal('changePasswordModal')">
+                                <i class="fas fa-key"></i> Đổi mật khẩu
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div class="modal fade" id="importUserModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content modal-app">
+                <div class="modal-header modal-header-app">
+                    <h5 class="modal-title"><i class="fas fa-file-import"></i> Import User từ CSV</h5>
+                    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="register-notice" style="margin-bottom:16px">
+                        <i class="fas fa-info-circle" style="color:#4d85f3"></i>
+                        <div>
+                            <strong>Định dạng file CSV</strong>
+                            <small>
+                                Dòng đầu là header. Các cột bắt buộc: <code>username</code>, <code>fullName</code>.
+                                Các cột tuỳ chọn: <code>group</code>, <code>factory</code>, <code>line</code>,
+                                <code>to</code>, <code>department</code>, <code>position</code>,
+                                <code>email</code>, <code>phone</code>, <code>role</code>,
+                                <code>password</code>, <code>status</code>, <code>token</code>.
+                            </small>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom:16px">
+                        <button type="button" class="btn-app btn-secondary-app btn-sm-app"
+                            onclick="downloadImportTemplate()">
+                            <i class="fas fa-download"></i> Tải file mẫu (.csv)
+                        </button>
+                    </div>
+
+                    <div class="form-floating-app">
+                        <label><i class="fas fa-file-csv"></i> Chọn file CSV</label>
+                        <div class="upload-zone-app" onclick="document.getElementById('csvFileInput').click()"
+                            id="csvDropZone">
+                            <i class="fas fa-file-upload" style="font-size:1.8rem;color:#94a3b8"></i>
+                            <p id="csvFileName" style="margin:8px 0 0;color:#5f6b7c;font-size:.88rem">
+                                Kéo thả hoặc bấm để chọn file CSV
+                            </p>
+                        </div>
+                        <input type="file" id="csvFileInput" hidden accept=".csv,text/csv">
+                    </div>
+
+                    <div id="importPreviewWrap" style="display:none;margin-top:16px">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                            <strong style="font-size:.88rem;color:#101828">
+                                Xem trước: <span id="importPreviewCount">0</span> dòng
+                            </strong>
+                            <button type="button" class="btn-app btn-secondary-app btn-sm-app"
+                                onclick="clearImportData()">
+                                <i class="fas fa-times"></i> Xoá
+                            </button>
+                        </div>
+                        <div class="table-wrap-app" style="max-height:280px;overflow-y:auto">
+                            <table class="table-app" id="importPreviewTable">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Username</th>
+                                        <th>Họ tên</th>
+                                        <th>Nhóm</th>
+                                        <th>Nhà máy</th>
+                                        <th>Line/Tổ</th>
+                                        <th>Role</th>
+                                        <th>Email</th>
+                                        <th>Trạng thái</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="importPreviewBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div id="importResultWrap" style="display:none;margin-top:16px"></div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn-app btn-secondary-app" data-bs-dismiss="modal">Đóng</button>
+                    <button class="btn-app btn-primary-app" id="importSubmitBtn" onclick="submitImportUsers()" disabled>
+                        <i class="fas fa-cloud-upload-alt"></i> Import
+                        <span id="importSubmitCount"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="createGembaModal" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content modal-app">
+                <div class="modal-header modal-header-app">
+                    <h5 class="modal-title"><i class="fas fa-plus-circle"></i> Ghi nhận vấn đề Gemba</h5>
+                    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+
+                <div class="modal-body">
+                    <form id="createGembaForm">
+                        <div class="form-section">
+                            <div class="form-section-title">
+                                <i class="fas fa-map-marker-alt"></i> Vị trí phát hiện
+                            </div>
+
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label-app required">Nhà máy</label>
+                                    <select id="cFactory" class="form-input-app" required></select>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label-app required">Line</label>
+                                    <select id="cLine" class="form-input-app" required disabled></select>
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label-app required">Tổ</label>
+                                    <select id="cTo" class="form-input-app" required disabled></select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label-app">
+                                        <i class="fas fa-map-pin" style="color:var(--brand-primary)"></i>
+                                        Vị trí chi tiết
+                                    </label>
+                                    <input id="cLocation" class="form-input-app"
+                                        placeholder="VD: Máy CNC số 3 / khu đóng gói / bàn kiểm tra">
+                                </div>
+
+                                <div class="col-md-6">
+                                    <label class="form-label-app">
+                                        <i class="fas fa-user-edit" style="color:var(--brand-primary)"></i>
+                                        Chỉ định người phụ trách khác
+                                        <small style="color:#94a3b8;font-weight:400;margin-left:4px">(tuỳ chọn)</small>
+                                    </label>
+                                    <select id="cAssigneeOverride" class="form-input-app">
+                                        <option value="">-- Tự động theo Tổ --</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div><!-- end row g-3 -->
+
+                        <div id="cAssigneePreview" class="assignee-preview" style="display:none;margin-top:10px">
+                            <i class="fas fa-user-check"></i>
+                            Người phụ trách mặc định: <strong id="cAssigneeName">—</strong>
+                        </div>
+
+                        <div class="form-section">
+                            <div class="form-section-title">
+                                <i class="fas fa-info-circle"></i> Thông tin vấn đề
+                            </div>
+
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <label class="form-label-app required">Mã vấn đề</label>
+                                    <select id="cIssueCode" class="form-input-app" required></select>
+                                </div>
+
+                                <div class="col-md-5">
+                                    <label class="form-label-app required">Tên vấn đề</label>
+                                    <select id="cIssueName" class="form-input-app" required disabled></select>
+                                </div>
+
+                                <div class="col-md-3">
+                                    <label class="form-label-app">Mức ưu tiên</label>
+                                    <select id="cPriority" class="form-input-app">
+                                        <option value="Low">Thấp</option>
+                                        <option value="Medium" selected>Trung bình</option>
+                                        <option value="High">Cao</option>
+                                        <option value="Critical">Khẩn cấp</option>
+                                    </select>
+                                </div>
+
+                                <div class="col-md-8">
+                                    <label class="form-label-app required">Vấn đề ghi nhận</label>
+                                    <input id="cTitle" class="form-input-app" required maxlength="200"
+                                        placeholder="Nhập vấn đề ghi nhận ngắn gọn, rõ ràng">
+                                </div>
+
+                                <div class="col-md-4">
+                                    <label class="form-label-app">Mã hàng / SP liên quan</label>
+                                    <input id="cProductCode" class="form-input-app" placeholder="Nếu có">
+                                </div>
+
+                                <div class="col-12">
+                                    <label class="form-label-app required">Mô tả vấn đề</label>
+                                    <textarea id="cDescription" class="form-input-app" rows="4" required
+                                        placeholder="Mô tả hiện trạng, mức ảnh hưởng, thời điểm phát hiện..."></textarea>
+                                </div>
+
+                                <div class="col-12">
+                                    <label class="form-label-app">Đề xuất giải pháp</label>
+                                    <textarea id="cProposal" class="form-input-app" rows="3"
+                                        placeholder="Đề xuất ban đầu (nếu có)"></textarea>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-section">
+                            <div class="form-section-title">
+                                <i class="fas fa-paperclip"></i> Minh chứng & tệp đính kèm
+                            </div>
+
+                            <div class="upload-hub-app">
+                                <div class="upload-hub-main" onclick="document.getElementById('cAllFiles').click()">
+                                    <div class="upload-hub-icon">
+                                        <i class="fas fa-cloud-upload-alt"></i>
+                                    </div>
+
+                                    <div class="upload-hub-content">
+                                        <strong>Chọn tệp một lần</strong>
+                                        <small>Hệ thống tự phân loại thành Ảnh Before, Video và File đính kèm</small>
+                                    </div>
+
+                                    <div class="upload-hub-action">
+                                        <i class="fas fa-plus"></i> Chọn tệp
+                                    </div>
+                                </div>
+
+                                <div class="upload-hub-tags">
+                                    <span class="upload-tag required"><i class="fas fa-image"></i> Ảnh Before *
+                                        (≤10MB)</span>
+                                    <span class="upload-tag"><i class="fas fa-video"></i> Video (≤35MB)</span>
+                                    <span class="upload-tag"><i class="fas fa-file-alt"></i> PDF / DOCX / XLSX
+                                        (≤10MB)</span>
+                                </div>
+                                <!-- ▼ THÊM VÀO ĐÂY ▼ -->
+                                <div class="d-flex gap-2 flex-wrap mt-2">
+                                    <button type="button" class="btn-app btn-secondary-app"
+                                        onclick="document.getElementById('cCameraPhoto').click()">
+                                        <i class="fas fa-camera"></i> Chụp ảnh
+                                    </button>
+                                    <button type="button" class="btn-app btn-secondary-app"
+                                        onclick="document.getElementById('cCameraVideo').click()">
+                                        <i class="fas fa-video"></i> Quay video
+                                    </button>
+                                </div>
+
+                                <input type="file" id="cCameraPhoto" accept="image/*" capture="environment" hidden>
+                                <input type="file" id="cCameraVideo" accept="video/*" capture="environment" hidden>
+                                <!-- ▲ HẾT PHẦN THÊM ▲ -->
+                                <input type="file" id="cAllFiles" hidden multiple
+                                    accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx">
+
+                                <div class="upload-group-grid">
+                                    <!-- Ảnh Before: luôn hiện -->
+                                    <div class="upload-group-card">
+                                        <div class="upload-group-title">
+                                            <i class="fas fa-image"></i> Ảnh Before
+                                            <span class="text-danger">*</span>
+                                        </div>
+                                        <div id="cImagePreview" class="upload-preview-list compact"></div>
+                                    </div>
+
+                                    <!-- Video: ẩn khi chưa có file -->
+                                    <div class="upload-group-card is-empty">
+                                        <div class="upload-group-title">
+                                            <i class="fas fa-video"></i> Video
+                                        </div>
+                                        <div id="cVideoPreview" class="upload-preview-list compact"></div>
+                                    </div>
+
+                                    <!-- File đính kèm: ẩn khi chưa có file -->
+                                    <div class="upload-group-card is-empty">
+                                        <div class="upload-group-title">
+                                            <i class="fas fa-file-alt"></i> File đính kèm
+                                        </div>
+                                        <div id="cFilesPreview" class="upload-preview-list compact"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn-app btn-secondary-app" data-bs-dismiss="modal">
+                        <i class="fas fa-times"></i> Hủy
+                    </button>
+                    <button class="btn-app btn-primary-app" onclick="submitCreateGemba()">
+                        <i class="fas fa-save"></i> Tạo phiếu
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="gembaDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-xxl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content modal-app">
+                <div class="modal-header modal-header-app">
+                    <h5 class="modal-title">
+                        <i class="fas fa-file-alt"></i> Chi tiết Gemba
+                        <span id="detailIdBadge" class="detail-id-badge"></span>
+                        <span id="detailStatusHeaderBadge"></span>
+                    </h5>
+                    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+
+                <div class="modal-body p-0">
+                    <div class="detail-title-banner">
+                        <div class="detail-title-icon">
+                            <i class="fas fa-exclamation"></i>
+                        </div>
+                        <h3 class="detail-title-text" id="detailTitle">—</h3>
+                    </div>
+
+                    <div class="detail-container">
+                        <div class="detail-col detail-col-left">
+                            <h4 class="detail-section-heading">
+                                <i class="fas fa-camera text-warning"></i> Trước cải tiến (Before)
+                            </h4>
+
+                            <div class="detail-photo-box">
+                                <div class="photo-badges">
+                                    <span class="photo-badge photo-badge-before">Before</span>
+                                    <span class="photo-badge photo-badge-priority" id="detailPriorityBadge"
+                                        style="display:none"></span>
+                                </div>
+
+                                <div class="photo-location" id="detailLocation">
+                                    <i class="fas fa-map-marker-alt"></i> <span></span>
+                                </div>
+
+                                <div class="photo-main" id="detailPhotoMain">
+                                    <div class="photo-placeholder">
+                                        <i class="fas fa-image"></i>
+                                        <p>Chưa có ảnh</p>
+                                    </div>
+                                </div>
+
+                                <div class="photo-thumbs" id="detailPhotoThumbs"></div>
+                            </div>
+
+                            <div class="detail-info-grid">
+                                <div class="info-item">
+                                    <div class="info-label"><i class="fas fa-calendar-week"></i> Tuần</div>
+                                    <div class="info-value" id="detailWeek">—</div>
+                                </div>
+
+                                <div class="info-item">
+                                    <div class="info-label"><i class="fas fa-barcode"></i> Mã hàng</div>
+                                    <div class="info-value" id="detailProductCode">—</div>
+                                </div>
+
+                                <div class="info-item" style="grid-column:1/-1">
+                                    <div class="info-label"><i class="fas fa-tags"></i> Loại vấn đề</div>
+                                    <div class="info-value text-primary" id="detailType">—</div>
+                                </div>
+
+                                <div class="info-item" style="grid-column:1/-1">
+                                    <div class="info-label"><i class="fas fa-paperclip"></i> Tệp đính kèm</div>
+                                    <div class="info-value" id="detailAttachments">—</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="detail-col detail-col-right">
+                            <h4 class="detail-section-heading">
+                                <i class="fas fa-file-alt text-info"></i> Mô tả & Đề xuất (Người tạo)
+                            </h4>
+
+                            <div class="info-item">
+                                <div class="info-label"><i class="fas fa-align-left"></i> Mô tả vấn đề</div>
+                                <div class="info-value detail-rich-text" id="detailDescription">—</div>
+                            </div>
+
+                            <div class="info-item mt-2">
+                                <div class="info-label"><i class="fas fa-lightbulb"></i> Đề xuất giải pháp</div>
+                                <div class="info-value detail-rich-text" id="detailProposal">—</div>
+                            </div>
+
+                            <div class="person-chip person-chip-creator mt-2" id="detailCreatorChip">
+                                <div class="person-chip-avatar" id="detailCreatorAvatar">U</div>
+                                <div class="person-chip-meta">
+                                    <div class="person-chip-role"><i class="fas fa-user-edit"></i> Người tạo</div>
+                                    <div class="person-chip-name" id="detailCreatedBy">—</div>
+                                </div>
+                            </div>
+
+                            <h4 class="detail-section-heading mt-3">
+                                <i class="fas fa-check-circle text-success"></i> Nguyên nhân & Kết quả thực hiện
+                            </h4>
+
+                            <div id="detailAfterContainer"></div>
+
+                            <div class="person-chip person-chip-assignee mt-2" id="detailAssigneeChip">
+                                <div class="person-chip-avatar" id="detailAssigneeAvatar">U</div>
+                                <div class="person-chip-meta">
+                                    <div class="person-chip-role"><i class="fas fa-user-check"></i> Người phụ trách
+                                    </div>
+                                    <div class="person-chip-name" id="detailAssignee">—</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="detail-history-section">
+                        <div class="history-header">
+                            <h4><i class="fas fa-history"></i> Lịch sử hoạt động</h4>
+                        </div>
+
+                        <div class="history-body">
+                            <div class="table-wrap-app">
+                                <table class="table-app">
+                                    <thead>
+                                        <tr>
+                                            <th>Thời gian</th>
+                                            <th>Người thực hiện</th>
+                                            <th>Hành động</th>
+                                            <th>Trạng thái</th>
+                                            <th>Ghi chú</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="historyBody"></tbody>
+                                </table>
+                            </div>
+                            <div id="historyCardList" class="mobile-card-list" style="padding:4px 0"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer modal-footer-detail">
+                    <div class="footer-meta-left">
+                        <i class="far fa-calendar-alt"></i>
+                        <span>Ngày ghi nhận:</span>
+                        <strong id="detailCreatedDate">—</strong>
+                    </div>
+                    <div class="footer-actions-right">
+                        <div id="detailActionsContainer"></div>
+                        <button class="btn-app btn-secondary-app footer-close-btn" data-bs-dismiss="modal">
+                            <i class="fas fa-times"></i> Đóng
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="imageViewerModal" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content" style="background:#000;border:none">
+                <button class="image-viewer-close" data-bs-dismiss="modal">
+                    <i class="fas fa-times"></i>
+                </button>
+                <div class="modal-body text-center p-0"
+                    style="min-height:80vh;display:flex;align-items:center;justify-content:center">
+                    <img id="viewerImage" style="max-width:100%;max-height:90vh;object-fit:contain">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="userModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content modal-app">
+                <div class="modal-header modal-header-app">
+                    <h5 class="modal-title">
+                        <i class="fas fa-user-edit"></i> <span id="userModalTitle">Thêm User</span>
+                    </h5>
+                    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+
+                <div class="modal-body">
+                    <form id="userForm">
+                        <input type="hidden" id="userMode" value="add">
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label-app required">Username</label>
+                                <input id="uUsername" class="form-input-app" required>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label-app required">Họ và tên</label>
+                                <input id="uFullName" class="form-input-app" required>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label-app required">Nhóm đăng nhập</label>
+                                <select id="uGroup" class="form-input-app" required></select>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label-app">Nhà máy</label>
+                                <select id="uFactory" class="form-input-app"></select>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label-app">Line</label>
+                                <input id="uLine" class="form-input-app" placeholder="VD: Line A1, Line B2">
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label-app">Tổ</label>
+                                <input id="uTo" class="form-input-app" placeholder="VD: Tổ 1, Tổ 2">
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label-app">Phòng ban</label>
+                                <input id="uDepartment" class="form-input-app">
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label-app">Chức vụ</label>
+                                <input id="uPosition" class="form-input-app">
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label-app">Email</label>
+                                <input type="email" id="uEmail" class="form-input-app">
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label-app">Phone</label>
+                                <input id="uPhone" class="form-input-app">
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label-app required">Quyền</label>
+                                <select id="uRole" class="form-input-app" required>
+                                    <option value="Admin">Admin</option>
+                                    <option value="Tổng Giám đốc">Tổng Giám đốc</option>
+                                    <option value="Giám đốc">Giám đốc</option>
+                                    <option value="Trưởng Line">Trưởng Line</option>
+                                    <option value="Tổ trưởng">Tổ trưởng</option>
+                                    <option value="Nhân viên" selected>Nhân viên</option>
+                                    <option value="Viewer">Viewer</option>
+                                </select>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label class="form-label-app">Trạng thái</label>
+                                <select id="uStatus" class="form-input-app">
+                                    <option value="Active">Active</option>
+                                    <option value="Inactive">Inactive</option>
+                                </select>
+                            </div>
+
+                            <div class="col-12">
+                                <label class="form-label-app">Mật khẩu</label>
+                                <input type="text" id="uPassword" class="form-input-app"
+                                    placeholder="Để trống = giữ nguyên khi sửa / mặc định 123456 khi thêm">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn-app btn-secondary-app" data-bs-dismiss="modal">Hủy</button>
+                    <button class="btn-app btn-primary-app" onclick="submitUser()">
+                        <i class="fas fa-save"></i> Lưu
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="changePasswordModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content modal-app">
+                <div class="modal-header modal-header-app">
+                    <h5 class="modal-title"><i class="fas fa-key"></i> Đổi mật khẩu</h5>
+                    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label-app required">Mật khẩu hiện tại</label>
+                        <input type="password" id="oldPassword" class="form-input-app" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label-app required">Mật khẩu mới</label>
+                        <input type="password" id="newPassword" class="form-input-app" required minlength="6">
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label-app required">Xác nhận</label>
+                        <input type="password" id="confirmPassword" class="form-input-app" required minlength="6">
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn-app btn-secondary-app" data-bs-dismiss="modal">Hủy</button>
+                    <button class="btn-app btn-primary-app" onclick="submitChangePassword()">
+                        <i class="fas fa-save"></i> Đổi mật khẩu
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="reasonModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content modal-app">
+                <div class="modal-header modal-header-app">
+                    <h5 class="modal-title">
+                        <i class="fas fa-comment-dots" id="reasonIcon"></i> <span id="reasonTitle">Nhập nội dung</span>
+                    </h5>
+                    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+
+                <div class="modal-body">
+                    <p id="reasonDesc" style="color:#5f6b7c;margin-bottom:14px;font-size:.88rem"></p>
+                    <div class="form-floating-app" style="margin-bottom:0">
+                        <label id="reasonLabel"><i class="fas fa-pen"></i> Nội dung</label>
+                        <textarea id="reasonInput" class="form-input-app" rows="4" placeholder="Nhập tại đây..."
+                            style="resize:vertical"></textarea>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn-app btn-secondary-app" data-bs-dismiss="modal">
+                        <i class="fas fa-times"></i> Hủy
+                    </button>
+                    <button class="btn-app btn-primary-app" id="reasonOkBtn">
+                        <i class="fas fa-check"></i> <span id="reasonOkText">Xác nhận</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="sendNotifModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content modal-app">
+                <div class="modal-header modal-header-app">
+                    <h5 class="modal-title"><i class="fas fa-paper-plane"></i> Gửi thông báo</h5>
+                    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="form-section">
+                        <div class="form-section-title">
+                            <i class="fas fa-users"></i> Người nhận
+                        </div>
+
+                        <div class="row g-3">
+
+                            <!-- LỌC THEO NHÀ MÁY (MỚI) -->
+                            <div class="col-md-4">
+                                <label class="form-label-app">
+                                    <i class="fas fa-industry" style="color:var(--brand-primary)"></i>
+                                    Lọc theo Nhà máy
+                                </label>
+                                <select id="notifFactoryFilter" class="form-input-app">
+                                    <option value="">Tất cả nhà máy</option>
+                                </select>
+                            </div>
+
+                            <!-- LỌC THEO LINE (MỚI) -->
+                            <div class="col-md-4">
+                                <label class="form-label-app">
+                                    <i class="fas fa-stream" style="color:var(--brand-primary)"></i>
+                                    Lọc theo Line
+                                </label>
+                                <select id="notifLineFilter" class="form-input-app" disabled>
+                                    <option value="">Tất cả line</option>
+                                </select>
+                            </div>
+
+                            <!-- LỌC NHANH THEO VAI TRÒ -->
+                            <div class="col-md-4">
+                                <label class="form-label-app">
+                                    <i class="fas fa-user-tag" style="color:var(--brand-primary)"></i>
+                                    Lọc theo vai trò
+                                </label>
+                                <select id="notifReceiverFilter" class="form-input-app">
+                                    <option value="">Tất cả vai trò</option>
+                                    <option value="role:Admin">Chỉ Admin</option>
+                                    <option value="role:Tổng Giám đốc">Chỉ Tổng Giám đốc</option>
+                                    <option value="role:Giám đốc">Chỉ Giám đốc</option>
+                                    <option value="role:Trưởng Line">Chỉ Trưởng Line</option>
+                                    <option value="role:Tổ trưởng">Chỉ Tổ trưởng</option>
+                                    <option value="role:Nhân viên">Chỉ Nhân viên</option>
+                                    <option value="role:Viewer">Chỉ Viewer</option>
+                                </select>
+                            </div>
+
+                            <!-- TÌM KIẾM -->
+                            <div class="col-12">
+                                <label class="form-label-app">
+                                    <i class="fas fa-search" style="color:var(--brand-primary)"></i>
+                                    Tìm kiếm
+                                </label>
+                                <input id="notifReceiverSearch" class="form-input-app"
+                                    placeholder="Tên hoặc username...">
+                            </div>
+
+                            <!-- DANH SÁCH NGƯỜI NHẬN -->
+                            <div class="col-12">
+                                <div class="notif-recv-actions">
+                                    <button type="button" class="btn-app btn-secondary-app btn-sm-app"
+                                        onclick="notifSelectAll(true)">
+                                        <i class="fas fa-check-square"></i> Chọn tất cả
+                                    </button>
+                                    <button type="button" class="btn-app btn-secondary-app btn-sm-app"
+                                        onclick="notifSelectAll(false)">
+                                        <i class="far fa-square"></i> Bỏ chọn
+                                    </button>
+                                    <span class="notif-recv-count">
+                                        Đã chọn: <strong id="notifSelectedCount">0</strong>
+                                    </span>
+                                    <span id="notifFilteredCount"
+                                        style="margin-left:auto;font-size:.78rem;color:#94a3b8"></span>
+                                </div>
+                                <div class="notif-recv-list" id="notifReceiverList"></div>
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-section-title">
+                            <i class="fas fa-envelope"></i> Nội dung
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label-app">Loại</label>
+                                <select id="notifType" class="form-input-app">
+                                    <option value="announcement">📢 Thông báo</option>
+                                    <option value="reminder">⏰ Nhắc nhở</option>
+                                    <option value="info">ℹ️ Thông tin</option>
+                                </select>
+                            </div>
+                            <div class="col-md-8">
+                                <label class="form-label-app required">Tiêu đề</label>
+                                <input id="notifTitle" class="form-input-app" maxlength="120">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label-app required">Nội dung</label>
+                                <textarea id="notifContent" class="form-input-app" rows="5"
+                                    placeholder="Nhập nội dung thông báo gửi cho người nhận..."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label-app">Gắn với phiếu Gemba (tuỳ chọn)</label>
+                                <input id="notifGembaId" class="form-input-app" placeholder="VD: GB-2026-0001">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn-app btn-secondary-app" data-bs-dismiss="modal">Huỷ</button>
+                    <button class="btn-app btn-primary-app" onclick="submitSendNotif()">
+                        <i class="fas fa-paper-plane"></i> Gửi
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="tokenModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content modal-app">
+                <div class="modal-header modal-header-app">
+                    <h5 class="modal-title"><i class="fas fa-key"></i> Quản lý Token MMTB</h5>
+                    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+
+                <div class="modal-body">
+                    <div style="background:#f4f7fb;border-radius:8px;padding:14px;margin-bottom:16px">
+                        <div style="font-size:.78rem;color:#94a3b8;margin-bottom:4px">Người dùng</div>
+                        <div style="font-weight:700;color:#101828" id="tokenUserName">—</div>
+                        <div style="font-size:.82rem;color:#5f6b7c" id="tokenUserUsername">—</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label-app">Token hiện tại</label>
+                        <div class="input-with-action">
+                            <input type="text" id="tokenCurrentValue" class="form-input-app" readonly
+                                style="font-family:monospace;font-weight:700;letter-spacing:2px;font-size:1.05rem">
+                            <button type="button" class="input-action-btn" onclick="copyTokenToClipboard()"
+                                title="Copy">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                        <small style="display:block;margin-top:6px;color:#94a3b8;font-size:.74rem">
+                            <i class="fas fa-info-circle"></i> Token gồm 8 ký tự HEX (0-9, A-F)
+                        </small>
+                    </div>
+
+                    <hr class="my-3">
+
+                    <div class="mb-3">
+                        <label class="form-label-app">Set token thủ công (tuỳ chọn)</label>
+                        <input type="text" id="tokenManualInput" class="form-input-app" placeholder="VD: 1FBF660C"
+                            maxlength="8" style="text-transform:uppercase;font-family:monospace;letter-spacing:2px">
+                        <small style="display:block;margin-top:6px;color:#94a3b8;font-size:.74rem">
+                            Nhập đúng 8 ký tự HEX nếu muốn set thủ công, hoặc dùng nút "Tạo mới" để random
+                        </small>
+                    </div>
+
+                    <div
+                        style="background:#fff6e8;border-left:4px solid #f0b96a;padding:12px;border-radius:6px;font-size:.84rem;color:#5f6b7c">
+                        <strong style="color:#d48e19">⚠️ Lưu ý:</strong> Khi tạo token mới, token cũ sẽ bị vô hiệu hoá.
+                        User cần dùng URL MMTB mới.
+                    </div>
+                </div>
+
+                <div class="modal-footer" style="justify-content:space-between">
+                    <button class="btn-app btn-danger-app" onclick="submitClearToken()">
+                        <i class="fas fa-trash"></i> Xoá token
+                    </button>
+                    <div style="display:flex;gap:8px">
+                        <button class="btn-app btn-secondary-app" data-bs-dismiss="modal">Đóng</button>
+                        <button class="btn-app btn-warning-app" onclick="submitSetTokenManual()">
+                            <i class="fas fa-save"></i> Lưu thủ công
+                        </button>
+                        <button class="btn-app btn-primary-app" onclick="submitGenerateToken()">
+                            <i class="fas fa-random"></i> Tạo mới
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="forgotPasswordModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content modal-app">
+                <div class="modal-header modal-header-app">
+                    <h5 class="modal-title"><i class="fas fa-key"></i> Quên mật khẩu</h5>
+                    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p style="color:#5f6b7c;margin-bottom:16px">
+                        Nhập <strong>username</strong> hoặc <strong>email</strong> đã đăng ký. Hệ thống sẽ gửi mật khẩu
+                        mới tới email của bạn.
+                    </p>
+                    <div class="form-floating-app">
+                        <label><i class="fas fa-user"></i> Username hoặc Email</label>
+                        <input type="text" id="forgotInput" class="form-input-app"
+                            placeholder="username hoặc email@domain.com">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-app btn-secondary-app" data-bs-dismiss="modal">Hủy</button>
+                    <button class="btn-app btn-primary-app" onclick="submitForgotPassword()">
+                        <i class="fas fa-paper-plane"></i> Gửi mật khẩu
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="confirmModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered" style="max-width:420px">
+            <div class="modal-content modal-app">
+                <div class="modal-header modal-header-app">
+                    <h5 class="modal-title">
+                        <i class="fas fa-exclamation-triangle" style="color:#f0b96a;margin-right:6px"></i>
+                        <span id="confirmTitle">Xác nhận</span>
+                    </h5>
+                    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" style="padding:20px 18px">
+                    <p id="confirmMessage" style="color:#5f6b7c;margin:0;font-size:.92rem;line-height:1.65"></p>
+                </div>
+                <div class="modal-footer" style="gap:8px">
+                    <button class="btn-app btn-secondary-app" data-bs-dismiss="modal">
+                        <i class="fas fa-times"></i> Hủy
+                    </button>
+                    <button class="btn-app btn-danger-app" id="confirmOkBtn">
+                        <i class="fas fa-check"></i>
+                        <span id="confirmOkText">Xác nhận</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="adminSettingsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content modal-app">
+                <div class="modal-header modal-header-app">
+                    <h5 class="modal-title"><i class="fas fa-sliders-h"></i> Cài đặt hệ thống</h5>
+                    <button class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="register-notice" style="margin-bottom:16px">
+                        <i class="fas fa-info-circle" style="color:#4d85f3"></i>
+                        <div>
+                            <strong>Cấu hình động</strong>
+                            <small>Các thay đổi tại đây được lưu vào sheet SETTINGS. Sau khi lưu, hãy tải lại trang (F5)
+                                để giao diện cập nhật thương hiệu.</small>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-section-title"><i class="fas fa-tag"></i> Thương hiệu / Tên ứng dụng</div>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label-app">Tên app (phần đầu)</label>
+                                <input id="setAppName" class="form-input-app" placeholder="VD: Gemba">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label-app">Tên app (phần sau chấm)</label>
+                                <input id="setAppDot" class="form-input-app" placeholder="VD: Pro">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label-app">Phụ đề nhỏ</label>
+                                <input id="setAppSubtitle" class="form-input-app" placeholder="VD: NM SK Miền Đông">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label-app">Tên tổ chức</label>
+                                <input id="setAppOrg" class="form-input-app" placeholder="VD: TBS Group">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-section-title"><i class="fas fa-door-open"></i> Màn hình đăng nhập</div>
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label-app">Tiêu đề login</label>
+                                <input id="setLoginTitle" class="form-input-app"
+                                    placeholder="VD: Chào mừng đến TBS Group!">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label-app">Phụ đề login</label>
+                                <input id="setLoginSubtitle" class="form-input-app"
+                                    placeholder="VD: Hệ thống quản lý Gemba...">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-section-title"><i class="fas fa-layer-group"></i> Danh mục dùng chung</div>
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label-app">Nhóm đăng nhập <small style="color:#94a3b8">(cách nhau dấu
+                                        phẩy)</small></label>
+                                <input id="setLoginGroups" class="form-input-app"
+                                    placeholder="VD: VP Chuỗi, VP Khu vực, Thoại Sơn 1">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label-app">Phòng ban <small style="color:#94a3b8">(cách nhau dấu
+                                        phẩy)</small></label>
+                                <input id="setDepartments" class="form-input-app"
+                                    placeholder="VD: Sản xuất, Kỹ thuật, Chất lượng">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label-app">Chức vụ <small style="color:#94a3b8">(cách nhau dấu phẩy —
+                                        tuỳ chọn)</small></label>
+                                <input id="setPositions" class="form-input-app"
+                                    placeholder="VD: Nhân viên, Tổ trưởng, Quản đốc">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <div class="form-section-title"><i class="fas fa-clock"></i> Thời hạn xử lý (SLA — số ngày)
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label-app">Thấp</label>
+                                <input id="setSlaLow" type="number" min="0" class="form-input-app" placeholder="14">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label-app">Trung bình</label>
+                                <input id="setSlaMedium" type="number" min="0" class="form-input-app" placeholder="7">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label-app">Cao</label>
+                                <input id="setSlaHigh" type="number" min="0" class="form-input-app" placeholder="3">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label-app">Khẩn cấp</label>
+                                <input id="setSlaCritical" type="number" min="0" class="form-input-app" placeholder="1">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label-app">Mặc định</label>
+                                <input id="setSlaDefault" type="number" min="0" class="form-input-app" placeholder="2">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn-app btn-secondary-app" data-bs-dismiss="modal">Đóng</button>
+                    <button class="btn-app btn-primary-app" onclick="submitAdminSettings()">
+                        <i class="fas fa-save"></i> Lưu cấu hình
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <?!= include('Script'); ?>
+    <?!= include('KpiScript'); ?>
+    <?!= include('AnalyticsScript'); ?>
+</body>
+
+</html>

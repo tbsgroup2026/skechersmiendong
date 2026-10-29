@@ -1,0 +1,1037 @@
+{
+  "matches": [
+    {
+      "gu": {
+        "id": 1,
+        "username": "Admin",
+        "full_name": "LÊ KHẢI",
+        "group_name": "VP Chuỗi",
+        "factory": "",
+        "line": "",
+        "team": "",
+        "department": "IT",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Admin",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "202112003",
+        "name": "LÊ KHẢI",
+        "email": "202112003@tbsgroup.vn",
+        "department": "KD PTSP 1",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 2,
+        "username": "TGĐ Chuỗi",
+        "full_name": "PHẠM MINH TÙNG",
+        "group_name": "VP Chuỗi",
+        "factory": "",
+        "line": "",
+        "team": "",
+        "department": "Ban Giám Đốc",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Tổng Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "200405004",
+        "name": "PHẠM MINH TÙNG",
+        "email": "200405004@tbsgroup.vn",
+        "department": "ĐH-QT",
+        "role_code": "TONG_GIAM_DOC",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 3,
+        "username": "CN- CI Chuỗi",
+        "full_name": "LÊ HUY TUẤN",
+        "group_name": "VP Chuỗi",
+        "factory": "",
+        "line": "",
+        "team": "",
+        "department": "CI – Cải tiến",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "201711002",
+        "name": "LÊ HUY TUẤN",
+        "email": "201711002@tbsgroup.vn",
+        "department": "CN- PPH & CI_NON SP",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 6,
+        "username": "GĐ NM  MĐ",
+        "full_name": "ĐỖ ĐẮC MIỀN",
+        "group_name": "VP Khu vực",
+        "factory": "",
+        "line": "",
+        "team": "",
+        "department": "Ban Giám Đốc",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Tổng Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "249507002",
+        "name": "ĐỖ ĐẮC MIỀN",
+        "email": "249507002@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "GIAM_DOC",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 7,
+        "username": "CN - CI SK MĐ",
+        "full_name": "PHAN THỊ THANH TÂM",
+        "group_name": "VP Khu vực",
+        "factory": "",
+        "line": "",
+        "team": "",
+        "department": "CI – Cải tiến",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "200212001",
+        "name": "PHAN THỊ THANH TÂM",
+        "email": "200212001@tbsgroup.vn",
+        "department": "CN-PPH & CI_NM MĐ",
+        "role_code": "TRUONG_PHONG",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 10,
+        "username": "ĐH PX Đầu vào",
+        "full_name": "TRẦN VĂN HOÁ",
+        "group_name": "PX Đầu vào",
+        "factory": "PX Đầu vào",
+        "line": "",
+        "team": "",
+        "department": "Điều hành SX",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "210906005",
+        "name": "TRẦN VĂN HÓA",
+        "email": "210906005@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 13,
+        "username": "Tổ Cắt",
+        "full_name": "LĂNG VĂN QUẾ",
+        "group_name": "PX Đầu vào",
+        "factory": "PX Đầu vào",
+        "line": "LINE CHẶT 1",
+        "team": "Cắt",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222407082",
+        "name": "LĂNG VĂN QUẾ",
+        "email": "222407082@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 14,
+        "username": "Tổ Lạng-Cán dán&Đồng bộ",
+        "full_name": "NGUYỄN THỊ LOA",
+        "group_name": "PX Đầu vào",
+        "factory": "PX Đầu vào",
+        "line": "LINE CHẶT 1",
+        "team": "Lạng-cán dán-đồng bộ",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222407041",
+        "name": "NGUYỄN THỊ LOA",
+        "email": "222407041@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 16,
+        "username": "Tổ In-ép",
+        "full_name": "NGUYỄN HOÀI HƯNG",
+        "group_name": "PX Đầu vào",
+        "factory": "PX Đầu vào",
+        "line": "LINE IN ÉP 1",
+        "team": "In-ép",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222509018",
+        "name": "NGUYỄN HOÀI HƯNG",
+        "email": "222509018@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 17,
+        "username": "Tổ Da lót tẩy",
+        "full_name": "NGUYỄN HOÀI HƯNG",
+        "group_name": "PX Đầu vào",
+        "factory": "PX Đầu vào",
+        "line": "LINE IN ÉP 1",
+        "team": "Da lót tẩy",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222509018",
+        "name": "NGUYỄN HOÀI HƯNG",
+        "email": "222509018@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 18,
+        "username": "ĐH PX May",
+        "full_name": "HOÀNG QUỐC NGHỊ",
+        "group_name": "PX May",
+        "factory": "PX May",
+        "line": "",
+        "team": "",
+        "department": "Điều hành SX",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222502031",
+        "name": "HOÀNG QUỐC NGHỊ",
+        "email": "222502031@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 21,
+        "username": "Tổ May 1",
+        "full_name": "LÊ VĂN TUẤN",
+        "group_name": "PX May",
+        "factory": "PX May",
+        "line": "LINE_HTM 1",
+        "team": "Tổ May 1",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "211209006",
+        "name": "LÊ VĂN TUẤN",
+        "email": "211209006@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 22,
+        "username": "Tổ May 2",
+        "full_name": "HỒ KHẮC NGHĨA",
+        "group_name": "PX May",
+        "factory": "PX May",
+        "line": "LINE_HTM 1",
+        "team": "Tổ May 2",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "211104005",
+        "name": "HỒ KHẮC NGHĨA",
+        "email": "211104005@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 23,
+        "username": "Tổ May 3",
+        "full_name": "NGUYỄN THẠCH TRƯỜNG",
+        "group_name": "PX May",
+        "factory": "PX May",
+        "line": "LINE_HTM 1",
+        "team": "Tổ May 3",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222308001",
+        "name": "NGUYỄN THẠCH TRƯỜNG",
+        "email": "222308001@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 24,
+        "username": "Tổ May 4",
+        "full_name": "MAI ĐỨC VIỆT",
+        "group_name": "PX May",
+        "factory": "PX May",
+        "line": "LINE_HTM 1",
+        "team": "Tổ May 4",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "211404028",
+        "name": "MAI ĐỨC VIỆT",
+        "email": "211404028@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 25,
+        "username": "Tổ May 5",
+        "full_name": "LÊ VĂN CƯỜNG",
+        "group_name": "PX May",
+        "factory": "PX May",
+        "line": "LINE_HTM 1",
+        "team": "Tổ May 5",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222306186",
+        "name": "LÊ VĂN CƯỜNG",
+        "email": "222306186@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 27,
+        "username": "Tổ May 6",
+        "full_name": "NGUYỄN THỊ NHUNG",
+        "group_name": "PX May",
+        "factory": "PX May",
+        "line": "LINE_HTM 2",
+        "team": "Tổ May 6",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "210807002",
+        "name": "NGUYỄN THỊ NHUNG",
+        "email": "210807002@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 28,
+        "username": "Tổ May 7",
+        "full_name": "NGUYỄN THỊ LOAN",
+        "group_name": "PX May",
+        "factory": "PX May",
+        "line": "LINE_HTM 2",
+        "team": "Tổ May 7",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "210303003",
+        "name": "NGUYỄN THỊ LOAN",
+        "email": "210303003@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 29,
+        "username": "ĐH PX Gò",
+        "full_name": "LÊ VĂN THUỶ",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "",
+        "team": "",
+        "department": "Điều hành SX",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "211003016",
+        "name": "LÊ VĂN THỦY",
+        "email": "211003016@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 31,
+        "username": "Trưởng Line Gò 1",
+        "full_name": "PHẠM VĂN TUẤN",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 1",
+        "team": "",
+        "department": "Điều hành SX",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222404007",
+        "name": "PHẠM VĂN TUẤN",
+        "email": "222404007@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 32,
+        "username": "Gò 1 - Tổ CĐ 1",
+        "full_name": "LÝ HỒNG THÁI",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 1",
+        "team": "Tổ Công Đoạn 1",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222506057",
+        "name": "LÝ HỒNG THÁI",
+        "email": "222506057@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 34,
+        "username": "Gò 1 - Tổ CĐ 3",
+        "full_name": "THẠCH SANH",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 1",
+        "team": "Tổ Công Đoạn 3",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222507014",
+        "name": "THẠCH SANH",
+        "email": "222507014@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 36,
+        "username": "Trưởng Line Gò 2",
+        "full_name": "TRẦN VĂN TUÂN",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 2",
+        "team": "",
+        "department": "Điều hành SX",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222504006",
+        "name": "TRẦN VĂN TUÂN",
+        "email": "222504006@tbsgroup.vn",
+        "department": "SX MẪU",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 37,
+        "username": "Gò 2 - Tổ CĐ 1",
+        "full_name": "NGUYỄN THỊ THU HIỀN",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 2",
+        "team": "Tổ Công Đoạn 1",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "201507008",
+        "name": "NGUYỄN THỊ THU HIỀN",
+        "email": "201507008@tbsgroup.vn",
+        "department": "CN-PPH & CI_SP",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 41,
+        "username": "Trưởng Line Gò 3",
+        "full_name": "TRẦN DUY CHƯƠNG",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 3",
+        "team": "",
+        "department": "Điều hành SX",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222604025",
+        "name": "TRẦN DUY CHƯƠNG",
+        "email": "222604025@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 42,
+        "username": "Gò 3 - Tổ CĐ 1",
+        "full_name": "TRẦN DUY CHƯƠNG",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 3",
+        "team": "Tổ Công Đoạn 1",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222604025",
+        "name": "TRẦN DUY CHƯƠNG",
+        "email": "222604025@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 43,
+        "username": "Gò 3 - Tổ CĐ 2",
+        "full_name": "PHẠM VĂN ĐĂNG",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 3",
+        "team": "Tổ Công Đoạn 2",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222506012",
+        "name": "PHẠM VĂN ĐĂNG",
+        "email": "222506012@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 44,
+        "username": "Gò 3 - Tổ CĐ 3",
+        "full_name": "THẠCH SÀ RINH",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 3",
+        "team": "Tổ Công Đoạn 3",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "222408050",
+        "name": "THẠCH SÀ RINH",
+        "email": "222408050@tbsgroup.vn",
+        "department": "NM MĐ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    },
+    {
+      "gu": {
+        "id": 46,
+        "username": "Tinhnguyenvan",
+        "full_name": "Nguyễn văn Tình",
+        "group_name": "VP Chuỗi",
+        "factory": "",
+        "line": "",
+        "team": "",
+        "department": "",
+        "position": "",
+        "email": "tinh.pacific@gmail.com",
+        "phone": "935194250",
+        "role": "Viewer",
+        "password": "123456"
+      },
+      "d1": {
+        "emp_code": "211206004",
+        "name": "NGUYỄN VĂN TÌNH",
+        "email": "211206004@tbsgroup.vn",
+        "department": "NHÂN SỰ",
+        "role_code": "CBCNV",
+        "source": "users"
+      }
+    }
+  ],
+  "unmatchedGas": [
+    {
+      "gu": {
+        "id": 4,
+        "username": "QLCL Chuỗi TPR",
+        "full_name": "",
+        "group_name": "VP Chuỗi",
+        "factory": "",
+        "line": "",
+        "team": "",
+        "department": "Chất lượng",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Empty full_name (chưa điền tên)"
+    },
+    {
+      "gu": {
+        "id": 5,
+        "username": "MMTB Chuỗi",
+        "full_name": "",
+        "group_name": "VP Chuỗi",
+        "factory": "",
+        "line": "",
+        "team": "",
+        "department": "CI – Cải tiến",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Empty full_name (chưa điền tên)"
+    },
+    {
+      "gu": {
+        "id": 8,
+        "username": "QLCL SK MĐ",
+        "full_name": "CAO THỊ MỸ HẠNH",
+        "group_name": "VP Khu vực",
+        "factory": "",
+        "line": "",
+        "team": "",
+        "department": "Chất lượng",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Chưa có trong danh sách D1 users"
+    },
+    {
+      "gu": {
+        "id": 9,
+        "username": "MMTB  SK MĐ",
+        "full_name": "CÔNG HOÀNG CHIẾN",
+        "group_name": "VP Khu vực",
+        "factory": "",
+        "line": "",
+        "team": "",
+        "department": "CI – Cải tiến",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Chưa có trong danh sách D1 users"
+    },
+    {
+      "gu": {
+        "id": 11,
+        "username": "QLCL PX Đầu vào",
+        "full_name": "ĐẶNG THỊ LÀI",
+        "group_name": "PX Đầu vào",
+        "factory": "PX Đầu vào",
+        "line": "",
+        "team": "",
+        "department": "Chất lượng",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Chưa có trong danh sách D1 users"
+    },
+    {
+      "gu": {
+        "id": 12,
+        "username": "Trưởng Line Chặt",
+        "full_name": "",
+        "group_name": "PX Đầu vào",
+        "factory": "PX Đầu vào",
+        "line": "LINE CHẶT 1",
+        "team": "",
+        "department": "Điều hành SX",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Empty full_name (chưa điền tên)"
+    },
+    {
+      "gu": {
+        "id": 15,
+        "username": "Trưởng Line In Ép",
+        "full_name": "",
+        "group_name": "PX Đầu vào",
+        "factory": "PX Đầu vào",
+        "line": "LINE IN ÉP 1",
+        "team": "",
+        "department": "Điều hành SX",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Empty full_name (chưa điền tên)"
+    },
+    {
+      "gu": {
+        "id": 19,
+        "username": "QLCL PX May",
+        "full_name": "VŨ THỊ HƯỜNG",
+        "group_name": "PX May",
+        "factory": "PX May",
+        "line": "",
+        "team": "",
+        "department": "Chất lượng",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Chưa có trong danh sách D1 users"
+    },
+    {
+      "gu": {
+        "id": 20,
+        "username": "Trưởng Line May 1",
+        "full_name": "",
+        "group_name": "PX May",
+        "factory": "PX May",
+        "line": "LINE_HTM 1",
+        "team": "",
+        "department": "Điều hành SX",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Empty full_name (chưa điền tên)"
+    },
+    {
+      "gu": {
+        "id": 26,
+        "username": "Trưởng Line May 2",
+        "full_name": "",
+        "group_name": "PX May",
+        "factory": "PX May",
+        "line": "LINE_HTM 2",
+        "team": "",
+        "department": "Điều hành SX",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Empty full_name (chưa điền tên)"
+    },
+    {
+      "gu": {
+        "id": 30,
+        "username": "QLCL PX Gò",
+        "full_name": "NGUYỄN THỊ DIỆU",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "",
+        "team": "",
+        "department": "Chất lượng",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Chưa có trong danh sách D1 users"
+    },
+    {
+      "gu": {
+        "id": 33,
+        "username": "Gò 1 - Tổ CĐ 2",
+        "full_name": "",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 1",
+        "team": "Tổ Công Đoạn 2",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Empty full_name (chưa điền tên)"
+    },
+    {
+      "gu": {
+        "id": 35,
+        "username": "QLCL Line Gò 1",
+        "full_name": "",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 1",
+        "team": "",
+        "department": "Chất lượng",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Empty full_name (chưa điền tên)"
+    },
+    {
+      "gu": {
+        "id": 38,
+        "username": "Gò 2 - Tổ CĐ 2",
+        "full_name": "",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 2",
+        "team": "Tổ Công Đoạn 2",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Empty full_name (chưa điền tên)"
+    },
+    {
+      "gu": {
+        "id": 39,
+        "username": "Gò 2 - Tổ CĐ 3",
+        "full_name": "NGUYỄN HOÀI LINH",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 2",
+        "team": "Tổ Công Đoạn 3",
+        "department": "Sản xuất",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Chưa có trong danh sách D1 users"
+    },
+    {
+      "gu": {
+        "id": 40,
+        "username": "QLCL Line Gò 2",
+        "full_name": "",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 2",
+        "team": "",
+        "department": "Chất lượng",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Empty full_name (chưa điền tên)"
+    },
+    {
+      "gu": {
+        "id": 45,
+        "username": "QLCL Line Gò 3",
+        "full_name": "",
+        "group_name": "PX Gò",
+        "factory": "PX Gò",
+        "line": "LINE_HTG 3",
+        "team": "",
+        "department": "Chất lượng",
+        "position": "",
+        "email": "",
+        "phone": "",
+        "role": "Giám đốc",
+        "password": "123456"
+      },
+      "reason": "Empty full_name (chưa điền tên)"
+    }
+  ]
+}

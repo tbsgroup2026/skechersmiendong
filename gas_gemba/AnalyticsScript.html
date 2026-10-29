@@ -1,0 +1,959 @@
+<script>
+
+    (function () {
+        'use strict';
+
+        const COLS = {
+            id: 'ID', status: 'TRẠNG THÁI', priority: 'MỨC ƯU TIÊN', dateRec: 'NGÀY GHI NHẬN', week: 'TUẦN',
+            factory: 'NHÀ MÁY', line: 'LINE', team: 'TỔ', pos: 'VỊ TRÍ CHI TIẾT', issueCode: 'MÃ LOẠI VẤN ĐỀ',
+            issueName: 'TÊN VẤN ĐỀ', issueRec: 'VẤN ĐỀ GHI NHẬN', desc: 'MÔ TẢ VẤN ĐỀ', sku: 'MÃ HÀNG / SP LIÊN QUAN',
+            solution: 'ĐỀ XUẤT GIẢI PHÁP', creatorU: 'NGƯỜI TẠO (USERNAME)', creator: 'NGƯỜI TẠO (HỌ TÊN)',
+            assigneeU: 'NGƯỜI PHỤ TRÁCH (USERNAME)', assignee: 'NGƯỜI PHỤ TRÁCH (HỌ TÊN)', tgTao: 'TG TẠO',
+            startDate: 'NGÀY BẮT ĐẦU XỬ LÝ', result: 'KẾT QUẢ', doneDate: 'NGÀY HOÀN THÀNH', resHours: 'THỜI GIAN XỬ LÝ (GIỜ)',
+            rejectReason: 'LÝ DO TỪ CHỐI'
+        };
+        const STATUS_COLOR = {
+            'Hoàn thành': { c: '#0e8a76' }, 'Đang xử lý': { c: '#e8890a' }, 'Mới': { c: '#2c68ac' },
+            'Từ chối': { c: '#cf3f4c' }, 'Quá hạn': { c: '#b3261e' }
+        };
+        const STATUS_ORDER = ['Mới', 'Đang xử lý', 'Quá hạn', 'Hoàn thành', 'Từ chối'];
+        const PRIORITY_COLOR = { 'Critical': { c: '#cf3f4c' }, 'High': { c: '#e8890a' }, 'Medium': { c: '#2c68ac' }, 'Low': { c: '#6e55bf' } };
+        const PRIORITY_ORDER = ['Critical', 'High', 'Medium', 'Low'];
+        const PRIORITY_LABEL_VN = { Critical: 'Nghiêm trọng', High: 'Cao', Medium: 'Trung bình', Low: 'Thấp' };
+        const PALETTE = ['#2c68ac', '#0e8a76', '#e8890a', '#cf3f4c', '#6e55bf', '#1a93a8', '#b5790f', '#5570c9'];
+        const INK = '#101825', INK_SOFT = '#4f5d6e', GRID = '#e9eef2';
+
+        const PRIORITY_ALIASES = {
+            Critical: ['critical', 'nghiêm trọng', 'khẩn cấp', 'rất cao', 'nguy cấp'],
+            High: ['high', 'cao', 'nặng'],
+            Medium: ['medium', 'trung bình', 'tb', 'vừa'],
+            Low: ['low', 'thấp', 'nhẹ']
+        };
+        function normalizePriority(raw) {
+            if (raw === null || raw === undefined) return null;
+            const s = String(raw).trim().toLowerCase();
+            if (!s) return null;
+            for (const canon of PRIORITY_ORDER) { if (PRIORITY_ALIASES[canon].includes(s)) return canon; }
+            return null;
+        }
+
+        const SEVERITY_SRC_COL = 'MỨC ĐỘ NGHIÊM TRỌNG';
+        const SEVERITY_ORDER = ['Nghiêm trọng', 'Nặng', 'Nhẹ'];
+        const SEVERITY_COLOR = { 'Nghiêm trọng': { c: '#cf3f4c' }, 'Nặng': { c: '#e8890a' }, 'Nhẹ': { c: '#0e8a76' } };
+        const PRIORITY_TO_SEVERITY = { 'Critical': 'Nghiêm trọng', 'High': 'Nặng', 'Medium': 'Nhẹ', 'Low': 'Nhẹ' };
+        function deriveSeverity(r) {
+            const explicit = r[SEVERITY_SRC_COL];
+            if (explicit && SEVERITY_ORDER.includes(explicit)) return explicit;
+            return PRIORITY_TO_SEVERITY[r._priorityNorm] || 'Nhẹ';
+        }
+
+        const SLA = { Critical: 1, High: 3, Medium: 7, Low: 14, Default: 2 };
+        function slaForRecord(r) {
+            const p = r._priorityNorm;
+            return (p && SLA[p] > 0) ? SLA[p] : SLA.Default;
+        }
+
+        function computeDisplayStatus(r) {
+            const raw = r[COLS.status];
+            if (raw === 'Hoàn thành' || raw === 'Từ chối') return raw;
+            const base = (raw === 'Đang xử lý' && r._started) ? r._started : (r._created || r._date);
+            if (base && (Date.now() - base.getTime()) / 86400000 > slaForRecord(r)) return 'Quá hạn';
+            return raw === 'Chờ xử lý lại' ? 'Mới' : raw;
+        }
+
+        const REPEAT_WINDOW_SHORT_DAYS = 30;
+        const REPEAT_WINDOW_LONG_DAYS = 90;
+        const MS_DAY = 86400000;
+        function repeatKey(r) { return (r[COLS.line] || '—') + ' | ' + (r[COLS.team] || '—') + ' | ' + (r[COLS.issueCode] || '—'); }
+
+        function computeRepeatFlags() {
+            const groups = new Map();
+            RAW_DATA.forEach(r => {
+                if (!r._date) { r._repeat30 = 0; r._repeat90 = 0; r._isRepeat = false; return; }
+                const k = repeatKey(r);
+                if (!groups.has(k)) groups.set(k, []);
+                groups.get(k).push(r);
+            });
+            groups.forEach((arr, k) => {
+                arr.sort((a, b) => a._date - b._date);
+                arr.forEach((r, i) => {
+                    let c30 = 0, c90 = 0;
+                    for (let j = 0; j < arr.length; j++) {
+                        if (j === i) continue;
+                        const d = Math.abs(arr[j]._date - r._date) / MS_DAY;
+                        if (d <= REPEAT_WINDOW_SHORT_DAYS) c30++;
+                        if (d <= REPEAT_WINDOW_LONG_DAYS) c90++;
+                    }
+                    r._repeat30 = c30; r._repeat90 = c90; r._isRepeat = c90 > 0; r._repeatKey = k;
+                });
+            });
+        }
+        function getRepeatGroups(data) {
+            const groups = new Map();
+            data.forEach(r => {
+                if (!r._date) return;
+                const k = repeatKey(r);
+                if (!groups.has(k)) groups.set(k, { key: k, line: r[COLS.line], team: r[COLS.team], issue: r[COLS.issueCode], items: [] });
+                groups.get(k).items.push(r);
+            });
+            const result = [];
+            groups.forEach(g => {
+                if (g.items.length < 2) return;
+                g.items.sort((a, b) => a._date - b._date);
+                const first = g.items[0]._date, last = g.items[g.items.length - 1]._date;
+                const spanDays = Math.round((last - first) / MS_DAY);
+                const within30 = g.items.filter(r => (last - r._date) / MS_DAY <= REPEAT_WINDOW_SHORT_DAYS).length;
+                result.push(Object.assign({}, g, { count: g.items.length, spanDays, within30, last }));
+            });
+            result.sort((a, b) => b.within30 - a.within30 || b.count - a.count || b.last - a.last);
+            return result;
+        }
+
+        const g = id => document.getElementById('an-' + id);
+        const ICONS = {
+            bulb: '<svg class="an-ic" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.5.4.9 1 1 1.6l.1.5h4.8l.1-.5c.1-.6.5-1.2 1-1.6A6 6 0 0 0 12 3Z"/></svg>',
+            search: '<svg class="an-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
+            empty: '<svg class="an-ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>'
+        };
+        function parseWeek(w) { if (!w) return -1; const m = /W(\d+)-(\d+)/.exec(w); return m ? parseInt(m[2], 10) * 100 + parseInt(m[1], 10) : -1; }
+        function fmtDate(d) { if (!d) return '—'; const dt = (d instanceof Date) ? d : new Date(d); return isNaN(dt) ? '—' : dt.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
+        function fmtNum(n) { return new Intl.NumberFormat('vi-VN').format(n); }
+        function fmtPct(p) { if (p === null || p === undefined || isNaN(p)) return '—'; return (p > 0 ? '+' : '') + p + '%'; }
+        function esc(s) { return (s === null || s === undefined) ? '' : String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+        function monthKeyOf(d) { return d ? d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') : null; }
+        function monthLabel(k) { if (!k) return '—'; const [y, m] = k.split('-'); return 'Th' + parseInt(m, 10) + '/' + y.slice(2); }
+        function isSameRealMonth(d) { if (!d) return false; const n = new Date(); return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth(); }
+        function setInsight(id, html) { const el = g(id); if (el) el.innerHTML = html ? ICONS.bulb + '<div>' + html + '</div>' : ''; }
+
+        let RAW_DATA = [], USER_DEPT_MAP = {}, DEPT_HEADCOUNT = {};
+        let uiReady = false, loading = false, lastLoad = 0, MR_SEL = null, MR_TEXT = '';
+        let mselNhaMay, mselLine, mselTo;
+        const charts = {};
+        const state = {
+            nhaMay: new Set(), line: new Set(), to: new Set(),
+            trangThai: new Set(), mucUuTien: new Set(), mucNghiemTrong: new Set(), loai: new Set(), lapLai: new Set(),
+            dateFrom: null, dateTo: null, search: ''
+        };
+
+        function matchSet(set, val) { return set.size === 0 || set.has(val); }
+        function baseForLine() { return RAW_DATA.filter(r => matchSet(state.nhaMay, r[COLS.factory])); }
+        function baseForTeam() { return RAW_DATA.filter(r => matchSet(state.nhaMay, r[COLS.factory]) && matchSet(state.line, r[COLS.line])); }
+        function uniqueCounts(arr, field) {
+            const m = new Map();
+            arr.forEach(r => {
+                const v = (typeof field === 'function') ? field(r) : r[field];
+                if (v === null || v === undefined || v === '') return;
+                m.set(v, (m.get(v) || 0) + 1);
+            });
+            return [...m.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'vi'));
+        }
+        function getFiltered() {
+            const s = state.search.toLowerCase();
+            return RAW_DATA.filter(r => {
+                if (!matchSet(state.nhaMay, r[COLS.factory])) return false;
+                if (!matchSet(state.line, r[COLS.line])) return false;
+                if (!matchSet(state.to, r[COLS.team])) return false;
+                if (!matchSet(state.trangThai, r._displayStatus)) return false;
+                if (!matchSet(state.mucUuTien, r._priorityNorm)) return false;
+                if (!matchSet(state.mucNghiemTrong, r._severity)) return false;
+                if (!matchSet(state.loai, r[COLS.issueCode])) return false;
+                if (state.lapLai.size > 0) {
+                    const wantRepeat = state.lapLai.has('Lặp lại (≥2 lần/90 ngày)');
+                    const wantSingle = state.lapLai.has('Chỉ 1 lần');
+                    if (wantRepeat && !wantSingle && !r._isRepeat) return false;
+                    if (wantSingle && !wantRepeat && r._isRepeat) return false;
+                }
+                if (state.dateFrom && (!r._date || r._date < state.dateFrom)) return false;
+                if (state.dateTo && (!r._date || r._date > state.dateTo)) return false;
+                if (s) {
+                    const hay = [r[COLS.id], r[COLS.issueName], r[COLS.issueRec], r[COLS.desc], r[COLS.pos], r[COLS.assignee], r[COLS.line], r[COLS.team]].filter(Boolean).join(' ').toLowerCase();
+                    if (!hay.includes(s)) return false;
+                }
+                return true;
+            });
+        }
+
+        function ensureModal() {
+            if (document.getElementById('an-modalBg')) return;
+            const d = document.createElement('div');
+            d.className = 'an-modal-bg'; d.id = 'an-modalBg';
+            d.innerHTML = '<div class="an-modal"><div class="an-modal-head"><h3 id="an-modalTitle"></h3><button class="an-x" id="an-modalClose" type="button">✕</button></div><div class="an-modal-body" id="an-modalBody"></div></div>';
+            document.body.appendChild(d);
+            document.getElementById('an-modalClose').addEventListener('click', () => d.classList.remove('show'));
+            d.addEventListener('click', e => { if (e.target === d) d.classList.remove('show'); });
+        }
+        function showModal(title, html) {
+            ensureModal();
+            document.getElementById('an-modalTitle').textContent = title;
+            document.getElementById('an-modalBody').innerHTML = html;
+            document.getElementById('an-modalBg').classList.add('show');
+        }
+
+        function buildMultiSelect(key, selectedSet, getOptionsFn) {
+            const el = g('msel-' + key), cntEl = g('cnt-' + key);
+            el.innerHTML = `
+    <button type="button" class="an-msel-btn"><span class="an-msel-label"></span><span class="an-chev">▾</span></button>
+    <div class="an-msel-pop">
+      <div class="an-msel-search">${ICONS.search}<input type="text" placeholder="Tìm kiếm…"></div>
+      <div class="an-msel-list"></div>
+      <div class="an-msel-actions"><button type="button" data-act="all">Chọn tất cả</button><button type="button" data-act="none">Bỏ chọn</button></div>
+    </div>`;
+            const btn = el.querySelector('.an-msel-btn'), label = el.querySelector('.an-msel-label');
+            const pop = el.querySelector('.an-msel-pop'), searchInput = el.querySelector('.an-msel-search input');
+            const list = el.querySelector('.an-msel-list');
+
+            function refreshLabel() {
+                const total = getOptionsFn().length;
+                label.textContent = selectedSet.size === 0 ? 'Tất cả' : (selectedSet.size === 1 ? [...selectedSet][0] : selectedSet.size + ' đã chọn');
+                btn.classList.toggle('active-filter', selectedSet.size > 0);
+                cntEl.textContent = selectedSet.size || total;
+            }
+            function renderList(filterTxt) {
+                const ft = (filterTxt || '').toLowerCase();
+                list.innerHTML = getOptionsFn().filter(([v]) => String(v).toLowerCase().includes(ft))
+                    .map(([v, c]) => `<label class="an-msel-item"><input type="checkbox" value="${esc(v)}" ${selectedSet.has(v) ? 'checked' : ''}><span>${esc(v)}</span><span class="an-n">${c}</span></label>`).join('')
+                    || '<div style="padding:10px;color:var(--ink-faint);font-size:12px">Không có kết quả</div>';
+                list.querySelectorAll('input[type=checkbox]').forEach(cb => {
+                    cb.addEventListener('change', () => {
+                        if (cb.checked) selectedSet.add(cb.value); else selectedSet.delete(cb.value);
+                        refreshLabel(); onFiltersChanged();
+                    });
+                });
+            }
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                document.querySelectorAll('#page-analytics .an-msel.open').forEach(m => { if (m !== el) m.classList.remove('open'); });
+                el.classList.toggle('open');
+                if (el.classList.contains('open')) { renderList(''); searchInput.value = ''; searchInput.focus(); }
+            });
+            searchInput.addEventListener('input', () => renderList(searchInput.value));
+            searchInput.addEventListener('click', e => e.stopPropagation());
+            pop.addEventListener('click', e => e.stopPropagation());
+            el.querySelector('[data-act="all"]').addEventListener('click', () => { getOptionsFn().forEach(([v]) => selectedSet.add(v)); renderList(searchInput.value); refreshLabel(); onFiltersChanged(); });
+            el.querySelector('[data-act="none"]').addEventListener('click', () => { selectedSet.clear(); renderList(searchInput.value); refreshLabel(); onFiltersChanged(); });
+            el._refresh = () => { refreshLabel(); if (el.classList.contains('open')) renderList(searchInput.value); };
+            refreshLabel();
+            return el;
+        }
+        document.addEventListener('click', () => { document.querySelectorAll('#page-analytics .an-msel.open').forEach(m => m.classList.remove('open')); });
+
+        function pruneCascade() {
+            const validLines = new Set(uniqueCounts(baseForLine(), COLS.line).map(x => x[0]));
+            [...state.line].forEach(v => { if (!validLines.has(v)) state.line.delete(v); });
+            const validTeams = new Set(uniqueCounts(baseForTeam(), COLS.team).map(x => x[0]));
+            [...state.to].forEach(v => { if (!validTeams.has(v)) state.to.delete(v); });
+        }
+
+        function chipHtml(v, label, c, on) {
+            const onStyle = on ? `background:${c};border-color:${c};color:#fff;` : '';
+            return `<button type="button" class="an-chip ${on ? 'on' : ''}" data-v="${esc(v)}" data-c="${c}" style="${onStyle}">${esc(label)}</button>`;
+        }
+        function bindChips(el, selectedSet) {
+            el.querySelectorAll('.an-chip').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    const v = chip.dataset.v, c = chip.dataset.c;
+                    if (selectedSet.has(v)) { selectedSet.delete(v); chip.classList.remove('on'); chip.style.background = ''; chip.style.borderColor = ''; chip.style.color = ''; }
+                    else { selectedSet.add(v); chip.classList.add('on'); chip.style.background = c; chip.style.borderColor = c; chip.style.color = '#fff'; }
+                    onFiltersChanged();
+                });
+            });
+        }
+        function buildChips(key, getter, selectedSet, order, colorMap, labelMap) {
+            const el = g('chips-' + key);
+            const values = order ? order.filter(v => RAW_DATA.some(r => getter(r) === v)) : uniqueCounts(RAW_DATA, getter).map(x => x[0]);
+            el.innerHTML = values.map(v => chipHtml(v, (labelMap && labelMap[v]) || v, (colorMap && colorMap[v]) ? colorMap[v].c : '#4c5c70', selectedSet.has(v))).join('');
+            bindChips(el, selectedSet);
+        }
+        function buildAllChips() {
+            buildChips('trangThai', r => r._displayStatus, state.trangThai, STATUS_ORDER, STATUS_COLOR);
+            buildChips('mucUuTien', r => r._priorityNorm, state.mucUuTien, PRIORITY_ORDER, PRIORITY_COLOR, PRIORITY_LABEL_VN);
+            buildChips('mucNghiemTrong', r => r._severity, state.mucNghiemTrong, SEVERITY_ORDER, SEVERITY_COLOR);
+            buildChips('loaiVanDe', r => r[COLS.issueCode], state.loai, null, null);
+            const el = g('chips-lapLai');
+            el.innerHTML = [['Lặp lại (≥2 lần/90 ngày)', '#cf3f4c'], ['Chỉ 1 lần', '#4c5c70']].map(([v, c]) => chipHtml(v, v, c, state.lapLai.has(v))).join('');
+            bindChips(el, state.lapLai);
+        }
+
+        function bindStaticFilterControls() {
+            g('dateFrom').addEventListener('change', e => { state.dateFrom = e.target.value ? new Date(e.target.value + 'T00:00:00') : null; onFiltersChanged(); });
+            g('dateTo').addEventListener('change', e => { state.dateTo = e.target.value ? new Date(e.target.value + 'T23:59:59') : null; onFiltersChanged(); });
+            let deb;
+            g('searchInput').addEventListener('input', e => { clearTimeout(deb); deb = setTimeout(() => { state.search = e.target.value.trim(); onFiltersChanged(); }, 200); });
+            g('resetFilters').addEventListener('click', () => {
+                ['nhaMay', 'line', 'to', 'trangThai', 'mucUuTien', 'mucNghiemTrong', 'loai', 'lapLai'].forEach(k => state[k].clear());
+                state.dateFrom = null; state.dateTo = null; state.search = '';
+                g('dateFrom').value = ''; g('dateTo').value = ''; g('searchInput').value = '';
+                document.querySelectorAll('#page-analytics .an-chip.on').forEach(c => { c.classList.remove('on'); c.style.background = ''; c.style.borderColor = ''; c.style.color = ''; });
+                onFiltersChanged();
+            });
+            g('refreshBtn').addEventListener('click', () => load(true));
+            g('mrCopy').addEventListener('click', () => {
+                const t = document.createElement('textarea'); t.value = MR_TEXT; document.body.appendChild(t); t.select();
+                try { document.execCommand('copy'); } catch (e) { } t.remove();
+                const b = g('mrCopy'); b.textContent = 'Đã chép ✓'; setTimeout(() => b.textContent = 'Sao chép', 1500);
+            });
+        }
+        function onFiltersChanged() {
+            try { pruneCascade(); } catch (e) { console.error('[Analytics] pruneCascade', e); }
+            try { mselNhaMay._refresh(); mselLine._refresh(); mselTo._refresh(); } catch (e) { console.error('[Analytics] refresh filter', e); }
+            renderAll();
+        }
+
+        function uniqueWeeksSorted(data) {
+            const m = new Map();
+            data.forEach(r => { if (r[COLS.week]) m.set(r[COLS.week], r._weekNum); });
+            return [...m.entries()].sort((a, b) => a[1] - b[1]).map(x => x[0]);
+        }
+        function uniqueMonthsSorted(data) { const s = new Set(); data.forEach(r => { if (r._month) s.add(r._month); }); return [...s].sort(); }
+        function sparklineSVG(values, color) {
+            if (!values || values.length < 2) return '';
+            const w = 104, h = 28, pad = 2.5, max = Math.max(...values), min = Math.min(...values), range = (max - min) || 1, stepX = (w - 2 * pad) / (values.length - 1);
+            const pts = values.map((v, i) => [pad + i * stepX, pad + (1 - (v - min) / range) * (h - 2 * pad)]);
+            const path = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+            const area = path + ` L${pts[pts.length - 1][0].toFixed(1)},${(h - pad).toFixed(1)} L${pts[0][0].toFixed(1)},${(h - pad).toFixed(1)} Z`;
+            return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><path d="${area}" fill="${color}" opacity="0.14"/><path d="${path}" fill="none" stroke="${color}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${pts[pts.length - 1][0].toFixed(1)}" cy="${pts[pts.length - 1][1].toFixed(1)}" r="2.1" fill="${color}"/></svg>`;
+        }
+        function monthImprovement(data) {
+            const months = uniqueMonthsSorted(data);
+            if (months.length < 2) return null;
+            const lastM = months[months.length - 1], prevM = months[months.length - 2];
+            const lastC = data.filter(r => r._month === lastM).length, prevC = data.filter(r => r._month === prevM).length;
+            if (prevC === 0) return null;
+            return { pct: Math.round((prevC - lastC) / prevC * 100), lastM, prevM, lastC, prevC };
+        }
+        function renderKPI(data) {
+            const total = data.length, by = {};
+            data.forEach(r => { by[r._displayStatus] = (by[r._displayStatus] || 0) + 1; });
+            const done = by['Hoàn thành'] || 0, doing = by['Đang xử lý'] || 0, news = by['Mới'] || 0, overdue = by['Quá hạn'] || 0;
+            const rate = total ? Math.round(done / total * 100) : 0;
+            const thisMonth = data.filter(r => isSameRealMonth(r._date)).length;
+            const weeks = uniqueWeeksSorted(data);
+            const seriesFor = fn => weeks.map(w => data.filter(r => r[COLS.week] === w && fn(r)).length);
+            const kpis = [
+                { lbl: 'Tổng ghi nhận', val: fmtNum(total), sub: 'Toàn bộ phát hiện Gemba', accent: 'var(--blue)', spark: seriesFor(() => true), color: '#2c68ac' },
+                { lbl: 'Mới', val: fmtNum(news), sub: 'Chờ tiếp nhận (còn trong hạn)', accent: 'var(--blue)' },
+                { lbl: 'Đang xử lý', val: fmtNum(doing), sub: 'Đang khắc phục (còn trong hạn)', accent: 'var(--amber)', spark: seriesFor(r => r._displayStatus === 'Đang xử lý'), color: '#e8890a' },
+                { lbl: 'Hoàn thành', val: fmtNum(done), sub: rate + '% tổng số', accent: 'var(--teal)', spark: seriesFor(r => r._displayStatus === 'Hoàn thành'), color: '#0e8a76' },
+                { lbl: 'Quá hạn', val: fmtNum(overdue), sub: 'Vượt thời hạn theo mức ưu tiên', accent: '#b3261e' },
+                { lbl: 'Tháng này', val: fmtNum(thisMonth), sub: 'Phiếu phát sinh trong tháng hiện tại', accent: 'var(--violet)' }
+            ];
+            g('kpiGrid').innerHTML = kpis.map(k => {
+                const sp = (k.spark && k.spark.length >= 2 && k.spark.some(v => v > 0)) ? `<div class="an-spark">${sparklineSVG(k.spark, k.color)}</div>` : '<div class="an-spark"></div>';
+                return `<div class="an-kpi" style="--accent:${k.accent}"><div class="an-lbl">${k.lbl}</div><div class="an-val">${k.val}</div><div class="an-sub">${k.sub}</div>${sp}</div>`;
+            }).join('');
+        }
+
+        const CHARTS_READY = (typeof Chart !== 'undefined');
+        const centerTextPlugin = {
+            id: 'anCenterText',
+            afterDraw(chart) {
+                if (!chart.config._centerText) return;
+                const { ctx, chartArea: { left, right, top, bottom } } = chart;
+                const cx = (left + right) / 2, cy = (top + bottom) / 2;
+                ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.font = '800 22px "Be Vietnam Pro"'; ctx.fillStyle = INK; ctx.fillText(chart.config._centerText.top, cx, cy - 8);
+                ctx.font = '600 11px "Be Vietnam Pro"'; ctx.fillStyle = INK_SOFT; ctx.fillText(chart.config._centerText.bottom, cx, cy + 12);
+                ctx.restore();
+            }
+        };
+        const barValueLabelsPlugin = {
+            id: 'barValueLabels',
+            afterDatasetsDraw(chart) {
+                const horizontal = chart.options.indexAxis === 'y';
+                const sc = chart.options.scales || {};
+                const stacked = !!((sc.y && sc.y.stacked) || (sc.x && sc.x.stacked));
+                const ctx = chart.ctx, area = chart.chartArea;
+                ctx.save(); ctx.font = '700 11px "Be Vietnam Pro"';
+                chart.data.datasets.forEach((ds, di) => {
+                    if (ds.type && ds.type !== 'bar') return;
+                    const meta = chart.getDatasetMeta(di);
+                    if (!meta || meta.hidden || meta.type !== 'bar') return;
+                    meta.data.forEach((el, i) => {
+                        const val = ds.data[i]; if (!val) return;
+                        const label = String(val), tw = ctx.measureText(label).width;
+                        if (horizontal) {
+                            if (!stacked && area.right - el.x > tw + 8) { ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(label, el.x + 6, el.y); }
+                            else { if (Math.abs(el.x - el.base) < tw + 10) return; ctx.fillStyle = '#fff'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(label, el.x - 6, el.y); }
+                        } else {
+                            const segH = Math.abs(el.y - el.base);
+                            if (stacked) { if (segH < 16) return; ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, el.x, (el.y + el.base) / 2); }
+                            else { ctx.fillStyle = INK; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillText(label, el.x, el.y - 6); }
+                        }
+                    });
+                });
+                ctx.restore();
+            }
+        };
+
+        function upsert(id, cfg) {
+            const canvas = g(id);
+            if (!canvas) return null;
+            if (!CHARTS_READY) {
+                const wrap = canvas.closest('.an-chart-wrap');
+                if (wrap) wrap.innerHTML = '<div class="an-empty">Không tải được thư viện biểu đồ. Vui lòng tải lại trang.</div>';
+                return null;
+            }
+            const o = cfg.options = cfg.options || {};
+            o.font = Object.assign({ family: "'Be Vietnam Pro','Inter',system-ui,sans-serif", size: 12 }, o.font);
+            o.color = o.color || INK_SOFT;
+            o.layout = Object.assign({ padding: { top: 22, right: 8 } }, o.layout);
+            o.elements = o.elements || {};
+            o.elements.bar = Object.assign({ borderRadius: 4, borderSkipped: false }, o.elements.bar);
+            o.plugins = o.plugins || {};
+            const lg = o.plugins.legend = o.plugins.legend || {};
+            lg.labels = Object.assign({ usePointStyle: true, boxWidth: 8, padding: 14 }, lg.labels);
+            o.plugins.tooltip = Object.assign({ backgroundColor: '#0a1c2e', padding: 10, cornerRadius: 7, titleFont: { weight: '700', size: 12 }, bodyFont: { size: 11.8 } }, o.plugins.tooltip);
+            cfg.plugins = (cfg.plugins || []).concat([centerTextPlugin, barValueLabelsPlugin]);
+            if (charts[id]) charts[id].destroy();
+            charts[id] = new Chart(canvas.getContext('2d'), cfg);
+            return charts[id];
+        }
+
+        function renderTrend(data) {
+            const byWeek = new Map();
+            data.forEach(r => {
+                const w = r[COLS.week] || 'N/A';
+                if (!byWeek.has(w)) byWeek.set(w, { total: 0, done: 0, sortKey: r._weekNum });
+                const o = byWeek.get(w); o.total++; if (r._displayStatus === 'Hoàn thành') o.done++;
+            });
+            const weeks = [...byWeek.entries()].sort((a, b) => a[1].sortKey - b[1].sortKey);
+            upsert('chartTrend', {
+                type: 'line',
+                data: {
+                    labels: weeks.map(w => String(w[0]).replace(/-\d{4}$/, '')), datasets: [
+                        { label: 'Tổng phát hiện', data: weeks.map(w => w[1].total), borderColor: '#2c68ac', backgroundColor: 'rgba(44,104,172,.12)', fill: true, tension: .35, pointRadius: 3, pointBackgroundColor: '#2c68ac', borderWidth: 2.5 },
+                        { label: 'Đã hoàn thành', data: weeks.map(w => w[1].done), borderColor: '#0e8a76', backgroundColor: 'rgba(14,138,118,.10)', fill: true, tension: .35, pointRadius: 3, pointBackgroundColor: '#0e8a76', borderWidth: 2.5 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { position: 'top', align: 'end' } },
+                    scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: GRID }, ticks: { precision: 0 } } }
+                }
+            });
+        }
+        function renderStatus(data) {
+            const counts = STATUS_ORDER.map(s => data.filter(r => r._displayStatus === s).length);
+            const chart = upsert('chartStatus', {
+                type: 'doughnut',
+                data: { labels: STATUS_ORDER, datasets: [{ data: counts, backgroundColor: STATUS_ORDER.map(s => STATUS_COLOR[s].c), borderWidth: 0, spacing: 2 }] },
+                options: { responsive: true, maintainAspectRatio: false, cutout: '68%', plugins: { legend: { position: 'bottom' } } }
+            });
+            if (chart) { chart.config._centerText = { top: fmtNum(data.length), bottom: 'Tổng số' }; chart.update(); }
+        }
+        function renderMonthly(data) {
+            const byMonth = new Map();
+            data.forEach(r => {
+                if (!r._month) return;
+                if (!byMonth.has(r._month)) byMonth.set(r._month, { total: 0, repeat: 0 });
+                const o = byMonth.get(r._month); o.total++; if (r._isRepeat) o.repeat++;
+            });
+            const months = [...byMonth.keys()].sort();
+            const totals = months.map(m => byMonth.get(m).total), repeats = months.map(m => byMonth.get(m).repeat);
+            const improvePct = months.map((m, i) => { if (i === 0 || !totals[i - 1]) return null; return Math.round((totals[i - 1] - totals[i]) / totals[i - 1] * 100); });
+            upsert('chartMonthly', {
+                type: 'bar',
+                data: {
+                    labels: months.map(monthLabel), datasets: [
+                        { type: 'bar', label: 'Tổng lỗi', data: totals, backgroundColor: '#2c68ac', order: 2, yAxisID: 'y' },
+                        { type: 'bar', label: 'Lỗi lặp lại', data: repeats, backgroundColor: '#cf3f4c', order: 1, yAxisID: 'y' },
+                        { type: 'line', label: '% cải thiện so với tháng trước', data: improvePct, borderColor: '#0e8a76', backgroundColor: '#0e8a76', tension: .3, pointRadius: 4, pointBackgroundColor: '#0e8a76', borderWidth: 2.5, yAxisID: 'y1', spanGaps: true, order: 0 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { position: 'top', align: 'end' }, tooltip: { callbacks: { label: c => c.dataset.yAxisID === 'y1' ? c.dataset.label + ': ' + fmtPct(c.parsed.y) : c.dataset.label + ': ' + c.parsed.y } } },
+                    scales: {
+                        x: { grid: { display: false } },
+                        y: { position: 'left', beginAtZero: true, grid: { color: GRID }, ticks: { precision: 0 }, title: { display: true, text: 'Số lượng lỗi' } },
+                        y1: { position: 'right', grid: { display: false }, ticks: { callback: v => v + '%' }, title: { display: true, text: '% cải thiện' } }
+                    }
+                }
+            });
+            const li = improvePct.length - 1;
+            if (li >= 0 && improvePct[li] !== null) {
+                const p = improvePct[li];
+                const dir = p > 0 ? `cải thiện <b style="color:var(--teal)">${fmtPct(p)}</b>` : (p < 0 ? `xấu đi <b style="color:var(--rose)">${fmtPct(Math.abs(p))}</b>` : 'không đổi');
+                const rd = repeats.length >= 2 ? repeats[li] - repeats[li - 1] : null;
+                const rt = rd === null ? '' : (rd < 0 ? ` · lỗi lặp lại giảm <b>${Math.abs(rd)}</b> phiếu` : rd > 0 ? ` · lỗi lặp lại tăng <b>${rd}</b> phiếu` : ' · lỗi lặp lại không đổi');
+                setInsight('insight-monthly', `Tháng <b>${monthLabel(months[li])}</b> ${dir} so với tháng trước${rt}.`);
+            } else setInsight('insight-monthly', months.length ? 'Cần dữ liệu của <b>ít nhất 2 tháng</b> để tính % cải thiện.' : '');
+        }
+        function renderSeverity(data) {
+            const counts = SEVERITY_ORDER.map(s => data.filter(r => r._severity === s).length), total = data.length;
+            const chart = upsert('chartSeverity', {
+                type: 'doughnut',
+                data: { labels: SEVERITY_ORDER, datasets: [{ data: counts, backgroundColor: SEVERITY_ORDER.map(s => SEVERITY_COLOR[s].c), borderWidth: 0, spacing: 2 }] },
+                options: { responsive: true, maintainAspectRatio: false, cutout: '68%', plugins: { legend: { position: 'bottom' } } }
+            });
+            if (chart) { chart.config._centerText = { top: fmtNum(total), bottom: 'Tổng số' }; chart.update(); }
+            if (total) setInsight('insight-severity', `<b>Nghiêm trọng</b> chiếm <b>${Math.round(counts[0] / total * 100)}%</b> tổng số phát hiện (${counts[0]} phiếu) — ưu tiên xử lý trước để giảm rủi ro chất lượng.`);
+            else setInsight('insight-severity', '');
+        }
+        function renderPareto(data) {
+            const counts = uniqueCounts(data, COLS.issueCode);
+            upsert('chartPareto', {
+                type: 'bar',
+                data: { labels: counts.map(c => c[0]), datasets: [{ label: 'Số lượng', data: counts.map(c => c[1]), backgroundColor: '#2c68ac' }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                    scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: GRID }, ticks: { precision: 0 }, title: { display: true, text: 'Số lượng' } } }
+                }
+            });
+        }
+        function renderPriority(data) {
+            const cats = PRIORITY_ORDER.filter(p => data.some(r => r._priorityNorm === p));
+            upsert('chartPriority', {
+                type: 'bar',
+                data: { labels: cats.map(c => PRIORITY_LABEL_VN[c] || c), datasets: [{ label: 'Số lượng', data: cats.map(p => data.filter(r => r._priorityNorm === p).length), backgroundColor: cats.map(c => PRIORITY_COLOR[c].c), barThickness: 34 }] },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                    scales: { x: { beginAtZero: true, grid: { color: GRID }, ticks: { precision: 0 } }, y: { grid: { display: false } } }
+                }
+            });
+        }
+        function renderFactory(data) {
+            const factories = uniqueCounts(data, COLS.factory).map(x => x[0]);
+            upsert('chartFactory', {
+                type: 'bar',
+                data: {
+                    labels: factories, datasets: STATUS_ORDER.map(s => ({
+                        label: s, backgroundColor: STATUS_COLOR[s].c, stack: 'a', barThickness: 38,
+                        data: factories.map(f => data.filter(r => r[COLS.factory] === f && r._displayStatus === s).length)
+                    }))
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', align: 'end' } },
+                    scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, grid: { color: GRID }, ticks: { precision: 0 } } }
+                }
+            });
+        }
+        function renderTopLine(data) {
+            const counts = uniqueCounts(data, COLS.line).slice(0, 10);
+            upsert('chartTopLine', {
+                type: 'bar',
+                data: { labels: counts.map(c => c[0]), datasets: [{ label: 'Số phát hiện', data: counts.map(c => c[1]), backgroundColor: '#6e55bf', barThickness: 16 }] },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                    scales: { x: { beginAtZero: true, grid: { color: GRID }, ticks: { precision: 0 } }, y: { grid: { display: false }, ticks: { font: { size: 11 } } } }
+                }
+            });
+        }
+        function renderResTime(data) {
+            const done = data.filter(r => r._displayStatus === 'Hoàn thành' && typeof r[COLS.resHours] === 'number');
+            const factories = uniqueCounts(data, COLS.factory).map(x => x[0]);
+            const avgs = factories.map(f => { const a = done.filter(r => r[COLS.factory] === f); return a.length ? +(a.reduce((s, r) => s + r[COLS.resHours], 0) / a.length).toFixed(1) : 0; });
+            upsert('chartResTime', {
+                type: 'bar',
+                data: { labels: factories, datasets: [{ label: 'Giờ trung bình', data: avgs, backgroundColor: '#1a93a8', barThickness: 46 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y + ' giờ' } } },
+                    scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: GRID }, ticks: { callback: v => v + 'h' } } }
+                }
+            });
+        }
+        function renderAssignee(data) {
+            const counts = uniqueCounts(data, COLS.assignee).slice(0, 10);
+            upsert('chartAssignee', {
+                type: 'bar',
+                data: { labels: counts.map(c => c[0]), datasets: [{ label: 'Số vấn đề xử lý', data: counts.map(c => c[1]), backgroundColor: '#0e8a76', barThickness: 16 }] },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                    scales: { x: { beginAtZero: true, grid: { color: GRID }, ticks: { precision: 0 } }, y: { grid: { display: false }, ticks: { font: { size: 11 } } } }
+                }
+            });
+        }
+        function renderCreator(data) {
+            const all = uniqueCounts(data, COLS.creator), counts = all.slice(0, 30);
+            const canvas = g('chartCreator'), wrap = canvas && canvas.closest('.an-chart-wrap');
+            if (wrap) wrap.style.height = Math.max(270, counts.length * 26) + 'px';
+            upsert('chartCreator', {
+                type: 'bar',
+                data: { labels: counts.map(c => c[0]), datasets: [{ label: 'Số phiếu đã tạo', data: counts.map(c => c[1]), backgroundColor: '#5570c9', barThickness: 16 }] },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                    scales: { x: { beginAtZero: true, grid: { color: GRID }, ticks: { precision: 0 } }, y: { grid: { display: false }, ticks: { font: { size: 11 } } } }
+                }
+            });
+            if (all.length && data.length) {
+                const top = all[0], pct = Math.round(top[1] / data.length * 100);
+                const note = all.length > 30 ? ` (đang hiển thị top 30/${all.length} người)` : '';
+                setInsight('insight-creator', `<b>${esc(top[0])}</b> là người ghi nhận nhiều nhất với <b>${top[1]}</b> phiếu (${pct}% tổng số) trên tổng <b>${all.length}</b> người đang tham gia phát hiện Gemba${note}.`);
+            } else setInsight('insight-creator', '');
+        }
+
+        const DEPT_EXCLUDE = ['IT'];
+        function renderDeptCharts(data) {
+            const deptNames = Object.keys(DEPT_HEADCOUNT).filter(d => !DEPT_EXCLUDE.includes(d));
+            if (!deptNames.length) {
+                ['chartDeptHeadcount', 'chartDeptParticipants'].forEach(id => {
+                    if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+                    const c = g(id), wrap = c && c.closest('.an-chart-wrap');
+                    if (wrap) wrap.innerHTML = `<div class="an-empty">${ICONS.empty}<div>Chưa có dữ liệu phòng ban. Kiểm tra cột "PHÒNG BAN" trong sheet USER.</div></div>`;
+                });
+                setInsight('insight-dept', ''); return;
+            }
+            const deptParticipants = {};
+            data.forEach(r => {
+                const uname = r[COLS.creatorU] ? String(r[COLS.creatorU]).trim() : null;
+                if (!uname) return;
+                (deptParticipants[r._department] = deptParticipants[r._department] || new Set()).add(uname);
+            });
+            const depts = deptNames.slice().sort((a, b) => (DEPT_HEADCOUNT[b] || 0) - (DEPT_HEADCOUNT[a] || 0));
+            const heads = depts.map(d => DEPT_HEADCOUNT[d] || 0);
+            const parts = depts.map(d => deptParticipants[d] ? deptParticipants[d].size : 0);
+            upsert('chartDeptHeadcount', {
+                type: 'bar', data: { labels: depts, datasets: [{ label: 'Số người', data: heads, backgroundColor: '#2c68ac', barThickness: 30 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                    scales: { x: { grid: { display: false } }, y: { beginAtZero: true, suggestedMax: Math.max(...heads, 1) + 1, grid: { color: GRID }, ticks: { precision: 0 } } }
+                }
+            });
+            upsert('chartDeptParticipants', {
+                type: 'bar', data: { labels: depts, datasets: [{ label: 'Số người đã đi Gemba', data: parts, backgroundColor: '#0e8a76', barThickness: 30 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+                    scales: { x: { grid: { display: false } }, y: { beginAtZero: true, suggestedMax: Math.max(...parts, 1) + 1, grid: { color: GRID }, ticks: { precision: 0 } } }
+                }
+            });
+            const rates = depts.map((d, i) => ({ d, pct: heads[i] ? Math.round(parts[i] / heads[i] * 100) : null })).filter(x => x.pct !== null);
+            if (rates.length) {
+                const best = rates.slice().sort((a, b) => b.pct - a.pct)[0], worst = rates.slice().sort((a, b) => a.pct - b.pct)[0];
+                setInsight('insight-dept', `Phòng ban tham gia tích cực nhất: <b>${esc(best.d)}</b> (${best.pct}% nhân sự đã đi Gemba). Thấp nhất: <b>${esc(worst.d)}</b> (${worst.pct}%) — cần thúc đẩy thêm.`);
+            } else setInsight('insight-dept', '');
+        }
+
+        function repRowHtml(r, mode) {
+            return `<div class="an-rep-row"><b>${esc(r[COLS.id])}</b> · ${fmtDate(r._date)} · ${esc(r._displayStatus)}<br>`
+                + (mode === 'unit' ? `<span style="font-size:11.5px;font-weight:700">Đơn vị: ${esc(r[COLS.factory] || '—')} › ${esc(r[COLS.line] || '—')} › ${esc(r[COLS.team] || '—')}</span><br>` : '')
+                + `<span style="color:var(--ink-soft)">${esc(r[COLS.issueName] || '')} ${esc(r[COLS.issueRec] || r[COLS.desc] || '')}</span><br>`
+                + `<span style="color:var(--ink-faint);font-size:11px">Vị trí: ${esc(r[COLS.pos] || '—')} · Người tạo: ${esc(r[COLS.creator] || '—')} (${esc(r._department || '—')})</span></div>`;
+        }
+
+        function renderPX(data) {
+            const pxs = uniqueCounts(data, r => r._px).map(x => x[0]);
+            const types = uniqueCounts(data, COLS.issueCode).map(x => x[0]);
+            const canvas = g('chartPX'), wrap = canvas && canvas.closest('.an-chart-wrap');
+            if (wrap) wrap.style.height = Math.max(300, pxs.length * 34 + 70) + 'px';
+            const chart = upsert('chartPX', {
+                type: 'bar',
+                plugins: [{
+                    id: 'pxTypeLabels',
+                    afterDatasetsDraw(ch) {
+                        const ctx = ch.ctx, n = ch.data.labels.length;
+                        ctx.save(); ctx.textBaseline = 'middle'; ctx.font = '700 10.5px "Be Vietnam Pro"'; ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
+                        ch.data.datasets.forEach((ds, di) => {
+                            ch.getDatasetMeta(di).data.forEach((el, i) => {
+                                const v = ds.data[i]; if (!v) return;
+                                const txt = ds.label + ' - ' + v;
+                                if (ctx.measureText(txt).width + 12 > Math.abs(el.x - el.base)) return;
+                                ctx.fillText(txt, Math.min(el.x, el.base) + 6, el.y);
+                            });
+                        });
+                        ctx.font = '800 12px "Be Vietnam Pro"'; ctx.fillStyle = INK;
+                        for (let i = 0; i < n; i++) {
+                            let sum = 0, xEnd = null, y = null;
+                            ch.data.datasets.forEach((ds, di) => {
+                                const v = ds.data[i] || 0; sum += v;
+                                const el = ch.getDatasetMeta(di).data[i];
+                                if (el && v) { xEnd = Math.max(xEnd === null ? 0 : xEnd, el.x); y = el.y; }
+                            });
+                            if (sum && xEnd !== null) ctx.fillText('Tổng ' + sum, xEnd + 8, y);
+                        }
+                        ctx.restore();
+                    }
+                }],
+                data: {
+                    labels: pxs, datasets: types.map((t, i) => ({
+                        label: t, backgroundColor: PALETTE[i % PALETTE.length], stack: 'a', barThickness: 22,
+                        data: pxs.map(px => data.filter(r => r._px === px && r[COLS.issueCode] === t).length)
+                    }))
+                },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end' }, barValueLabels: false },
+                    scales: { x: { stacked: true, beginAtZero: true, grace: '15%', grid: { color: GRID }, ticks: { precision: 0 } }, y: { stacked: true, grid: { display: false } } }
+                }
+            });
+            if (chart) {
+                chart.canvas.style.cursor = 'pointer';
+                chart.options.onClick = (evt, els) => {
+                    if (!els.length) return;
+                    const px = pxs[els[0].index], t = types[els[0].datasetIndex];
+                    const items = data.filter(r => r._px === px && r[COLS.issueCode] === t).sort((a, b) => (b._date || 0) - (a._date || 0));
+                    showModal(px + ' — ' + t + ' (' + items.length + ' phiếu)', items.length ? items.map(r => repRowHtml(r, 'unit')).join('') : '<div class="an-rep-row">Chưa có phiếu nào.</div>');
+                };
+                chart.update();
+            }
+            if (pxs.length) {
+                const topPx = uniqueCounts(data, r => r._px)[0];
+                const rows = data.filter(r => r._px === topPx[0]);
+                const topT = uniqueCounts(rows, COLS.issueCode)[0];
+                setInsight('insight-px', `<b>${esc(topPx[0])}</b> có nhiều phiếu nhất (<b>${topPx[1]}</b> phiếu, ${Math.round(topPx[1] / data.length * 100)}% tổng số), chủ yếu là nhóm <b>${esc(topT[0])}</b> (${topT[1]} phiếu, ${Math.round(topT[1] / topPx[1] * 100)}%).`);
+            } else setInsight('insight-px', '');
+        }
+
+        const W8_LIST = ['Hàng lỗi', 'Sản xuất thừa', 'Chờ đợi', 'Lãng phí năng lực', 'Vận chuyển', 'Tồn kho', 'Thao tác thừa', 'Gia công thừa'];
+        function render8W(data) {
+            const nf = s => String(s || '').trim().normalize('NFC').toLowerCase();
+            const d8 = data.filter(r => nf(r[COLS.issueCode]) === '8w');
+            const pxs = uniqueCounts(d8, r => r._px).map(x => x[0]);
+
+            const names = uniqueCounts(d8, COLS.issueName).map(x => x[0]);
+            const chart8 = upsert('chart8W', {
+                type: 'bar',
+                plugins: [{
+                    id: 'pxNames',
+                    afterDatasetsDraw(ch) {
+                        const ctx = ch.ctx;
+                        ctx.save(); ctx.font = '700 10.5px "Be Vietnam Pro"'; ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+                        ch.data.datasets.forEach((ds, di) => {
+                            ch.getDatasetMeta(di).data.forEach((el, i) => {
+                                const v = ds.data[i]; if (!v) return;
+                                const txt = ds.label + ' - ' + v + ' phiếu';
+                                if (ctx.measureText(txt).width + 14 > Math.abs(el.x - el.base)) return;
+                                ctx.fillText(txt, Math.min(el.x, el.base) + 8, el.y);
+                            });
+                        });
+                        ctx.restore();
+                    }
+                }, {
+                    id: 'stackTotal',
+                    afterDatasetsDraw(ch) {
+                        const ctx = ch.ctx, n = ch.data.labels.length;
+                        ctx.save(); ctx.font = '800 12px "Be Vietnam Pro"'; ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+                        for (let i = 0; i < n; i++) {
+                            let sum = 0, xEnd = null, y = null;
+                            ch.data.datasets.forEach((ds, di) => {
+                                const v = ds.data[i] || 0; sum += v;
+                                const el = ch.getDatasetMeta(di).data[i];
+                                if (el && v) { xEnd = Math.max(xEnd === null ? 0 : xEnd, el.x); y = el.y; }
+                            });
+                            if (sum && xEnd !== null) ctx.fillText('Tổng ' + sum, xEnd + 8, y);
+                        }
+                        ctx.restore();
+                    }
+                }],
+                data: {
+                    labels: names, datasets: pxs.map((px, i) => ({
+                        label: px, backgroundColor: PALETTE[i % PALETTE.length], stack: 'a', barThickness: 20,
+                        data: names.map(n => d8.filter(r => r._px === px && nf(r[COLS.issueName]) === nf(n)).length)
+                    }))
+                },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top', align: 'end' }, barValueLabels: false },
+                    scales: { x: { stacked: true, beginAtZero: true, grace: '25%', grid: { color: GRID }, ticks: { precision: 0 } }, y: { stacked: true, grid: { display: false } } }
+                }
+            });
+            if (chart8) {
+                chart8.canvas.style.cursor = 'pointer';
+                chart8.options.onClick = (evt, els) => {
+                    if (!els.length) return;
+                    const name = names[els[0].index], px = pxs[els[0].datasetIndex];
+                    const items = d8.filter(r => r._px === px && nf(r[COLS.issueName]) === nf(name)).sort((a, b) => (b._date || 0) - (a._date || 0));
+                    showModal('8W — ' + name + ' · ' + px + ' (' + items.length + ' phiếu)', items.length ? items.map(r => repRowHtml(r, 'unit')).join('') : '<div class="an-rep-row">Chưa có phiếu nào.</div>');
+                };
+                chart8.update();
+            }
+            const total = d8.length;
+            if (total && names.length) {
+                const byPx = uniqueCounts(d8, r => r._px)[0], topName = names[0];
+                const topRows = d8.filter(r => nf(r[COLS.issueName]) === nf(topName));
+                const topPx = uniqueCounts(topRows, r => r._px)[0];
+                if (byPx && topPx) setInsight('insight-8w', `Có <b>${total}</b> phiếu 8W. Phân xưởng nhiều lãng phí nhất: <b>${esc(byPx[0])}</b> (${byPx[1]} phiếu, ${Math.round(byPx[1] / total * 100)}%). Loại nhiều nhất: <b>${esc(topName)}</b>, tập trung ở <b>${esc(topPx[0])}</b> (${topPx[1]}/${topRows.length} phiếu).`);
+                else setInsight('insight-8w', '');
+            } else setInsight('insight-8w', 'Chưa có phiếu 8W nào trong dữ liệu đang lọc.');
+        }
+
+        function renderMonthReport(data) {
+            const months = uniqueMonthsSorted(data), sel = g('mrMonth');
+            if (!months.length) { g('mrBody').innerHTML = '<div class="an-empty">Chưa có dữ liệu.</div>'; sel.innerHTML = ''; return; }
+            if (!MR_SEL || !months.includes(MR_SEL)) MR_SEL = months[months.length - 1];
+            sel.innerHTML = months.slice().reverse().map(m => `<option value="${m}" ${m === MR_SEL ? 'selected' : ''}>${monthLabel(m)}</option>`).join('');
+            sel.onchange = () => { MR_SEL = sel.value; renderMonthReport(data); };
+            const pm = months[months.indexOf(MR_SEL) - 1];
+            const cur = data.filter(r => r._month === MR_SEL), prev = pm ? data.filter(r => r._month === pm) : null;
+            const S = a => ({
+                t: a.length, rate: a.length ? Math.round(a.filter(r => r._displayStatus === 'Hoàn thành').length / a.length * 100) : 0,
+                od: a.filter(r => r._displayStatus === 'Quá hạn').length, cr: a.filter(r => r._severity === 'Nghiêm trọng').length,
+                rp: a.filter(r => r._isRepeat).length, ppl: new Set(a.map(r => r[COLS.creatorU]).filter(Boolean)).size
+            });
+            const c = S(cur), p = prev ? S(prev) : null;
+            const D = (x, y, low) => { if (y === undefined || y === null) return ''; const d = x - y; if (!d) return ' (=)'; return `<b style="color:${(low ? d < 0 : d > 0) ? 'var(--teal)' : 'var(--rose)'}"> (${d > 0 ? '+' : ''}${d})</b>`; };
+            const k = [['Tổng phiếu', c.t, p && D(c.t, p.t, true)], ['% hoàn thành', c.rate + '%', p && D(c.rate, p.rate, false)],
+            ['Quá hạn', c.od, p && D(c.od, p.od, true)], ['Nghiêm trọng', c.cr, p && D(c.cr, p.cr, true)],
+            ['Lỗi lặp lại', c.rp, p && D(c.rp, p.rp, true)], ['Người đi Gemba', c.ppl, p && D(c.ppl, p.ppl, false)]];
+            const topL = uniqueCounts(cur, COLS.line).slice(0, 3), topT = uniqueCounts(cur, COLS.issueCode).slice(0, 3);
+            const w8 = uniqueCounts(cur.filter(r => String(r[COLS.issueCode] || '').trim().toUpperCase() === '8W'), COLS.issueName)[0];
+            const lineTxt = topL.map(([n, v]) => { const b = prev ? prev.filter(r => r[COLS.line] === n).length : null; return n + ': ' + v + ' phiếu' + (b === null ? '' : ' (' + (v - b >= 0 ? '+' : '') + (v - b) + ')'); });
+            const typeTxt = topT.map(([n, v]) => n + ': ' + v + ' (' + Math.round(v / c.t * 100) + '%)');
+            const li = a => a.length ? a.map(x => `<div style="padding:3px 0">${esc(x)}</div>`).join('') : '—';
+            const box = (t, h) => `<div style="flex:1;min-width:210px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:9px 12px"><div style="font-size:10.5px;font-weight:800;color:var(--ink-faint);text-transform:uppercase;margin-bottom:4px">${t}</div><div style="font-size:12.2px">${h}</div></div>`;
+            const lines = [`BÁO CÁO NHANH ${monthLabel(MR_SEL)}`,
+            `- Tổng ${c.t} phiếu` + (p ? ` (${c.t >= p.t ? '+' : ''}${c.t - p.t} so với ${monthLabel(pm)}), tỷ lệ hoàn thành ${c.rate}%` : `, tỷ lệ hoàn thành ${c.rate}%`),
+            `- Quá hạn ${c.od}, nghiêm trọng ${c.cr}, lỗi lặp lại ${c.rp}, ${c.ppl} người đi Gemba`,
+            topL.length ? `- Điểm nóng: ${lineTxt.join('; ')}` : '', topT.length ? `- Loại vấn đề nhiều nhất: ${typeTxt.join('; ')}` : '',
+            w8 ? `- 8W: ${w8[0]} nhiều nhất (${w8[1]} phiếu)` : ''].filter(Boolean);
+            MR_TEXT = lines.join('\n');
+            g('mrBody').innerHTML =
+                `<div class="an-mr-strip">${k.map(x => `<div class="an-mr-cell"><div class="an-l">${x[0]}</div><div class="an-v">${x[1]}${x[2] || ''}</div></div>`).join('')}</div>`
+                + `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">${box('Top 3 Line', li(lineTxt))}${box('Top 3 loại vấn đề', li(typeTxt))}${box('8W nhiều nhất', w8 ? esc(w8[0]) + ': <b>' + w8[1] + '</b> phiếu' : '—')}</div>`
+                + `<div class="an-insight">${ICONS.bulb}<div>${lines.slice(1).map(esc).join('<br>')}</div></div>`;
+        }
+
+        function renderRepeatList(data) {
+            const groups = getRepeatGroups(data), el = g('repeatList');
+            if (!groups.length) {
+                el.innerHTML = `<div class="an-empty">${ICONS.empty}<div>Không phát hiện nhóm Line + Tổ + Loại vấn đề nào lặp lại ≥2 lần trong dữ liệu đang lọc.</div></div>`;
+                return;
+            }
+            el.innerHTML = groups.slice(0, 12).map((gr, i) => {
+                const sev = gr.within30 >= 3 ? 'sev-critical' : (gr.within30 >= 2 ? 'sev-warn' : '');
+                return `<div class="an-repeat-item ${sev}" data-gi="${i}"><div class="an-ri-rank">${i + 1}</div>
+      <div class="an-ri-main"><div class="an-ri-title">${esc(gr.line)} — ${esc(gr.team)} — ${esc(gr.issue)}</div>
+      <div class="an-ri-sub">${gr.count} lần ghi nhận · trải dài ${gr.spanDays} ngày · gần nhất ${fmtDate(gr.last)}</div></div>
+      <div class="an-ri-count">${gr.within30}<small>trong 30 ngày</small></div></div>`;
+            }).join('');
+            el.querySelectorAll('.an-repeat-item').forEach(it => {
+                it.addEventListener('click', () => {
+                    const gr = groups[+it.dataset.gi];
+                    showModal(gr.line + ' — ' + gr.team + ' — ' + gr.issue + ' (' + gr.count + ' lần)', gr.items.slice().reverse().map(r => repRowHtml(r, '')).join(''));
+                });
+            });
+        }
+
+        function renderInsights(data) {
+            if (!data.length) { ['insight-trend', 'insight-pareto', 'insight-topline'].forEach(id => setInsight(id, '')); return; }
+            const weeks = uniqueWeeksSorted(data);
+            if (weeks.length >= 2) {
+                const lastW = weeks[weeks.length - 1], prevW = weeks[weeks.length - 2];
+                const lastC = data.filter(r => r[COLS.week] === lastW).length, prevC = data.filter(r => r[COLS.week] === prevW).length, diff = lastC - prevC;
+                const dir = diff > 0 ? `tăng <b>${diff}</b> phiếu` : diff < 0 ? `giảm <b>${Math.abs(diff)}</b> phiếu` : 'không đổi';
+                setInsight('insight-trend', `Tuần <b>${String(lastW).replace(/-\d{4}$/, '')}</b> ghi nhận ${dir} so với tuần trước (${prevC} → ${lastC} phiếu).`);
+            } else if (weeks.length === 1) setInsight('insight-trend', `Dữ liệu hiện chỉ có <b>1 tuần</b> (${weeks[0]}) — mở rộng khoảng thời gian để xem xu hướng.`);
+            else setInsight('insight-trend', '');
+
+            const cc = uniqueCounts(data, COLS.issueCode);
+            if (cc.length) {
+                const totalAll = cc.reduce((a, c) => a + c[1], 0), top = cc[0];
+                let n = 0, idx = 0;
+                for (let i = 0; i < cc.length; i++) { n += cc[i][1]; idx = i + 1; if (n / totalAll >= 0.8) break; }
+                setInsight('insight-pareto', `Nhóm <b>${esc(top[0])}</b> chiếm <b>${Math.round(top[1] / totalAll * 100)}%</b> tổng số phát hiện — nguyên nhân hàng đầu cần ưu tiên xử lý. ${idx} / ${cc.length} nhóm đầu chiếm khoảng 80% tổng số.`);
+            } else setInsight('insight-pareto', '');
+
+            const lc = uniqueCounts(data, COLS.line);
+            if (lc.length) setInsight('insight-topline', `<b>${esc(lc[0][0])}</b> là điểm nóng với <b>${lc[0][1]}</b> phát hiện (${Math.round(lc[0][1] / data.length * 100)}% tổng số) — nên đưa vào kế hoạch Gemba walk ưu tiên tuần tới.`);
+            else setInsight('insight-topline', '');
+        }
+        function renderExecSummary(data) {
+            const el = g('execSummary'); if (!el) return;
+            if (!data.length) { el.innerHTML = 'Không có ghi nhận nào khớp với bộ lọc hiện tại.'; return; }
+            const total = data.length, done = data.filter(r => r._displayStatus === 'Hoàn thành').length, rate = Math.round(done / total * 100);
+            const topLine = uniqueCounts(data, COLS.line)[0], topCode = uniqueCounts(data, COLS.issueCode)[0];
+            const critical = data.filter(r => r._severity === 'Nghiêm trọng').length, overdue = data.filter(r => r._displayStatus === 'Quá hạn').length;
+            const repeatCount = data.filter(r => r._isRepeat).length, imp = monthImprovement(data);
+            el.innerHTML = `Đang phân tích <b class="an-tag">${fmtNum(total)}</b> ghi nhận · tỷ lệ hoàn thành <b class="an-tag">${rate}%</b>`
+                + (topLine ? ` · điểm nóng <b>${esc(topLine[0])}</b> (${topLine[1]} phiếu)` : '')
+                + (topCode ? ` · nhóm vấn đề phổ biến nhất <b>${esc(topCode[0])}</b> (${topCode[1]} phiếu)` : '')
+                + (critical ? ` · <b style="color:var(--rose)">${critical} phiếu Nghiêm trọng</b> cần xử lý gấp` : '')
+                + (overdue ? ` · <b style="color:#b3261e">${overdue} phiếu quá hạn</b>` : '')
+                + (repeatCount ? ` · ${repeatCount} phiếu lặp lại` : '')
+                + (imp ? ` · cải thiện tháng ${fmtPct(imp.pct)}` : '');
+        }
+        function renderMeta(data) {
+            const dates = RAW_DATA.map(r => r._date).filter(Boolean);
+            if (dates.length) {
+                let min = dates[0], max = dates[0];
+                dates.forEach(d => { if (d < min) min = d; if (d > max) max = d; });
+                g('pillRange').textContent = fmtDate(min) + ' – ' + fmtDate(max);
+            }
+            g('pillCount').textContent = fmtNum(data.length);
+            g('pillTotal').textContent = fmtNum(RAW_DATA.length);
+        }
+
+        function renderCharts(data) {
+            [renderTrend, renderStatus, renderMonthly, renderSeverity, renderPareto, renderPriority, renderFactory, renderTopLine,
+                renderResTime, renderAssignee, renderMonthReport, renderCreator, renderPX, render8W, renderDeptCharts, renderInsights, renderRepeatList]
+                .forEach(fn => { try { fn(data); } catch (e) { console.error('[Analytics] render failed:', fn.name, e); } });
+        }
+        function renderAll() {
+            const data = getFiltered();
+            [renderMeta, renderExecSummary, renderKPI, renderCharts].forEach(fn => {
+                try { fn(data); } catch (e) { console.error('[Analytics] step failed:', fn.name, e); }
+            });
+        }
+
+        function prepareRows(rows) {
+            return (rows || []).map(r => {
+                r._date = r[COLS.dateRec] ? new Date(r[COLS.dateRec]) : null;
+                r._created = r[COLS.tgTao] ? new Date(r[COLS.tgTao]) : null;
+                if (r._created && isNaN(r._created)) r._created = null;
+                r._started = r[COLS.startDate] ? new Date(r[COLS.startDate]) : null;
+                if (r._started && isNaN(r._started)) r._started = null;
+                if (r._date && isNaN(r._date)) r._date = null;
+                r._px = String(r[COLS.line] || '').split(' - ')[0].trim() || 'Không xác định';
+                if (String(r[COLS.issueCode] || '').trim().normalize('NFC').toLowerCase() === 'lãng phí') r[COLS.issueCode] = '8W';
+                r._doneDate = r[COLS.doneDate] ? new Date(r[COLS.doneDate]) : null;
+                r._weekNum = parseWeek(r[COLS.week]);
+                r._month = monthKeyOf(r._date);
+                r._priorityNorm = normalizePriority(r[COLS.priority]);
+                r._severity = deriveSeverity(r);
+                r._displayStatus = computeDisplayStatus(r);
+                const uname = r[COLS.creatorU] ? String(r[COLS.creatorU]).trim() : null;
+                r._department = (uname && USER_DEPT_MAP[uname]) ? USER_DEPT_MAP[uname] : 'Không xác định';
+                return r;
+            });
+        }
+        function setLiveStatus(ok) {
+            const dot = g('liveDot'), ts = g('lastSync');
+            if (dot) dot.classList.toggle('off', !ok);
+            if (ts) ts.textContent = ok ? new Date().toLocaleTimeString('vi-VN') : 'lỗi kết nối';
+        }
+        function initUI() {
+            mselNhaMay = buildMultiSelect('nhaMay', state.nhaMay, () => uniqueCounts(RAW_DATA, COLS.factory));
+            mselLine = buildMultiSelect('line', state.line, () => uniqueCounts(baseForLine(), COLS.line));
+            mselTo = buildMultiSelect('to', state.to, () => uniqueCounts(baseForTeam(), COLS.team));
+            buildAllChips();
+            bindStaticFilterControls();
+            ensureModal();
+            renderAll();
+        }
+        function onData(payload) {
+            loading = false; lastLoad = Date.now();
+            if (typeof hideLoader === 'function') hideLoader();
+            const bundled = payload && !Array.isArray(payload) && payload.rows;
+            const rows = bundled ? payload.rows : payload;
+            USER_DEPT_MAP = bundled ? (payload.userDept || {}) : {};
+            DEPT_HEADCOUNT = bundled ? (payload.deptHeadcount || {}) : {};
+            const sl = bundled ? payload.sla : null;
+            if (sl) { ['Critical', 'High', 'Medium', 'Low', 'Default'].forEach(k => { if (Number(sl[k]) > 0) SLA[k] = Number(sl[k]); }); }
+            RAW_DATA = prepareRows(rows);
+            computeRepeatFlags();
+            setLiveStatus(true);
+            if (!uiReady) { initUI(); uiReady = true; }
+            else { buildAllChips(); onFiltersChanged(); }
+        }
+        function onError(err) {
+            loading = false;
+            if (typeof hideLoader === 'function') hideLoader();
+            console.error('[Analytics] Lỗi tải dữ liệu:', err);
+            setLiveStatus(false);
+            const el = g('execSummary');
+            if (el && !uiReady) el.textContent = 'Không tải được dữ liệu phân tích. Kiểm tra sheet GEMBA / USER hoặc thử làm mới.';
+            if (typeof showToast === 'function') showToast('Không tải được dữ liệu phân tích', 'danger');
+        }
+        function load(force) {
+            if (loading) return;
+            if (!force && uiReady && Date.now() - lastLoad < 120000) {
+                setTimeout(renderAll, 80);
+                return;
+            }
+            loading = true;
+            if (typeof showLoader === 'function') showLoader('Đang tải phân tích...', 'soft');
+            google.script.run.withSuccessHandler(onData).withFailureHandler(onError).getAnalyticsData();
+        }
+        window.loadAnalytics = load;
+
+    })();
+</script>
