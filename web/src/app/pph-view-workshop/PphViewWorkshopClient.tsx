@@ -13,7 +13,7 @@
 // từng Line riêng như cũ để tiện theo dõi, link này chỉ là 1 LỐI VÀO PHỤ để chiếu TV gộp.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { IconVolume, IconVolumeOff } from '@tabler/icons-react';
+import { IconVolume, IconVolumeOff, IconMaximize, IconMinimize } from '@tabler/icons-react';
 import {
   LineBoard,
   todayVNStr,
@@ -47,6 +47,27 @@ export default function PphViewWorkshopClient() {
   const [designW, setDesignW] = useState(FS_DESIGN_W);
   const contentRef = useRef<HTMLDivElement>(null);
   const adjustedRef = useRef(false);
+
+  // Nút toàn màn hình cạnh icon loa — trang TV này chạy trong tab trình duyệt treo lên màn hình
+  // lớn, bấm vào đây để trình duyệt tự ẩn thanh địa chỉ/toolbar, xem trọn khung hình.
+  const [fs, setFs] = useState(false);
+  useEffect(() => {
+    const onFs = () => {
+      setFs(!!document.fullscreenElement);
+      // Vào/thoát toàn màn hình đổi hẳn kích cỡ khung nhìn (window.innerWidth/innerHeight) — tỉ lệ
+      // khung hình mới có thể khác hẳn lúc trang vừa tải (lúc đó còn thanh địa chỉ/toolbar trình
+      // duyệt). Reset để effect "co giãn vừa 1 màn hình" ở trên TÍNH LẠI designW tối ưu cho đúng
+      // tỉ lệ khung hình mới, tránh thừa khoảng trống dưới/bên như khi vẫn dùng designW cũ.
+      adjustedRef.current = false;
+      setDesignW(FS_DESIGN_W);
+    };
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
+  function toggleFs() {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else document.documentElement.requestFullscreen().catch(() => {});
+  }
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 15000);
@@ -206,6 +227,14 @@ export default function PphViewWorkshopClient() {
               }`}
             >
               {audioUnlocked ? <IconVolume size={18} /> : <IconVolumeOff size={18} />}
+            </button>
+            <button
+              type="button"
+              onClick={toggleFs}
+              title="Toàn màn hình"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-600 transition hover:bg-gray-200"
+            >
+              {fs ? <IconMinimize size={18} /> : <IconMaximize size={18} />}
             </button>
             <div className="overflow-hidden rounded-lg border border-gray-200">
               <div className="bg-[#006838] px-3 py-1 text-center">

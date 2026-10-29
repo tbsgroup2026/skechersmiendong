@@ -47,6 +47,7 @@ export type PphLeaf = {
   setup: {
     workerCount: number;
     model: string;
+    color?: string | null;
     plannedQty: number;
     targetRft: number;
     productionHours: number | null;
@@ -179,6 +180,17 @@ export function pphLineTitle(areaName: string, lineName: string): string {
 export function pphWorkshopTitle(areaName: string, factoryName: string): string {
   const num = factoryName.match(/(\d+)\s*$/)?.[1];
   return `Bảng Kết quả sản xuất - PX ${areaName}${num ? ` ${num}` : ''}`;
+}
+// Chữ hiển thị Model trên thẻ TV — ghép "SN <model> <color>" theo đúng quy ước nhà máy đang dùng
+// (trước đây công nhân tự gõ tay "SN 123456" vào thẳng ô Model, giờ "SN" tự thêm, Màu sắc tách
+// thành ô riêng). Mã dùng để tra ảnh/PPH chuẩn IE vẫn là model GỐC (không có "SN"/màu), không đụng
+// gì tới cơ chế đó — hàm này CHỈ ghép chữ hiển thị. Tự cắt "SN" nếu model ĐÃ có sẵn (dữ liệu gõ
+// trước khi có tính năng này, ô Model từng được gõ tay thẳng "SN 123456") để không lặp "SN SN...".
+export function pphDisplayModel(model: string | null | undefined, color?: string | null): string | null {
+  const m = (model || '').trim().replace(/^sn[\s-]*/i, '');
+  if (!m) return null;
+  const c = (color || '').trim();
+  return `SN ${m}${c ? ` ${c}` : ''}`;
 }
 // Nhắc trễ nhập bằng GIỌNG ĐỌC THẬT (file ghi âm người thật, xem LineBoard) — thay hẳn Web Speech
 // API cũ (phụ thuộc máy TV có cài giọng tiếng Việt hay không). Mỗi file ĐÃ chứa SẴN nguyên câu (VD
@@ -2288,17 +2300,29 @@ export function LineBoard({
           nhận đánh đổi này, xem lại ở /pph-scan nếu cần chi tiết đó) — giờ CHỈ 1 khuôn TeamPanel
           duy nhất cho mọi số lượng điểm quét, tự nhiên ra đúng 1 thẻ khi Line chỉ có 1 Tổ/Chuyền. */}
       <SectionLabel light={light}>Chi tiết các tổ sản xuất</SectionLabel>
-      {/* Cố định 4 thẻ/hàng (khác trước — 3 thẻ/hàng làm Line nhiều Tổ quá cao, lúc phóng to
+      {/* Tối đa 5 thẻ/hàng (khác trước — 3 thẻ/hàng làm Line nhiều Tổ quá cao, lúc phóng to
           phải thu nhỏ hết để vừa chiều cao, thừa khoảng trống 2 bên) — ít hàng hơn giúp cấp
           Line lấp đầy màn hình khi phóng to giống hệt cấp Tổng quan/Nhà máy. Bản TV giãn cách
           rộng hơn (gap-5 thay gap-3) — bỏ hẳn hàng "Tình trạng các tổ" bên dưới (trùng lặp,
           SLTH/% đạt đã có sẵn ngay trong từng thẻ) nên thẻ Tổ được rảnh hẳn chỗ, giãn cách rộng
           hơn cho đỡ dồn cụm, cùng lúc cơ chế co giãn tự tính lại tỉ lệ to hơn (bớt hẳn 1 khối
-          nội dung, PphViewClient.tsx tự scale to hơn theo đúng chiều cao còn trống). */}
-      <div className={`grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 ${tv ? 'gap-5' : 'gap-3'}`}>
-        {teamCards.map((l) => (
-          <TeamPanel key={l.id} leaf={l} light={light} tv={tv} alertOverdue={alertOverdue} />
-        ))}
+          nội dung, PphViewClient.tsx tự scale to hơn theo đúng chiều cao còn trống).
+          Bản TV: KÍCH CỠ thẻ giữ nguyên như khung 5 cột cũ (không phóng to thẻ lên khi ít thẻ) —
+          dùng flex-wrap + justify-center thay vì grid-template-columns động: mỗi thẻ cố định đúng
+          1/5 bề ngang (trừ khoảng cách), Xưởng chỉ có 3 Chuyền (VD Gò) thì 3 thẻ cỡ y hệt cũ tự
+          CĂN GIỮA hàng (chừa đều khoảng trống 2 bên) thay vì dồn lệch trái hay bị kéo to ra. Dư 5
+          thẻ (VD "May" 7 Tổ) tự xuống hàng tiếp, hàng đó cũng tự căn giữa riêng. Bản thường (không
+          tv) giữ nguyên lưới co giãn theo breakpoint màn hình như cũ. */}
+      <div className={tv ? 'flex flex-wrap justify-center gap-5' : 'grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5'}>
+        {teamCards.map((l) =>
+          tv ? (
+            <div key={l.id} className="shrink-0" style={{ width: 'calc((100% - 80px) / 5)' }}>
+              <TeamPanel leaf={l} light={light} tv={tv} alertOverdue={alertOverdue} />
+            </div>
+          ) : (
+            <TeamPanel key={l.id} leaf={l} light={light} tv={tv} alertOverdue={alertOverdue} />
+          )
+        )}
       </div>
       {!tv && (
         <>
@@ -2577,7 +2601,10 @@ function TeamPanel({
   const r = rollup([leaf]);
   const workerCount = leaf.setup?.workerCount ?? null;
   const productionHours = leaf.setup?.productionHours ?? null;
-  const model = leaf.setup?.model ?? null;
+  // Chữ hiện trên thẻ TV — ghép "SN <model> <color>" (color trống thì chỉ "SN <model>"). Mã THẬT
+  // dùng tra ảnh/PPH chuẩn IE vẫn là model gốc, server đã tự tra sẵn trước khi gửi xuống (xem
+  // modelImageUrl/pphStandard ở _worker.js) — biến `model` ở đây CHỈ còn dùng để hiển thị.
+  const model = pphDisplayModel(leaf.setup?.model ?? null, leaf.setup?.color ?? null);
   const plannedQtyDay = leaf.setup?.plannedQty ?? null;
   // PPH (sản lượng/người/giờ) suy từ Mục tiêu/giờ chia Lao động — hệ thống chưa lưu SAM (thời
   // gian định mức riêng theo mã hàng) nên đây là giá trị GẦN ĐÚNG, không phải công thức PPH chuẩn
@@ -2798,8 +2825,10 @@ function TeamPanelBody({
           {/* w-[78%] mx-auto — thu nhỏ thêm 1 lần nữa theo yêu cầu (trước 90%, giờ 78%), vẫn giữ tỉ
               lệ aspect-[4/3] nên chiều cao tự co theo đúng tỉ lệ, không lệch. */}
           {leaf.imageUrl ? (
+            // object-contain (không phải cover) — HIỆN TRỌN VẸN ảnh, không cắt mất góc/cạnh nào;
+            // khung aspect-[4/3] vẫn cố định nên chiều cao hàng không đổi, ảnh tự co vừa khung.
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={leaf.imageUrl} alt={model || ''} className="mx-auto aspect-[4/3] w-[78%] object-cover" />
+            <img src={leaf.imageUrl} alt={model || ''} className="mx-auto aspect-[4/3] w-[78%] bg-white object-contain" />
           ) : (
             <div className="mx-auto flex aspect-[4/3] w-[78%] items-center justify-center bg-gray-50 text-center text-[9px] font-bold text-gray-400">
               Chưa có ảnh

@@ -7,11 +7,12 @@
 // app hiện tại) — KHÁC HẲN PphViewClient.tsx (TV cấp Line): trang đó CỐ Ý "TV hoá" (nền trắng, chữ
 // khổng lồ, tự co giãn vừa 1 màn hình, không nút bấm) vì gắn cố định lên TV treo tường; trang NÀY
 // vẫn là 1 dashboard xem bình thường (cuộn được, có nút làm mới, bấm chọn Line), chỉ khác app thật
-// ở chỗ không yêu cầu đăng nhập. KHÔNG có date-picker/toàn màn hình/cài đặt (giữ phạm vi công khai
-// gọn, những nút đó không cần thiết cho 1 link "chiếu xem").
+// ở chỗ không yêu cầu đăng nhập. KHÔNG có date-picker/cài đặt (giữ phạm vi công khai gọn, những nút
+// đó không cần thiết cho 1 link "chiếu xem") — nút toàn màn hình VẪN giữ vì 3 trang TV (pph-view,
+// pph-view-workshop, pph-view-factory) cần đồng bộ, theo yêu cầu người dùng.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { IconChevronLeft, IconRefresh } from '@tabler/icons-react';
+import { IconChevronLeft, IconRefresh, IconMaximize, IconMinimize } from '@tabler/icons-react';
 import {
   FactoryBoard,
   LineBoard,
@@ -40,6 +41,18 @@ export default function PphViewFactoryClient() {
   useEffect(() => {
     document.title = 'Kết quả sản xuất — TBS';
   }, []);
+
+  // Nút toàn màn hình — đồng bộ với pph-view và pph-view-workshop (3 trang TV cùng mục đích).
+  const [fs, setFs] = useState(false);
+  useEffect(() => {
+    const onFs = () => setFs(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
+  function toggleFs() {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else document.documentElement.requestFullscreen().catch(() => {});
+  }
 
   const load = useCallback(async (opts?: { fresh?: boolean }) => {
     try {
@@ -158,16 +171,28 @@ export default function PphViewFactoryClient() {
             {isLineView ? pphLineTitle(lineSel!.areaName, lineSel!.name) : factoryCfg?.title || `Kết quả sản xuất — ${factory.name}`}
           </h2>
         </div>
-        <button
-          type="button"
-          onClick={() => load({ fresh: true })}
-          title="Làm mới"
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${
-            isLineView ? 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100' : 'border-cyan-500/25 bg-cyan-500/5 text-cyan-300 hover:bg-cyan-500/15'
-          }`}
-        >
-          <IconRefresh size={16} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => load({ fresh: true })}
+            title="Làm mới"
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${
+              isLineView ? 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100' : 'border-cyan-500/25 bg-cyan-500/5 text-cyan-300 hover:bg-cyan-500/15'
+            }`}
+          >
+            <IconRefresh size={16} />
+          </button>
+          <button
+            type="button"
+            onClick={toggleFs}
+            title="Toàn màn hình"
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${
+              isLineView ? 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100' : 'border-cyan-500/25 bg-cyan-500/5 text-cyan-300 hover:bg-cyan-500/15'
+            }`}
+          >
+            {fs ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3 p-3 sm:p-5">

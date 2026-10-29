@@ -20,6 +20,7 @@ import {
   IconBug,
   IconRefresh,
   IconArrowsLeftRight,
+  IconPalette,
 } from '@tabler/icons-react';
 
 type PphSlotEntry = {
@@ -27,6 +28,7 @@ type PphSlotEntry = {
   filled: boolean;
   workerCount?: number | null;
   model?: string | null;
+  color?: string | null;
   plannedQty?: number | null;
   targetRft?: number | null;
   actualQty?: number | null;
@@ -44,7 +46,7 @@ type ScanInfo = {
   filledSlots?: string[];
   entries?: PphSlotEntry[];
   perHourTarget?: number | null;
-  setup?: { workerCount: number; model: string; plannedQty: number; targetRft: number; productionHours: number | null } | null;
+  setup?: { workerCount: number; model: string; color?: string | null; plannedQty: number; targetRft: number; productionHours: number | null } | null;
   nextAction?: 'setup' | 'quantity' | 'wait' | 'done';
   targetSlot?: string | null;
   nextSlot?: string;
@@ -130,6 +132,9 @@ export default function PphScanClient() {
   const [productionHours, setProductionHours] = useState('');
   const [workerCount, setWorkerCount] = useState('');
   const [model, setModel] = useState('');
+  // Màu sắc — tách riêng khỏi Model, gõ tự do, không bắt buộc. Ghép hiển thị "SN <model> <color>"
+  // trên TV (xem pphDisplayModel ở ProductionPerformanceModule.tsx), KHÔNG đụng mã tra ảnh.
+  const [color, setColor] = useState('');
   const [shoeModels, setShoeModels] = useState<ShoeModelSuggestion[]>([]);
   const [plannedQty, setPlannedQty] = useState('');
   const [targetRft, setTargetRft] = useState('');
@@ -475,6 +480,7 @@ export default function PphScanClient() {
         body.productionHours = ph;
         body.workerCount = wc;
         body.model = model.trim();
+        body.color = color.trim();
         body.plannedQty = pq;
         body.targetRft = rft;
       } else {
@@ -676,6 +682,14 @@ export default function PphScanClient() {
             </Field>
             <Field label="Model sản xuất *" icon={IconShoe}>
               <ModelAutocompleteInput value={model} onChange={setModel} shoeModels={shoeModels} placeholder="VD: 4442" required />
+            </Field>
+            <Field label="Màu sắc" icon={IconPalette}>
+              <input
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+                placeholder="VD: Đỏ"
+                className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#006838]"
+              />
             </Field>
             <Field label="Sản lượng kế hoạch cả ca *" icon={IconTarget}>
               <input
@@ -1183,6 +1197,14 @@ function TeamSwitcherModal({ tree, onPick, onClose }: { tree: PphTreeFactory[]; 
   );
 }
 
+// Ô "Model sản xuất" đã tự hiện sẵn tiền tố "SN" bên ngoài ô nhập (xem ModelAutocompleteInput bên
+// dưới) — nhưng phòng trường hợp quen tay gõ LUÔN cả "SN" vào trong ô (thói quen cũ trước khi có
+// tiền tố tự động), tự cắt bỏ "SN"/"sn" (kèm dấu cách/gạch ngang nếu có) ở đầu chuỗi mỗi lần gõ, để
+// gợi ý ảnh vẫn khớp đúng và không bị lưu lặp thành "SN SN 123456" lúc hiện lên TV.
+function stripSnPrefix(raw: string): string {
+  return raw.replace(/^\s*sn[\s-]*/i, '');
+}
+
 // Ô nhập Model kèm gợi ý ảnh — DÙNG CHUNG cho form nhập chính LẪN form sửa trong SlotHistoryPanel
 // (trước đây chỉ viết 1 lần trong form chính, giờ tách ra để form sửa dùng lại y hệt, tránh gõ
 // nhầm lần 2 ngay trong lúc sửa lỗi gõ nhầm lần 1).
@@ -1205,27 +1227,33 @@ function ModelAutocompleteInput({
   // Khớp theo TIỀN TỐ (không phân biệt hoa/thường) — gõ "444" gợi ý cả "4442" lẫn "4442EW".
   // Giới hạn 6 gợi ý cho gọn, đủ dùng vì danh sách chỉ ~100-200 mã.
   const suggestions = useMemo(() => {
-    const q = value.trim().toUpperCase();
+    const q = stripSnPrefix(value).toUpperCase();
     if (!q) return [];
     return shoeModels.filter((m) => m.code.toUpperCase().startsWith(q)).slice(0, 6);
   }, [value, shoeModels]);
 
   return (
     <div className="relative">
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onFocus={() => setOpen(true)}
-        // Delay tắt để onMouseDown ở gợi ý bên dưới kịp bắt trước khi input mất focus — dùng
-        // onMouseDown (không phải onClick) ở gợi ý cũng vì lý do tương tự.
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder={placeholder}
-        className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#006838]"
-        autoComplete="off"
-        required={required}
-        autoFocus={autoFocus}
-      />
+      {/* Tiền tố "SN" cố định — chỉ trang trí, KHÔNG nằm trong giá trị thật (value vẫn là đúng mã số
+          gõ vào, dùng để tra ảnh ở pph_shoe_models) — hiển thị ghép "SN <model> <color>" ở TV xem
+          pphDisplayModel() bên ProductionPerformanceModule.tsx. */}
+      <div className="flex items-stretch overflow-hidden rounded-xl border border-slate-200 bg-slate-50 focus-within:border-[#006838]">
+        <span className="flex shrink-0 items-center pl-3.5 pr-1 text-sm font-black text-slate-400 select-none">SN</span>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(stripSnPrefix(e.target.value))}
+          onFocus={() => setOpen(true)}
+          // Delay tắt để onMouseDown ở gợi ý bên dưới kịp bắt trước khi input mất focus — dùng
+          // onMouseDown (không phải onClick) ở gợi ý cũng vì lý do tương tự.
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder={placeholder}
+          className="w-full bg-transparent py-3 pr-3.5 text-sm font-semibold focus:outline-none"
+          autoComplete="off"
+          required={required}
+          autoFocus={autoFocus}
+        />
+      </div>
       {open && suggestions.length > 0 && (
         <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
           {suggestions.map((s) => (
@@ -1312,9 +1340,10 @@ function EditableSetupField({
 // tiêu nếu số mới sau khi sửa vẫn/mới hụt Mục tiêu/giờ). Sửa xong gọi onSetupSaved() để trang cha
 // tải lại info NGẦM (không bật loading — xem ghi chú ở load() phía trên), Dashboard các cấp cũng tự
 // cập nhật theo vì PUT /api/pph/scan đã tự xoá cache liên quan.
-type SetupFieldKey = 'model' | 'workerCount' | 'plannedQty' | 'productionHours' | 'targetRft';
+type SetupFieldKey = 'model' | 'color' | 'workerCount' | 'plannedQty' | 'productionHours' | 'targetRft';
 const SETUP_FIELD_LABELS: Record<SetupFieldKey, string> = {
   model: 'Model sản xuất',
+  color: 'Màu sắc',
   workerCount: 'Số lượng công nhân',
   plannedQty: 'Sản lượng kế hoạch cả ca',
   productionHours: 'Thời gian sản xuất',
@@ -1452,13 +1481,16 @@ function SlotHistoryPanel({
   async function saveField() {
     if (!editingField) return;
     const trimmed = fieldDraft.trim();
-    if (!trimmed) {
+    // Màu sắc không bắt buộc — cho phép lưu rỗng (nghĩa là xoá màu đã ghi trước đó), khác mọi field
+    // khác đều bắt buộc có giá trị.
+    if (!trimmed && editingField !== 'color') {
       setFieldError(`Vui lòng nhập ${SETUP_FIELD_LABELS[editingField]}`);
       return;
     }
     const body: {
       teamId: string;
       model?: string;
+      color?: string;
       workerCount?: number;
       plannedQty?: number;
       productionHours?: number;
@@ -1466,6 +1498,8 @@ function SlotHistoryPanel({
     } = { teamId };
     if (editingField === 'model') {
       body.model = trimmed;
+    } else if (editingField === 'color') {
+      body.color = trimmed;
     } else {
       const num = Number(trimmed);
       // targetRft cho phép 0-100 (0% là giá trị hợp lệ, không bị chặn bởi num <= 0 như các field số
@@ -1616,11 +1650,30 @@ function SlotHistoryPanel({
                           editing={editingField === 'model'}
                           saving={savingField}
                           error={editingField === 'model' ? fieldError : null}
-                          onStartEdit={() => startEdit('model', e.model ?? '')}
+                          onStartEdit={() => startEdit('model', stripSnPrefix(e.model ?? ''))}
                           onCancel={cancelEdit}
                           onSave={saveField}
                           renderInput={() => (
                             <ModelAutocompleteInput value={fieldDraft} onChange={setFieldDraft} shoeModels={shoeModels} placeholder="VD: 4442" autoFocus />
+                          )}
+                        />
+                        <EditableSetupField
+                          label="Màu sắc"
+                          displayValue={e.color ?? '—'}
+                          editing={editingField === 'color'}
+                          saving={savingField}
+                          error={editingField === 'color' ? fieldError : null}
+                          onStartEdit={() => startEdit('color', e.color ?? '')}
+                          onCancel={cancelEdit}
+                          onSave={saveField}
+                          renderInput={() => (
+                            <input
+                              value={fieldDraft}
+                              onChange={(ev) => setFieldDraft(ev.target.value)}
+                              placeholder="VD: Đỏ"
+                              autoFocus
+                              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:border-[#006838]"
+                            />
                           )}
                         />
                         <EditableSetupField

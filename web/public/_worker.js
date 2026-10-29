@@ -748,6 +748,10 @@ async function pphEnsureTable(env) {
   // buildPphSlots) thay vì chia cứng 8 như trước — ca dài hơn 8 giờ (tăng ca) thì tự sinh thêm
   // khung số lượng sau 16:30 (17:30, 18:30...), xem buildPphSlots().
   await env.DB.prepare("ALTER TABLE pph_entries ADD COLUMN production_hours REAL").run().catch(() => {});
+  // Màu sắc — nhập 1 lần cùng lúc cập nhật đầu ca, giống model/worker_count. Tách riêng khỏi model
+  // để KHÔNG đụng mã tra ảnh (pph_shoe_models khớp đúng model, không kèm màu) — ghép hiển thị
+  // "SN <model> <color>" trên TV, xem pphDisplayModel() ở ProductionPerformanceModule.tsx.
+  await env.DB.prepare("ALTER TABLE pph_entries ADD COLUMN color TEXT").run().catch(() => {});
 }
 
 // "Ràng buộc thời gian" — giờ MỞ/ĐÓNG của từng khung trong 9 khung PPH_SLOTS, DÙNG CHUNG cho toàn
@@ -1617,7 +1621,7 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
           let entries = [];
           try {
             const r = await env.DB.prepare(
-              "SELECT slot, worker_count, model, planned_qty, target_rft, production_hours, actual_qty, error_count, submitted_by, submitted_at, shortfall_reason, shortfall_solution, shortfall_cause_group FROM pph_entries WHERE team_id = ? AND entry_date = ?"
+              "SELECT slot, worker_count, model, color, planned_qty, target_rft, production_hours, actual_qty, error_count, submitted_by, submitted_at, shortfall_reason, shortfall_solution, shortfall_cause_group FROM pph_entries WHERE team_id = ? AND entry_date = ?"
             ).bind(leaf.id, date).all();
             entries = r.results || [];
           } catch {}
@@ -1730,6 +1734,7 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
               ? {
                   workerCount: setupRow.worker_count,
                   model: setupRow.model,
+                  color: setupRow.color ?? null,
                   plannedQty: setupRow.planned_qty,
                   targetRft: setupRow.target_rft,
                   productionHours: setupRow.production_hours ?? null,
@@ -1837,7 +1842,7 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
     let results = [];
     try {
       const r = await env.DB.prepare(
-        "SELECT slot, worker_count, model, planned_qty, target_rft, production_hours, actual_qty, error_count, shortfall_reason, shortfall_solution FROM pph_entries WHERE team_id = ? AND entry_date = ?"
+        "SELECT slot, worker_count, model, color, planned_qty, target_rft, production_hours, actual_qty, error_count, shortfall_reason, shortfall_solution FROM pph_entries WHERE team_id = ? AND entry_date = ?"
       ).bind(teamId, date).all();
       results = r.results || [];
     } catch {}
@@ -1867,6 +1872,7 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
         filled: true,
         workerCount: row.worker_count ?? null,
         model: row.model ?? null,
+        color: row.color ?? null,
         plannedQty: row.planned_qty ?? null,
         targetRft: row.target_rft ?? null,
         actualQty: row.actual_qty ?? null,
@@ -1894,6 +1900,7 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
         ? {
             workerCount: setupRow.worker_count,
             model: setupRow.model,
+            color: setupRow.color ?? null,
             plannedQty: setupRow.planned_qty,
             targetRft: setupRow.target_rft,
             productionHours: setupRow.production_hours ?? null,
@@ -1974,6 +1981,10 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
       if (resolved.nextAction === "setup") {
         const workerCount = Number(body.workerCount);
         const model = String(body.model || "").trim();
+        // Màu sắc — tách riêng khỏi Model (không đụng mã tra ảnh pph_shoe_models), gõ tự do, KHÔNG
+        // bắt buộc (nhiều Model chạy 1 màu không cần ghi gì thêm). Hiện ghép "SN <model> <color>"
+        // trên TV, xem pphDisplayModel() ở ProductionPerformanceModule.tsx.
+        const color = String(body.color || "").trim().slice(0, 50);
         const plannedQty = Number(body.plannedQty);
         const targetRft = Number(body.targetRft);
         const productionHours = Number(body.productionHours);
@@ -1984,8 +1995,8 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
         if (!Number.isFinite(targetRft) || targetRft < 0 || targetRft > 100) return pphJson({ success: false, error: "Vui lòng nhập đúng Mục tiêu tỉ lệ đạt chất lượng RFT (0-100%)" }, 400);
         try {
           await env.DB.prepare(
-            "INSERT INTO pph_entries (id, team_id, entry_date, slot, worker_count, model, planned_qty, target_rft, production_hours, submitted_by, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-          ).bind(id, teamId, date, slot, workerCount, model, plannedQty, targetRft, productionHours, submittedBy, nowIso).run();
+            "INSERT INTO pph_entries (id, team_id, entry_date, slot, worker_count, model, color, planned_qty, target_rft, production_hours, submitted_by, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+          ).bind(id, teamId, date, slot, workerCount, model, color || null, plannedQty, targetRft, productionHours, submittedBy, nowIso).run();
         } catch {
           return pphJson({ success: false, error: "Đã có người cập nhật đầu giờ hôm nay rồi" }, 409);
         }
@@ -2159,6 +2170,11 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
         if (!model) return pphJson({ success: false, error: "Vui lòng nhập Model sản xuất" }, 400);
         sets.push("model = ?");
         binds.push(model);
+      }
+      if (body.color !== undefined) {
+        const color = String(body.color || "").trim().slice(0, 50);
+        sets.push("color = ?");
+        binds.push(color || null);
       }
       if (body.workerCount !== undefined) {
         const workerCount = Number(body.workerCount);
