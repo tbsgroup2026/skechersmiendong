@@ -1,6 +1,6 @@
 const fs = require('fs');
 
-let html = fs.readFileSync('web/public/work/gemba.html', 'utf8');
+let html = fs.readFileSync('web/public/work/gemba-app.html', 'utf8');
 
 // 1. Add back button to sidebar-footer
 const footerTarget = '<div class="sidebar-footer">';
@@ -30,5 +30,5 @@ if (backBtnRegex.test(html)) {
   html = html.replace(backBtnRegex, '// Removed floating button in favor of topbar and sidebar buttons');
 }
 
-fs.writeFileSync('web/public/work/gemba.html', html, 'utf8');
-console.log('web/public/work/gemba.html updated successfully!');
+fs.writeFileSync('web/public/work/gemba-app.html', html, 'utf8');
+console.log('web/public/work/gemba-app.html updated successfully!');
