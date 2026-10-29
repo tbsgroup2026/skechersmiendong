@@ -1002,7 +1002,12 @@ export default function MeetingRoomsPage() {
             title: b.title,
             bookerName: b.booker_name || b.bookerName,
             department: b.department,
-            bookingDate: b.booking_date || b.bookingDate,
+            // DB có cả YYYY-MM-DD (QR/API mới) lẫn DD/MM/YYYY (cũ); trang này so sánh theo DD/MM/YYYY
+            bookingDate: (() => {
+              const raw = String(b.booking_date || b.bookingDate || "").trim();
+              const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(raw);
+              return m ? `${m[3].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[1]}` : raw;
+            })(),
             timeSlot: b.time_slot || b.timeSlot,
             attendeesCount: b.attendees_count || b.attendeesCount || 5,
             notes: b.notes,

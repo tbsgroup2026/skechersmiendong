@@ -3126,6 +3126,7 @@ export default {
         p === "/api/gemba/sheet-sync" || p.startsWith("/api/gemba/sheet-changes") || // Apps Script, có khóa X-Sheet-Key
         ((p === "/api/ci-kaizen") && (m === "POST" || m === "PUT")) ||  // trang nộp Kaizen công khai /work/kaizen/register
         ((p === "/api/ci-kaizen/check-duplicate" || p === "/api/ci-kaizen/merge") && m === "POST") ||
+        (p === "/api/ci-kaizen/sync" && m === "POST") ||                // đồng bộ liên site, có khóa x-sync-secret
         (p === "/api/employees/lookup" && m === "GET") ||
         (p === "/api/files/upload" && m === "POST") ||           // tải ảnh/video (công khai cho form Kaizen, tự giới hạn bên trong)
         // PPH: tổ trưởng quét QR nhập/sửa sản lượng (/pph-scan) và màn hình TV xưởng (/pph-view*) không đăng nhập.
@@ -3803,11 +3804,9 @@ export default {
           } else if (cred) {
             ok = await verifyAuthPassword(password, cred);
             mustChange = Number(cred.must_change) === 1;
-          } else if (!isGuest && !authIsExecutive(empCode, roleCode) && !["SUPER_ADMIN", "ADMIN", "SYSTEM_ADMIN"].includes(roleCode)) {
+          } else if (!isGuest) {
+            // Chưa có mật khẩu riêng (kể cả quản trị/điều hành): dùng mật khẩu mặc định, bắt buộc đổi ngay sau lần đăng nhập đầu
             ok = authTimingSafeEqual(password, defaultPassword);
-          } else if (!isGuest && authTimingSafeEqual(password, defaultPassword)) {
-            await recordIpFail();
-            return json({ success: false, error: "PASSWORD_NOT_SET", message: "Tài khoản quản trị/điều hành chưa được cấp mật khẩu riêng. Vui lòng liên hệ quản trị viên." }, 401);
           }
 
           if (!ok) {
@@ -3835,10 +3834,14 @@ export default {
           if (cred && (Number(cred.failed_attempts) || cred.locked_until)) {
             await env.DB.prepare("UPDATE auth_credentials SET failed_attempts = 0, locked_until = NULL WHERE emp_code = ?").bind(empCode).run().catch(() => {});
           }
+          // Đăng nhập đúng: xóa đếm sai của IP để người khác cùng mạng không bị chặn oan
+          if (clientIp) await env.DB.prepare("DELETE FROM auth_ip_attempts WHERE ip = ?").bind(clientIp).run().catch(() => {});
 
           const roleLevel =
-            userRecord.role_level ??
-            (roleCode === "TRUONG_PHONG" ? 3 : roleCode === "SUPER_ADMIN" || roleCode === "TONG_GIAM_DOC" ? 1 : 4);
+            Number(userRecord.role_level || userRecord.roleLevel) ||
+            (roleCode === "SUPER_ADMIN" || roleCode === "TONG_GIAM_DOC" ? 1 :
+             roleCode === "GIAM_DOC" || roleCode === "PHO_TONG_GIAM_DOC" || roleCode === "PHO_GIAM_DOC" ? 2 :
+             roleCode === "TRUONG_PHONG" || roleCode === "PHO_PHONG" || roleCode === "QUAN_DOC" || roleCode === "CI_LEAD" || roleCode === "JUDGE" ? 3 : 4);
           const userProfile = {
             userId: userRecord.id || empCode,
             empCode,
@@ -3941,6 +3944,25 @@ export default {
 
       if (request.method === "OPTIONS") {
         return new Response(null, { status: 204, headers: CORS_HEADERS });
+      }
+
+      // Reset mật khẩu về mặc định "lần đầu đăng nhập": xóa mật khẩu riêng để tài khoản
+      // quay lại dùng mật khẩu mặc định (123456) và bị bắt buộc đổi ở lần đăng nhập kế tiếp.
+      if (url.pathname === "/api/users/reset-password" && request.method === "POST") {
+        try {
+          const body = await request.json().catch(() => ({}));
+          const target = String(body.targetEmpCode || body.empCode || "").trim().toUpperCase();
+          if (!target) {
+            return new Response(JSON.stringify({ success: false, error: "MISSING_EMP_CODE", message: "Thiếu mã nhân viên" }), { status: 400, headers: CORS_HEADERS });
+          }
+          if (env && env.DB) {
+            await ensureAuthCredentialTable(env.DB);
+            await env.DB.prepare("DELETE FROM auth_credentials WHERE emp_code = ?").bind(target).run().catch(() => {});
+          }
+          return new Response(JSON.stringify({ success: true, message: `Đã reset mật khẩu ${target} về 123456`, mustChangePwd: true }), { status: 200, headers: CORS_HEADERS });
+        } catch (err) {
+          return new Response(JSON.stringify({ success: false, error: "RESET_ERROR", message: "Không reset được mật khẩu" }), { status: 500, headers: CORS_HEADERS });
+        }
       }
 
       if (url.pathname === "/api/users/sync-diff" && request.method === "POST") {
@@ -4172,79 +4194,78 @@ export default {
       if (request.method === "POST" || request.method === "PUT") {
         try {
           const body = await request.json().catch(() => ({}));
-          if (env && env.DB && body.empCode) {
+          const targetEmpCode = String(body.empCode || body.emp_code || "").trim();
+          const targetId = String(body.id || "").trim();
+          if (env && env.DB && (targetEmpCode || targetId)) {
             try {
-              await env.DB.prepare(`
-                CREATE TABLE IF NOT EXISTS sys_users (
-                  id TEXT PRIMARY KEY,
-                  emp_code TEXT UNIQUE,
-                  name TEXT,
-                  email TEXT,
-                  phone TEXT,
-                  title TEXT,
-                  department TEXT,
-                  role_code TEXT,
-                  status TEXT DEFAULT 'ACTIVE',
-                  ngay_vao TEXT,
-                  vtcv_hien_tai TEXT,
-                  phong_ban_hien_tai TEXT,
-                  vtcv_sap TEXT,
-                  vtcv_sap_xep TEXT,
-                  pb_sap_xep TEXT,
-                  bo_phan_moi TEXT,
-                  phong_ban_moi TEXT,
-                  ghi_chu TEXT,
-                  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-              `).run().catch(() => {});
+              await env.DB.prepare(`ALTER TABLE sys_users ADD COLUMN allowed_modules TEXT`).run().catch(() => {});
 
+              let allowedModulesVal = null;
+              if (body.allowedModules !== undefined || body.allowed_modules !== undefined) {
+                const raw = body.allowedModules !== undefined ? body.allowedModules : body.allowed_modules;
+                allowedModulesVal = typeof raw === "string" ? raw : JSON.stringify(raw);
+              }
+              const roleCodeVal = body.roleCode || body.role_code || null;
+              const statusVal = body.status || null;
 
+              // Cập nhật nhanh nếu tài khoản đã tồn tại
+              const updateRes = await env.DB.prepare(`
+                UPDATE sys_users SET
+                  role_code = COALESCE(?, role_code),
+                  status = COALESCE(?, status),
+                  allowed_modules = COALESCE(?, allowed_modules)
+                WHERE (emp_code IS NOT NULL AND UPPER(emp_code) = UPPER(?)) OR id = ?
+              `).bind(roleCodeVal, statusVal, allowedModulesVal, targetEmpCode, targetId).run().catch(() => null);
 
-              await env.DB.prepare(`
-                INSERT INTO sys_users (
-                  id, emp_code, name, email, phone, title, department, role_code, status,
-                  ngay_vao, vtcv_hien_tai, phong_ban_hien_tai, vtcv_sap, vtcv_sap_xep,
-                  pb_sap_xep, bo_phan_moi, phong_ban_moi, ghi_chu
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(emp_code) DO UPDATE SET
-                  name = excluded.name,
-                  email = excluded.email,
-                  phone = excluded.phone,
-                  title = excluded.title,
-                  department = excluded.department,
-                  role_code = excluded.role_code,
-                  status = excluded.status,
-                  ngay_vao = excluded.ngay_vao,
-                  vtcv_hien_tai = excluded.vtcv_hien_tai,
-                  phong_ban_hien_tai = excluded.phong_ban_hien_tai,
-                  vtcv_sap = excluded.vtcv_sap,
-                  vtcv_sap_xep = excluded.vtcv_sap_xep,
-                  pb_sap_xep = excluded.pb_sap_xep,
-                  bo_phan_moi = excluded.bo_phan_moi,
-                  phong_ban_moi = excluded.phong_ban_moi,
-                  ghi_chu = excluded.ghi_chu
-              `).bind(
-                String(body.id || `emp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`),
-                String(body.empCode || body.emp_code || "").trim(),
-                String(body.name || "").trim(),
-                String(body.email || "").trim(),
-                String(body.phone || "").trim(),
-                String(body.title || "").trim(),
-                String(body.department || "").trim(),
-                String(body.roleCode || body.role_code || "CBCNV").trim(),
-                String(body.status || "ACTIVE").trim(),
-                String(body.ngay_vao || body.ngayVao || "").trim(),
-                String(body.vtcv_hien_tai || body.vtcvHienTai || "").trim(),
-                String(body.phong_ban_hien_tai || body.phongBanHienTai || "").trim(),
-                String(body.vtcv_sap || body.vtcvSap || "").trim(),
-                String(body.vtcv_sap_xep || body.vtcvSapXep || "").trim(),
-                String(body.pb_sap_xep || body.phongBanSapXep || "").trim(),
-                String(body.bo_phan_moi || body.boPhoanMoi || "").trim(),
-                String(body.phong_ban_moi || body.phongBanMoi || "").trim(),
-                String(body.ghi_chu || body.ghiChu || "").trim()
-              ).run().catch((e) => {
-                console.error("D1 single user insert error:", e);
-              });
+              if (!updateRes || !updateRes.meta || updateRes.meta.changes === 0) {
+                await env.DB.prepare(`
+                  INSERT INTO sys_users (
+                    id, emp_code, name, email, phone, title, department, role_code, status,
+                    ngay_vao, vtcv_hien_tai, phong_ban_hien_tai, vtcv_sap, vtcv_sap_xep,
+                    pb_sap_xep, bo_phan_moi, phong_ban_moi, ghi_chu, allowed_modules
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  ON CONFLICT(emp_code) DO UPDATE SET
+                    name = excluded.name,
+                    email = excluded.email,
+                    phone = excluded.phone,
+                    title = excluded.title,
+                    department = excluded.department,
+                    role_code = excluded.role_code,
+                    status = excluded.status,
+                    ngay_vao = excluded.ngay_vao,
+                    vtcv_hien_tai = excluded.vtcv_hien_tai,
+                    phong_ban_hien_tai = excluded.phong_ban_hien_tai,
+                    vtcv_sap = excluded.vtcv_sap,
+                    vtcv_sap_xep = excluded.vtcv_sap_xep,
+                    pb_sap_xep = excluded.pb_sap_xep,
+                    bo_phan_moi = excluded.bo_phan_moi,
+                    phong_ban_moi = excluded.phong_ban_moi,
+                    ghi_chu = excluded.ghi_chu,
+                    allowed_modules = excluded.allowed_modules
+                `).bind(
+                  String(body.id || `emp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`),
+                  targetEmpCode,
+                  String(body.name || "").trim(),
+                  String(body.email || "").trim(),
+                  String(body.phone || "").trim(),
+                  String(body.title || "").trim(),
+                  String(body.department || "").trim(),
+                  String(body.roleCode || body.role_code || "CBCNV").trim(),
+                  String(body.status || "ACTIVE").trim(),
+                  String(body.ngay_vao || body.ngayVao || "").trim(),
+                  String(body.vtcv_hien_tai || body.vtcvHienTai || "").trim(),
+                  String(body.phong_ban_hien_tai || body.phongBanHienTai || "").trim(),
+                  String(body.vtcv_sap || body.vtcvSap || "").trim(),
+                  String(body.vtcv_sap_xep || body.vtcvSapXep || "").trim(),
+                  String(body.pb_sap_xep || body.phongBanSapXep || "").trim(),
+                  String(body.bo_phan_moi || body.boPhoanMoi || "").trim(),
+                  String(body.phong_ban_moi || body.phongBanMoi || "").trim(),
+                  String(body.ghi_chu || body.ghiChu || "").trim(),
+                  allowedModulesVal
+                ).run().catch((e) => {
+                  console.error("D1 single user insert error:", e);
+                });
+              }
             } catch (e) {}
           }
 
@@ -12814,8 +12835,8 @@ function getValidWorkerImageUrl(rawUrl, attachmentsJson) {
         let busySlots = [];
         if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
           const { results } = await env.DB.prepare(
-            "SELECT time_slot, status FROM room_bookings WHERE room_id = ? AND booking_date = ? AND status NOT IN ('CANCELLED', 'REJECTED') ORDER BY time_slot"
-          ).bind(room.id, date).all();
+            "SELECT time_slot, status FROM room_bookings WHERE room_id = ? AND booking_date IN (?, ?, ?) AND status NOT IN ('CANCELLED', 'REJECTED') ORDER BY time_slot"
+          ).bind(room.id, date, date.split("-").reverse().join("/"), date.split("-").reverse().map(Number).join("/")).all();
           busySlots = (results || []).map((r) => ({ timeSlot: r.time_slot, status: r.status }));
         }
         return new Response(JSON.stringify({
@@ -12928,8 +12949,8 @@ function getValidWorkerImageUrl(rawUrl, attachmentsJson) {
 
         // Kiểm tra trùng giờ (giao nhau) với các lịch chưa hủy của phòng trong ngày
         const { results: dayBookings } = await env.DB.prepare(
-          "SELECT time_slot FROM room_bookings WHERE room_id = ? AND booking_date = ? AND status NOT IN ('CANCELLED', 'REJECTED')"
-        ).bind(room.id, bookingDate).all();
+          "SELECT time_slot FROM room_bookings WHERE room_id = ? AND booking_date IN (?, ?, ?) AND status NOT IN ('CANCELLED', 'REJECTED')"
+        ).bind(room.id, bookingDate, bookingDate.split("-").reverse().join("/"), bookingDate.split("-").reverse().map(Number).join("/")).all();
         const clash = (dayBookings || []).find((b) => {
           const r = parseSlotRangeWorker(b.time_slot);
           return r && r.start < range.end && range.start < r.end;
@@ -13310,7 +13331,15 @@ function getValidWorkerImageUrl(rawUrl, attachmentsJson) {
           const { id, roomId, roomName, title, bookerName, department, bookingDate, timeSlot, attendeesCount, notes } = body;
 
           const targetRoomId = roomId || "room_1";
-          const targetBookingDate = bookingDate || new Date().toISOString().split("T")[0];
+          // Chuẩn hoá ngày về YYYY-MM-DD: client có thể gửi dd/mm/yyyy, lưu lẫn định dạng làm lọt kiểm tra trùng lịch
+          const targetBookingDate = (() => {
+            const raw = String(bookingDate || "").trim();
+            let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(raw);
+            if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+            m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(raw);
+            if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+            return vnTodayIso();
+          })();
           const targetTimeSlot = timeSlot || "09:00 - 10:00";
 
           // ✅ Validate booking time is not in the past — giờ Việt Nam (UTC+7).
@@ -13357,11 +13386,19 @@ function getValidWorkerImageUrl(rawUrl, attachmentsJson) {
 
           // Double Booking Check
           try {
-            const { results: existingOverlap } = await env.DB.prepare(
-              "SELECT id FROM room_bookings WHERE room_id = ? AND booking_date = ? AND time_slot = ? AND status != 'CANCELLED'"
-            ).bind(targetRoomId, targetBookingDate, targetTimeSlot).all();
+            // So cả định dạng cũ dd/mm/yyyy và kiểm tra giờ giao nhau, không chỉ trùng khít khung giờ
+            const [iy, im, id2] = targetBookingDate.split("-");
+            const { results: dayBookings } = await env.DB.prepare(
+              "SELECT id, time_slot FROM room_bookings WHERE room_id = ? AND booking_date IN (?, ?, ?) AND status NOT IN ('CANCELLED', 'REJECTED')"
+            ).bind(targetRoomId, targetBookingDate, `${id2}/${im}/${iy}`, `${Number(id2)}/${Number(im)}/${iy}`).all();
+            const newRange = parseSlotRangeWorker(targetTimeSlot);
+            const existingOverlap = (dayBookings || []).filter((b) => {
+              const r = parseSlotRangeWorker(b.time_slot);
+              if (!r || !newRange) return String(b.time_slot).trim() === String(targetTimeSlot).trim();
+              return r.start < newRange.end && newRange.start < r.end;
+            });
 
-            if (existingOverlap && existingOverlap.length > 0) {
+            if (existingOverlap.length > 0) {
               const conflictMsg = "Phòng họp đã được người dùng khác đặt trước cho khung giờ này!";
               const conflictErr = JSON.stringify({
                 success: false,

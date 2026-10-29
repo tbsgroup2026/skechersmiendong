@@ -58,23 +58,43 @@ export async function GET(request: Request) {
     sql += ` ORDER BY department ASC, name ASC`;
 
     const { results } = await db.prepare(sql).bind(...params).all();
-    const users = (results || []).map((u: any) => ({
-      id: u.id,
-      empCode: u.emp_code,
-      emp_code: u.emp_code,
-      name: u.name,
-      email: u.email,
-      phone: u.phone,
-      title: u.title,
-      department: u.department,
-      roleCode: u.role_code,
-      role_code: u.role_code,
-      roleLevel: u.role_level || (u.role_code === 'TRUONG_PHONG' ? 3 : u.role_code === 'SUPER_ADMIN' ? 1 : 4),
-      role_level: u.role_level || (u.role_code === 'TRUONG_PHONG' ? 3 : u.role_code === 'SUPER_ADMIN' ? 1 : 4),
-      status: u.status,
-      isTestAccount: Boolean(u.is_test_account),
-      avatar: u.avatar || '',
-    }));
+    const users = (results || []).map((u: any) => {
+      let allowedModules: string[] | null = null;
+      if (u.allowed_modules) {
+        if (Array.isArray(u.allowed_modules)) {
+          allowedModules = u.allowed_modules;
+        } else if (typeof u.allowed_modules === 'string') {
+          try {
+            const parsed = JSON.parse(u.allowed_modules);
+            if (Array.isArray(parsed)) allowedModules = parsed;
+          } catch {
+            allowedModules = u.allowed_modules.split(',').map((s: string) => s.trim()).filter(Boolean);
+          }
+        }
+      }
+
+      return {
+        id: u.id,
+        empCode: u.emp_code,
+        emp_code: u.emp_code,
+        name: u.name,
+        email: u.email,
+        phone: u.phone,
+        title: u.title,
+        department: u.department,
+        roleCode: u.role_code,
+        role_code: u.role_code,
+        roleLevel: u.role_level || (u.role_code === 'TRUONG_PHONG' ? 3 : u.role_code === 'SUPER_ADMIN' ? 1 : 4),
+        role_level: u.role_level || (u.role_code === 'TRUONG_PHONG' ? 3 : u.role_code === 'SUPER_ADMIN' ? 1 : 4),
+        status: u.status,
+        allowed_modules: u.allowed_modules || null,
+        allowedModules: allowedModules,
+        mustChangePwd: Boolean(u.must_change_pwd),
+        must_change_pwd: u.must_change_pwd,
+        isTestAccount: Boolean(u.is_test_account),
+        avatar: u.avatar || '',
+      };
+    });
 
     return NextResponse.json({
       success: true,
@@ -148,6 +168,136 @@ export async function POST(request: Request) {
   } catch (error: any) {
     return NextResponse.json(
       { success: false, error: `Lỗi khi lưu nhân sự: ${error?.message || error}` },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    const session = await getAuthUser(request);
+    if (!session || !isAdminUser(session)) {
+      return NextResponse.json(
+        { success: false, error: 'Chỉ Quản trị viên (Admin) mới có quyền cập nhật quyền nhân sự' },
+        { status: 403 }
+      );
+    }
+
+    const body = await request.json();
+    const db = getDbBinding();
+
+    if (!db) {
+      return NextResponse.json(
+        { success: false, error: 'Không thể kết nối cơ sở dữ liệu D1' },
+        { status: 500 }
+      );
+    }
+
+    const empCode = String(body.empCode || body.emp_code || '').trim();
+    const id = String(body.id || '').trim();
+
+    if (!empCode && !id) {
+      return NextResponse.json(
+        { success: false, error: 'Cần cung cấp mã nhân viên (empCode) hoặc ID' },
+        { status: 400 }
+      );
+    }
+
+    // Đảm bảo cột allowed_modules tồn tại
+    await db.prepare(`ALTER TABLE sys_users ADD COLUMN allowed_modules TEXT`).run().catch(() => {});
+
+    const roleCode = body.roleCode || body.role_code;
+    const status = body.status;
+    let allowedModulesStr: string | null = null;
+    if (body.allowedModules !== undefined || body.allowed_modules !== undefined) {
+      const raw = body.allowedModules !== undefined ? body.allowedModules : body.allowed_modules;
+      allowedModulesStr = typeof raw === 'string' ? raw : JSON.stringify(raw);
+    }
+
+    const roleLevel = body.roleLevel || (roleCode === 'SUPER_ADMIN' || roleCode === 'TONG_GIAM_DOC' ? 1 : (roleCode === 'GIAM_DOC' || roleCode === 'PHO_TONG_GIAM_DOC' || roleCode === 'PHO_GIAM_DOC') ? 2 : (roleCode === 'TRUONG_PHONG' || roleCode === 'CI_LEAD') ? 3 : 4);
+
+    // Cập nhật thông tin người dùng
+    if (allowedModulesStr !== null && roleCode) {
+      await db.prepare(`
+        UPDATE sys_users SET
+          role_code = ?,
+          role_level = ?,
+          status = COALESCE(?, status),
+          allowed_modules = ?
+        WHERE UPPER(emp_code) = UPPER(?) OR id = ?
+      `).bind(roleCode, roleLevel, status || null, allowedModulesStr, empCode, id).run();
+    } else if (roleCode) {
+      await db.prepare(`
+        UPDATE sys_users SET
+          role_code = ?,
+          role_level = ?,
+          status = COALESCE(?, status)
+        WHERE UPPER(emp_code) = UPPER(?) OR id = ?
+      `).bind(roleCode, roleLevel, status || null, empCode, id).run();
+    } else if (status) {
+      await db.prepare(`
+        UPDATE sys_users SET
+          status = ?
+        WHERE UPPER(emp_code) = UPPER(?) OR id = ?
+      `).bind(status, empCode, id).run();
+    } else if (allowedModulesStr !== null) {
+      await db.prepare(`
+        UPDATE sys_users SET
+          allowed_modules = ?
+        WHERE UPPER(emp_code) = UPPER(?) OR id = ?
+      `).bind(allowedModulesStr, empCode, id).run();
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Đã cập nhật vai trò và quyền hiển thị màn hình thành công!',
+      data: { empCode, roleCode, roleLevel, status, allowedModules: allowedModulesStr },
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { success: false, error: `Lỗi khi cập nhật nhân sự: ${error?.message || error}` },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const session = await getAuthUser(request);
+    if (!session || !isAdminUser(session)) {
+      return NextResponse.json(
+        { success: false, error: 'Chỉ Quản trị viên (Admin) mới có quyền xóa nhân sự' },
+        { status: 403 }
+      );
+    }
+
+    const { searchParams } = new URL(request.url);
+    const all = searchParams.get('all') === 'true';
+    const id = searchParams.get('id');
+    const empCode = searchParams.get('empCode') || searchParams.get('emp_code');
+
+    const db = getDbBinding();
+    if (!db) {
+      return NextResponse.json(
+        { success: false, error: 'Không thể kết nối cơ sở dữ liệu D1' },
+        { status: 500 }
+      );
+    }
+
+    if (all) {
+      await db.prepare(`DELETE FROM sys_users`).run().catch(() => {});
+      return NextResponse.json({ success: true, message: 'Đã xóa toàn bộ danh sách nhân sự' });
+    }
+
+    if (empCode || id) {
+      await db.prepare(`DELETE FROM sys_users WHERE UPPER(emp_code) = UPPER(?) OR id = ?`).bind(empCode || '', id || '').run();
+      return NextResponse.json({ success: true, message: 'Đã xóa nhân sự thành công' });
+    }
+
+    return NextResponse.json({ success: false, error: 'Thiếu thông tin nhận diện tài khoản cần xóa' }, { status: 400 });
+  } catch (error: any) {
+    return NextResponse.json(
+      { success: false, error: `Lỗi xóa nhân sự: ${error?.message || error}` },
       { status: 500 }
     );
   }
