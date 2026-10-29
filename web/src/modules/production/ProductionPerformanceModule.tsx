@@ -94,7 +94,7 @@ const LOI_COLORS = ['#fb7185', '#fb923c', '#facc15', '#4ade80', '#22d3ee', '#a78
 // 5 mức theo % THỰC HIỆN (tuyệt đối, xem toneFor) — thêm 'orange' (85-89.9%) và 'pink' (>100%) so
 // với bản 3 mức cũ (ok/warn/bad), đúng bảng màu người dùng chốt: Đỏ <=85, Cam 85-89.9, Vàng 90-94.9,
 // Xanh 95-100, Hồng >100.
-type Tone = 'pink' | 'ok' | 'warn' | 'orange' | 'bad' | 'none';
+export type Tone = 'pink' | 'ok' | 'warn' | 'orange' | 'bad' | 'none';
 const TONE: Record<Tone, { text: string; ring: string; chipBg: string; chipBorder: string; bar: string }> = {
   // Hồng dùng FUCHSIA (tím-hồng, ngả tím rõ) thay vì pink-400 thường (trước đây quá gần tông đỏ/rose
   // của 'bad', dễ nhìn lộn — theo đúng phản hồi người dùng) — tách biệt rõ hẳn trên cả nền tối lẫn
@@ -108,7 +108,7 @@ const TONE: Record<Tone, { text: string; ring: string; chipBg: string; chipBorde
 };
 // Bản màu cho khung nền TRẮNG (chỉ dùng ở cấp Line, xem prop `light`) — màu chữ đậm hơn hẳn bản
 // TONE gốc (vốn nhạt để nổi trên nền tối) vì trên nền trắng chữ nhạt sẽ mờ khó đọc.
-const TONE_LIGHT: Record<Tone, { text: string; ring: string; chipBg: string; chipBorder: string; bar: string }> = {
+export const TONE_LIGHT: Record<Tone, { text: string; ring: string; chipBg: string; chipBorder: string; bar: string }> = {
   pink: { text: 'text-fuchsia-700', ring: '#a21caf', chipBg: 'bg-fuchsia-50', chipBorder: 'border-fuchsia-300', bar: '#a21caf' },
   ok: { text: 'text-emerald-700', ring: '#0d7a5c', chipBg: 'bg-emerald-50', chipBorder: 'border-emerald-300', bar: '#0d7a5c' },
   warn: { text: 'text-amber-700', ring: '#d97706', chipBg: 'bg-amber-50', chipBorder: 'border-amber-300', bar: '#d97706' },
@@ -120,7 +120,7 @@ const TONE_LIGHT: Record<Tone, { text: string; ring: string; chipBg: string; chi
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
-function fmtInt(n: number): string {
+export function fmtInt(n: number): string {
   return Math.round(n).toLocaleString('vi-VN');
 }
 // Rút gọn số lượng lớn — CHỈ cấp Line/TV chiếu (chữ to, dễ tràn ô). Số nguyên >= 1000 thì chia 1000,
@@ -223,7 +223,7 @@ function formatDateVN(dateStr: string): string {
 // Ngưỡng TUYỆT ĐỐI, cố định — KHÔNG đổi theo Target PPH riêng từng nhà máy (configs.targetPphPct,
 // xem trang Cài Đặt): Đỏ <=85, Cam 85-89.9, Vàng 90-94.9, Xanh 95-100, Hồng >100 — theo đúng bảng
 // màu người dùng chốt, áp dụng đồng nhất toàn hệ thống dù nhà máy nào đặt Target khác 100% cũng vậy.
-function toneFor(pct: number | null | undefined): Tone {
+export function toneFor(pct: number | null | undefined): Tone {
   if (pct == null || !Number.isFinite(pct)) return 'none';
   if (pct > 100) return 'pink';
   if (pct >= 95) return 'ok';
@@ -234,7 +234,7 @@ function toneFor(pct: number | null | undefined): Tone {
 
 // Gộp 1 tập điểm quét (leaf) — sản lượng lũy kế THỰC TẾ vs chỉ tiêu (theo giờ đã trôi qua) và
 // chỉ tiêu CẢ NGÀY. pct = thực tế / chỉ tiêu-tới-giờ (đang bám kịp hay không).
-function rollup(leaves: PphLeaf[]) {
+export function rollup(leaves: PphLeaf[]) {
   let actual = 0;
   let proTarget = 0;
   let fullTarget = 0;
