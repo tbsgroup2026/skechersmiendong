@@ -19,6 +19,7 @@ import {
   IconShieldCheck,
   IconEdit,
   IconEye,
+  IconEyeOff,
   IconSearch,
   IconDatabase,
   IconLock,
@@ -42,6 +43,17 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconUser,
+  IconShieldLock,
+  IconAdjustments,
+  IconX,
+  IconChartBar,
+  IconChecklist,
+  IconClipboardList,
+  IconFolder,
+  IconFlask,
+  IconTruck,
+  IconBuildingFactory2,
+  IconTrendingUp,
 } from "@tabler/icons-react";
 import {
   LandingCMSConfig,
@@ -82,6 +94,8 @@ interface EmployeeAccount {
   boPhoanMoi?: string;
   phongBanMoi?: string;
   ghiChu?: string;
+  mustChangePwd?: boolean;
+  allowedModules?: string[];
 }
 
 interface NewsArticle {
@@ -171,7 +185,58 @@ const ROLE_MAPPING: Record<string, { code: string; shortName: string; fullName: 
     fullName: "Kỹ Sư Industrial Engineering (IE)",
     aliases: ["IE", "INDUSTRIAL ENGINEERING", "KỸ SƯ IE", "KỸ THUẬT CÔNG NGHIỆP", "CÁN BỘ IE"],
   },
+  CI_LEAD: {
+    code: "CI_LEAD",
+    shortName: "BGK",
+    fullName: "Ban Giám Khảo CI / Trưởng Ban Kaizen",
+    aliases: ["CI_LEAD", "CI LEAD", "BGK", "BAN GIÁM KHẢO", "BAN GIAM KHAO", "GIÁM KHẢO CI", "TRƯỞNG BAN CI"],
+  },
 };
+
+const WORK_MODULES_LIST = [
+  { id: "overview", num: "01", name: "Tổng quan điều hành", sub: "Chỉ số tổng quan chuỗi", icon: IconChartBar },
+  { id: "my-tasks", num: "02", name: "Công việc cá nhân", sub: "Quản lý & xử lý task cá nhân", icon: IconChecklist },
+  { id: "tasks", num: "03", name: "Bảng CV phòng ban", sub: "Tiến độ công việc & nghiệm thu", icon: IconClipboardList },
+  { id: "projects", num: "04", name: "Dự án liên phòng ban", sub: "Tiến độ dự án phối hợp", icon: IconFolder },
+  { id: "gemba", num: "06", name: "Kiểm soát GEMBA Walk", sub: "Gemba Walk & kiểm soát hiện trường", icon: IconShieldCheck },
+  { id: "finance", num: "07", name: "Hệ Thống Quản Trị 1-5-2", sub: "Bảng điều khiển 1 mục đích 5 trụ cột", icon: IconLayoutGrid, highlight: true },
+  { id: "hr", num: "08", name: "Nhân sự – Hành chính", sub: "Phòng họp, đặt xe, tuyển dụng, văn thư", icon: IconUsers },
+  { id: "rd", num: "09", name: "R&D Phát triển mẫu", sub: "Nghiên cứu & chuyển giao mẫu giày", icon: IconFlask },
+  { id: "ci", num: "10", name: "CN-CI Cải tiến liên tục", sub: "Kaizen, sáng kiến & BGK chấm điểm", icon: IconSettings },
+  { id: "qc", num: "11", name: "Quản lý chất lượng (QC)", sub: "Chỉ số OEE & kiểm soát lỗi QA/QC", icon: IconShieldCheck },
+  { id: "logistics", num: "12", name: "Chuỗi Cung Ứng & Vật Tư", sub: "Kho vận SCM, giao nhận & tiến độ", icon: IconTruck },
+  { id: "production", num: "13", name: "Tổ hợp Nhà máy", sub: "Điều hành ca xưởng & máy móc thiết bị", icon: IconBuildingFactory2 },
+  { id: "production-output", num: "14", name: "Sản Lượng Nhà Máy", sub: "PPH, sản lượng giờ & hiệu suất chuyền", icon: IconTrendingUp },
+];
+
+const ROLE_DEFAULT_MODULES: Record<string, string[]> = {
+  SUPER_ADMIN: ["overview", "my-tasks", "tasks", "projects", "gemba", "finance", "hr", "rd", "ci", "qc", "logistics", "production", "production-output"],
+  TONG_GIAM_DOC: ["overview", "my-tasks", "tasks", "projects", "gemba", "finance", "hr", "rd", "ci", "qc", "logistics", "production", "production-output"],
+  PHO_TONG_GIAM_DOC: ["overview", "my-tasks", "tasks", "projects", "gemba", "finance", "hr", "rd", "ci", "qc", "logistics", "production", "production-output"],
+  GIAM_DOC: ["overview", "my-tasks", "tasks", "projects", "gemba", "finance", "hr", "rd", "ci", "qc", "logistics", "production", "production-output"],
+  PHO_GIAM_DOC: ["overview", "my-tasks", "tasks", "projects", "gemba", "finance", "hr", "rd", "ci", "qc", "logistics", "production", "production-output"],
+  TRUONG_PHONG: ["overview", "my-tasks", "tasks", "projects", "finance", "hr", "ci", "production", "production-output"],
+  CI_LEAD: ["overview", "my-tasks", "tasks", "projects", "ci", "hr", "production", "production-output"],
+  IE: ["overview", "my-tasks", "tasks", "projects", "ci", "production", "production-output"],
+  CBCNV: ["overview", "my-tasks", "tasks", "projects", "hr", "ci"],
+  WORKER: ["my-tasks", "ci"],
+  LE_TAN: ["my-tasks", "hr"],
+};
+
+const ROLE_OPTIONS = [
+  { code: "SUPER_ADMIN", label: "Quản Trị Viên Tối Cao (Super Admin)", badge: "bg-purple-100 text-purple-900 border-purple-300" },
+  { code: "TONG_GIAM_DOC", label: "Tổng Giám Đốc", badge: "bg-amber-100 text-amber-900 border-amber-300" },
+  { code: "PHO_TONG_GIAM_DOC", label: "Phó Tổng Giám Đốc", badge: "bg-amber-100 text-amber-900 border-amber-300" },
+  { code: "GIAM_DOC", label: "Giám Đốc Khối", badge: "bg-amber-100 text-amber-900 border-amber-300" },
+  { code: "PHO_GIAM_DOC", label: "Phó Giám Đốc Khối / CVP", badge: "bg-amber-100 text-amber-900 border-amber-300" },
+  { code: "TRUONG_PHONG", label: "Trưởng Phòng / Team Lead", badge: "bg-amber-100 text-amber-900 border-amber-300" },
+  { code: "CI_LEAD", label: "Ban Giám Khảo CI / Trưởng Ban Kaizen", badge: "bg-indigo-100 text-indigo-900 border-indigo-300" },
+  { code: "IE", label: "Kỹ Sư Industrial Engineering (IE)", badge: "bg-teal-100 text-teal-900 border-teal-300" },
+  { code: "TO_TRUONG", label: "Tổ Trưởng", badge: "bg-sky-100 text-sky-900 border-sky-300" },
+  { code: "CBCNV", label: "Cán Bộ Công Nhân Viên", badge: "bg-slate-100 text-slate-700 border-slate-200" },
+  { code: "WORKER", label: "Công Nhân Sản Xuất", badge: "bg-zinc-100 text-zinc-700 border-zinc-200" },
+  { code: "LE_TAN", label: "Lễ Tân Văn Phòng", badge: "bg-rose-100 text-rose-900 border-rose-300" },
+];
 
 function getRoleDisplayName(rawVal?: string, roleCode?: string): string {
   if (!rawVal && !roleCode) return "Cán Bộ Công Nhân Viên";
@@ -344,6 +409,18 @@ function mapRoleNameToCode(roleStr?: string, titleStr?: string, deptStr?: string
     return "WORKER";
   }
 
+  // 10. Ban Giám Khảo CI / Trưởng Ban Kaizen
+  if (
+    r.includes("GIÁM KHẢO") ||
+    r.includes("GIAM KHAO") ||
+    r.includes("CI_LEAD") ||
+    r.includes("BAN CI") ||
+    r.includes("KAIZEN LEAD") ||
+    r.split(/\s+/).includes("BGK")
+  ) {
+    return "CI_LEAD";
+  }
+
   return "CBCNV";
 }
 
@@ -437,6 +514,7 @@ function getManagementRoleBadgeLabel(emp: EmployeeAccount): string {
   if (role === "GIAM_DOC") return "Giám Đốc Khối";
   if (role === "PHO_GIAM_DOC") return "Phó Giám Đốc Khối";
   if (role === "SUPER_ADMIN") return "Quản Trị Viên Tối Cao";
+  if (role === "CI_LEAD") return "Trưởng Ban CI / BGK";
 
   const titleUpper = (emp.vtcvSapXep || emp.vtcvHienTai || emp.title || "").toUpperCase();
   if (titleUpper.includes("TGĐ") || titleUpper.includes("TỔNG GIÁM ĐỐC")) return "Tổng Giám Đốc";
@@ -753,6 +831,8 @@ export default function AdminPage() {
   const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({});
   const [userPage, setUserPage] = useState(1);
   const USERS_PER_PAGE = 15;
+  const [showPasswordRows, setShowPasswordRows] = useState<Set<string>>(new Set());
+  const [resettingPasswords, setResettingPasswords] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setUserPage(1);
@@ -1442,6 +1522,20 @@ export default function AdminPage() {
           const deptStr = [u.bo_phan_moi, u.bo_phan_new, u.phong_ban_moi, u.phong_ban_hien_tai, u.phongBanHienTai, u.department, u.pb_sap_xep, u.phong_ban_sap_xep].filter(Boolean).join(" ");
           const derivedRole = mapRoleNameToCode(u.role_code || u.roleCode, vtcvStr, deptStr);
 
+          let parsedAllowedModules: string[] | undefined = undefined;
+          if (u.allowed_modules || u.allowedModules) {
+            const raw = u.allowed_modules || u.allowedModules;
+            if (Array.isArray(raw)) parsedAllowedModules = raw;
+            else if (typeof raw === "string") {
+              try {
+                const j = JSON.parse(raw);
+                if (Array.isArray(j)) parsedAllowedModules = j;
+              } catch {
+                parsedAllowedModules = raw.split(",").map((s: string) => s.trim()).filter(Boolean);
+              }
+            }
+          }
+
           return {
             id: u.id ? String(u.id) : `emp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
             empCode: u.emp_code || u.empCode || "",
@@ -1460,6 +1554,8 @@ export default function AdminPage() {
             phongBanSapXep: u.pb_sap_xep || u.pbSapXep || "-",
             boPhoanMoi: u.bo_phan_moi || u.bo_phan_new || u.boPhoanMoi || u.department || "-",
             phongBanMoi: u.phong_ban_moi || u.department || "-",
+            mustChangePwd: Boolean(u.must_change_pwd || u.mustChangePwd),
+            allowedModules: parsedAllowedModules,
           };
         });
         setEmployees(d1List);
@@ -1472,6 +1568,105 @@ export default function AdminPage() {
   useEffect(() => {
     fetchD1Employees();
   }, []);
+
+  // Permission & Screen Display Modal States
+  const [permissionModalEmp, setPermissionModalEmp] = useState<EmployeeAccount | null>(null);
+  const [selectedRoleForModal, setSelectedRoleForModal] = useState<string>("CBCNV");
+  const [selectedModulesForModal, setSelectedModulesForModal] = useState<string[]>([]);
+  const [isSavingPermission, setIsSavingPermission] = useState<boolean>(false);
+
+  const openPermissionModal = (emp: EmployeeAccount) => {
+    const currentRole = mapRoleNameToCode(
+      emp.roleCode,
+      [emp.vtcvHienTai, emp.title, emp.vtcvSapXep, emp.vtcvSap].filter(Boolean).join(" "),
+      [emp.department, emp.phongBanHienTai, emp.boPhoanMoi, emp.phongBanMoi, emp.phongBanSapXep].filter(Boolean).join(" "),
+      emp.empCode,
+      emp.name
+    );
+    setPermissionModalEmp(emp);
+    setSelectedRoleForModal(currentRole);
+    const existingModules = emp.allowedModules && emp.allowedModules.length > 0
+      ? emp.allowedModules
+      : (ROLE_DEFAULT_MODULES[currentRole] || ROLE_DEFAULT_MODULES["CBCNV"]);
+    setSelectedModulesForModal(existingModules);
+  };
+
+  const handleRoleChangeInModal = (newRole: string) => {
+    setSelectedRoleForModal(newRole);
+    const defaultMods = ROLE_DEFAULT_MODULES[newRole] || ROLE_DEFAULT_MODULES["CBCNV"];
+    setSelectedModulesForModal(defaultMods);
+  };
+
+  const handleToggleModuleInModal = (modId: string) => {
+    setSelectedModulesForModal((prev) =>
+      prev.includes(modId) ? prev.filter((m) => m !== modId) : [...prev, modId]
+    );
+  };
+
+  const handleSavePermissionModal = async () => {
+    if (!permissionModalEmp) return;
+    try {
+      setIsSavingPermission(true);
+      const updatedEmp: EmployeeAccount = {
+        ...permissionModalEmp,
+        roleCode: selectedRoleForModal,
+        allowedModules: selectedModulesForModal,
+      };
+
+      setEmployees((prev) =>
+        prev.map((e) => (e.id === permissionModalEmp.id || e.empCode === permissionModalEmp.empCode ? updatedEmp : e))
+      );
+
+      await apiFetch("/api/users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...updatedEmp,
+          role_code: selectedRoleForModal,
+          roleCode: selectedRoleForModal,
+          allowed_modules: JSON.stringify(selectedModulesForModal),
+          allowedModules: selectedModulesForModal,
+        }),
+      });
+
+      showToast(`🎉 Đã cập nhật vai trò "${getRoleDisplayName(undefined, selectedRoleForModal)}" và ${selectedModulesForModal.length} màn hình hiển thị cho ${permissionModalEmp.name}!`);
+      setPermissionModalEmp(null);
+    } catch (err: any) {
+      alert("Lỗi khi lưu phân quyền: " + (err.message || err));
+    } finally {
+      setIsSavingPermission(false);
+    }
+  };
+
+  const handleQuickChangeRole = async (emp: EmployeeAccount, newRole: string) => {
+    const defaultMods = ROLE_DEFAULT_MODULES[newRole] || ROLE_DEFAULT_MODULES["CBCNV"];
+    const updatedEmp: EmployeeAccount = {
+      ...emp,
+      roleCode: newRole,
+      allowedModules: defaultMods,
+    };
+
+    setEmployees((prev) =>
+      prev.map((e) => (e.id === emp.id || e.empCode === emp.empCode ? updatedEmp : e))
+    );
+
+    try {
+      await apiFetch("/api/users", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...updatedEmp,
+          role_code: newRole,
+          roleCode: newRole,
+          allowed_modules: JSON.stringify(defaultMods),
+          allowedModules: defaultMods,
+        }),
+      });
+      showToast(`🎉 Đã đổi vai trò của ${emp.name} thành "${getRoleDisplayName(undefined, newRole)}"! Màn hình hiển thị đã được cập nhật.`);
+    } catch (err: any) {
+      showToast("❌ Lỗi cập nhật vai trò: " + (err.message || err));
+    }
+  };
 
   const handleClearAllEmployees = async () => {
     if (!confirm("⚠️ CẢNH BÁO: Bạn có chắc chắn muốn XÓA TOÀN BỘ tất cả tài khoản nhân sự khỏi CSDL D1?")) {
@@ -1557,6 +1752,28 @@ export default function AdminPage() {
       showToast(`🗑️ Đã xóa vĩnh viễn tài khoản "${name}" (${empCode}) khỏi CSDL!`);
     } catch (e) {
       showToast(`🗑️ Đã xóa tài khoản "${name}"!`);
+    }
+  };
+
+  const handleResetPasswordToDefault = async (empCode: string, name: string) => {
+    setResettingPasswords((prev) => new Set(prev).add(empCode));
+    try {
+      const res = await apiFetch("/api/users/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetEmpCode: empCode, useDefault: true }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (json.success) {
+        setEmployees((prev) => prev.map((e) => e.empCode === empCode ? { ...e, mustChangePwd: false } : e));
+        showToast(`🔑 Đã reset mật khẩu "${name}" về "123456" thành công!`);
+      } else {
+        showToast(`⚠️ Không thể reset mật khẩu: ${json.error || "Lỗi không xác định"}`);
+      }
+    } catch {
+      showToast(`⚠️ Lỗi kết nối khi reset mật khẩu cho "${name}"`);
+    } finally {
+      setResettingPasswords((prev) => { const s = new Set(prev); s.delete(empCode); return s; });
     }
   };
 
@@ -2185,8 +2402,11 @@ export default function AdminPage() {
                       <option value="GIAM_DOC">Giám Đốc Khối</option>
                       <option value="PHO_GIAM_DOC">Phó Giám Đốc Khối</option>
                       <option value="TRUONG_PHONG">Trưởng Phòng</option>
+                      <option value="CI_LEAD">Ban Giám Khảo CI / Trưởng Ban Kaizen</option>
                       <option value="IE">Kỹ Sư IE (Industrial Engineering)</option>
+                      <option value="TO_TRUONG">Tổ Trưởng</option>
                       <option value="CBCNV">Cán Bộ Công Nhân Viên</option>
+                      <option value="WORKER">Công Nhân Sản Xuất</option>
                       <option value="LE_TAN">Lễ Tân Văn Phòng</option>
                     </select>
                   </div>
@@ -2351,19 +2571,59 @@ export default function AdminPage() {
                                         {getEmployeeDisplayTitle(emp)}
                                       </td>
                                       <td className="py-2.5 px-4">
-                                        <span
-                                          className={`px-2.5 py-0.5 rounded-lg font-mono text-[10.5px] font-bold inline-flex items-center gap-1 border ${
-                                            isHead
-                                              ? "bg-amber-100 text-amber-900 border-amber-300"
-                                              : "bg-slate-100 text-slate-700 border-slate-200"
-                                          }`}
-                                        >
-                                          {mapRoleNameToCode(
+                                        {(() => {
+                                          const roleCode = mapRoleNameToCode(
                                             emp.roleCode,
                                             [emp.vtcvHienTai, emp.title, emp.vtcvSapXep, emp.vtcvSap].filter(Boolean).join(" "),
-                                            [emp.department, emp.phongBanHienTai, emp.boPhoanMoi, emp.phongBanMoi, emp.phongBanSapXep].filter(Boolean).join(" ")
-                                          )}
-                                        </span>
+                                            [emp.department, emp.phongBanHienTai, emp.boPhoanMoi, emp.phongBanMoi, emp.phongBanSapXep].filter(Boolean).join(" "),
+                                            emp.empCode,
+                                            emp.name
+                                          );
+                                          const hasCustomScreens = emp.allowedModules && emp.allowedModules.length > 0;
+
+                                          return (
+                                            <div className="flex items-center gap-1.5">
+                                              <div className="relative inline-flex items-center">
+                                                <select
+                                                  value={roleCode}
+                                                  onChange={(e) => handleQuickChangeRole(emp, e.target.value)}
+                                                  className={`appearance-none pl-2 pr-5 py-0.5 rounded-lg font-mono text-[10.5px] font-black border transition-all cursor-pointer outline-none shadow-2xs hover:brightness-95 ${
+                                                    isHead
+                                                      ? "bg-amber-100 text-amber-950 border-amber-300 focus:ring-2 focus:ring-amber-400"
+                                                      : roleCode === "CI_LEAD"
+                                                      ? "bg-indigo-100 text-indigo-950 border-indigo-300 focus:ring-2 focus:ring-indigo-400"
+                                                      : roleCode === "IE"
+                                                      ? "bg-teal-100 text-teal-950 border-teal-300 focus:ring-2 focus:ring-teal-400"
+                                                      : roleCode === "SUPER_ADMIN"
+                                                      ? "bg-purple-100 text-purple-950 border-purple-300 focus:ring-2 focus:ring-purple-400"
+                                                      : "bg-slate-100 text-slate-800 border-slate-300 focus:ring-2 focus:ring-emerald-400"
+                                                  }`}
+                                                  title="Đổi vai trò trực tiếp trên màn hình"
+                                                >
+                                                  {ROLE_OPTIONS.map((opt) => (
+                                                    <option key={opt.code} value={opt.code}>
+                                                      {opt.code}
+                                                    </option>
+                                                  ))}
+                                                </select>
+                                                <IconChevronDown size={11} className="absolute right-1 text-slate-500 pointer-events-none" />
+                                              </div>
+
+                                              <button
+                                                onClick={() => openPermissionModal(emp)}
+                                                className={`p-1 rounded-md border transition-all cursor-pointer flex items-center gap-0.5 text-[10px] font-bold ${
+                                                  hasCustomScreens
+                                                    ? "bg-emerald-50 text-[#004029] border-emerald-300 hover:bg-emerald-100"
+                                                    : "bg-slate-50 text-slate-500 border-slate-200 hover:text-indigo-600 hover:bg-indigo-50"
+                                                }`}
+                                                title={`Cấu hình quyền hiển thị màn hình (${hasCustomScreens ? `${emp.allowedModules?.length} màn hình` : "Theo vai trò"})`}
+                                              >
+                                                <IconShieldLock size={13} className={hasCustomScreens ? "text-emerald-700" : "text-slate-500"} />
+                                                {hasCustomScreens && <span className="font-mono text-[9px] font-black">{emp.allowedModules?.length}</span>}
+                                              </button>
+                                            </div>
+                                          );
+                                        })()}
                                       </td>
                                       <td className="py-2.5 px-4">
                                         <span
@@ -2379,6 +2639,14 @@ export default function AdminPage() {
                                       </td>
                                       <td className="py-2.5 px-4 text-right">
                                         <div className="flex items-center justify-end gap-1.5">
+                                          <button
+                                            onClick={() => openPermissionModal(emp)}
+                                            className="p-1.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 hover:text-indigo-900 transition-colors cursor-pointer shadow-2xs"
+                                            title="Đổi vai trò & Cấu hình màn hình hiển thị"
+                                          >
+                                            <IconShieldLock size={14} />
+                                          </button>
+
                                           <button
                                             onClick={() => toggleEmployeeLock(emp.id)}
                                             className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
@@ -2427,13 +2695,14 @@ export default function AdminPage() {
                         <th className="py-3 px-4">Trưởng Phòng Phụ Trách</th>
                         <th className="py-3 px-4">Vai Trò Hệ Thống</th>
                         <th className="py-3 px-4">Trạng Thái</th>
+                        <th className="py-3 px-4">Mật Khẩu</th>
                         <th className="py-3 px-4 text-right">Thao Tác</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-xs font-medium">
                       {paginatedEmployees.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="py-12 text-center text-slate-400 font-bold">
+                          <td colSpan={10} className="py-12 text-center text-slate-400 font-bold">
                             Không tìm thấy nhân sự nào phù hợp với từ khóa!
                           </td>
                         </tr>
@@ -2484,13 +2753,59 @@ export default function AdminPage() {
                                 )}
                               </td>
                               <td className="py-3 px-4">
-                                <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 font-mono text-[11px] font-bold border border-slate-300 inline-flex items-center gap-1.5 shadow-2xs">
-                                  {mapRoleNameToCode(
+                                {(() => {
+                                  const roleCode = mapRoleNameToCode(
                                     emp.roleCode,
                                     [emp.vtcvHienTai, emp.title, emp.vtcvSapXep, emp.vtcvSap].filter(Boolean).join(" "),
-                                    [emp.department, emp.phongBanHienTai, emp.boPhoanMoi, emp.phongBanMoi, emp.phongBanSapXep].filter(Boolean).join(" ")
-                                  )}
-                                </span>
+                                    [emp.department, emp.phongBanHienTai, emp.boPhoanMoi, emp.phongBanMoi, emp.phongBanSapXep].filter(Boolean).join(" "),
+                                    emp.empCode,
+                                    emp.name
+                                  );
+                                  const hasCustomScreens = emp.allowedModules && emp.allowedModules.length > 0;
+
+                                  return (
+                                    <div className="flex items-center gap-1.5">
+                                      <div className="relative inline-flex items-center">
+                                        <select
+                                          value={roleCode}
+                                          onChange={(e) => handleQuickChangeRole(emp, e.target.value)}
+                                          className={`appearance-none pl-2.5 pr-6 py-1 rounded-xl font-mono text-[11px] font-black border transition-all cursor-pointer outline-none shadow-2xs hover:brightness-95 ${
+                                            isHead
+                                              ? "bg-amber-100 text-amber-950 border-amber-300 focus:ring-2 focus:ring-amber-400"
+                                              : roleCode === "CI_LEAD"
+                                              ? "bg-indigo-100 text-indigo-950 border-indigo-300 focus:ring-2 focus:ring-indigo-400"
+                                              : roleCode === "IE"
+                                              ? "bg-teal-100 text-teal-950 border-teal-300 focus:ring-2 focus:ring-teal-400"
+                                              : roleCode === "SUPER_ADMIN"
+                                              ? "bg-purple-100 text-purple-950 border-purple-300 focus:ring-2 focus:ring-purple-400"
+                                              : "bg-slate-100 text-slate-800 border-slate-300 focus:ring-2 focus:ring-emerald-400"
+                                          }`}
+                                          title="Đổi vai trò trực tiếp trên màn hình"
+                                        >
+                                          {ROLE_OPTIONS.map((opt) => (
+                                            <option key={opt.code} value={opt.code}>
+                                              {opt.code}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <IconChevronDown size={12} className="absolute right-2 text-slate-500 pointer-events-none" />
+                                      </div>
+
+                                      <button
+                                        onClick={() => openPermissionModal(emp)}
+                                        className={`p-1 rounded-lg border transition-all cursor-pointer flex items-center gap-1 text-[10px] font-bold ${
+                                          hasCustomScreens
+                                            ? "bg-emerald-50 text-[#004029] border-emerald-300 hover:bg-emerald-100"
+                                            : "bg-slate-50 text-slate-500 border-slate-200 hover:text-indigo-600 hover:bg-indigo-50"
+                                        }`}
+                                        title={`Cấu hình quyền hiển thị màn hình (${hasCustomScreens ? `${emp.allowedModules?.length} màn hình` : "Theo vai trò"})`}
+                                      >
+                                        <IconShieldLock size={14} className={hasCustomScreens ? "text-emerald-700" : "text-slate-500"} />
+                                        {hasCustomScreens && <span className="font-mono text-[9px] font-black">{emp.allowedModules?.length}</span>}
+                                      </button>
+                                    </div>
+                                  );
+                                })()}
                               </td>
                               <td className="py-3 px-4">
                                 <span
@@ -2504,8 +2819,43 @@ export default function AdminPage() {
                                   {emp.status === "ACTIVE" ? "Hoạt động" : "Bị khóa"}
                                 </span>
                               </td>
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono text-[12px] font-bold text-slate-700 tracking-widest">
+                                    {showPasswordRows.has(emp.empCode) ? "123456" : "••••••"}
+                                  </span>
+                                  <button
+                                    onClick={() => setShowPasswordRows((prev) => {
+                                      const s = new Set(prev);
+                                      s.has(emp.empCode) ? s.delete(emp.empCode) : s.add(emp.empCode);
+                                      return s;
+                                    })}
+                                    className="p-1 rounded text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                                    title={showPasswordRows.has(emp.empCode) ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                                  >
+                                    {showPasswordRows.has(emp.empCode) ? <IconEyeOff size={13} /> : <IconEye size={13} />}
+                                  </button>
+                                </div>
+                              </td>
                               <td className="py-3 px-4 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => openPermissionModal(emp)}
+                                    className="p-1.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 hover:text-indigo-900 transition-colors cursor-pointer shadow-2xs"
+                                    title="Đổi vai trò & Cấu hình màn hình hiển thị"
+                                  >
+                                    <IconShieldLock size={14} />
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleResetPasswordToDefault(emp.empCode, emp.name)}
+                                    disabled={resettingPasswords.has(emp.empCode)}
+                                    className="p-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors cursor-pointer disabled:opacity-50"
+                                    title="Reset mật khẩu về 123456"
+                                  >
+                                    <IconKey size={14} className={resettingPasswords.has(emp.empCode) ? "animate-spin" : ""} />
+                                  </button>
+
                                   <button
                                     onClick={() => toggleEmployeeLock(emp.id)}
                                     className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
@@ -3316,6 +3666,243 @@ export default function AdminPage() {
                   </span>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL CẤU HÌNH VAI TRÒ & QUYỀN HIỂN THỊ MÀN HÌNH (allowed_modules)       */}
+      {/* ========================================================================= */}
+      {permissionModalEmp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between border-b border-indigo-900/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300">
+                  <IconShieldLock size={22} />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold tracking-tight flex items-center gap-2">
+                    Cấu Hình Vai Trò & Phân Quyền Màn Hình Hiển Thị
+                  </h3>
+                  <p className="text-xs text-indigo-200/80">
+                    Tùy biến màn hình được hiển thị trong Workspace (/work) và vai trò hệ thống
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setPermissionModalEmp(null)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/80 hover:text-white transition-colors cursor-pointer"
+              >
+                <IconX size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              {/* Employee Summary Card */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#004029] to-emerald-600 text-white flex items-center justify-center font-black text-lg shadow-sm">
+                    {permissionModalEmp.name.charAt(0)}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-extrabold text-slate-900 text-base">{permissionModalEmp.name}</h4>
+                      <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-700 font-mono text-[11px] font-bold">
+                        {permissionModalEmp.empCode}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 font-medium">
+                      {permissionModalEmp.title || "Chức danh"} • {getDepartmentName(permissionModalEmp)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-[11px] font-semibold text-slate-400 block mb-0.5">Trạng thái tài khoản</span>
+                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5 ${
+                    permissionModalEmp.status === "ACTIVE"
+                      ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                      : "bg-rose-100 text-rose-800 border border-rose-300"
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${permissionModalEmp.status === "ACTIVE" ? "bg-emerald-600" : "bg-rose-600"}`} />
+                    {permissionModalEmp.status === "ACTIVE" ? "Đang hoạt động" : "Bị khóa"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Section 1: Role Selection */}
+              <div>
+                <div className="flex items-center justify-between mb-2.5">
+                  <label className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <IconUserCheck size={16} className="text-indigo-600" />
+                    1. Vai Trò Hệ Thống (System Role)
+                  </label>
+                  <span className="text-xs text-slate-500">
+                    Khi đổi vai trò, danh sách màn hình mặc định sẽ tự động cập nhật
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {ROLE_OPTIONS.map((opt) => {
+                    const isSelected = selectedRoleForModal === opt.code;
+                    return (
+                      <button
+                        key={opt.code}
+                        type="button"
+                        onClick={() => handleRoleChangeInModal(opt.code)}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                          isSelected
+                            ? "bg-indigo-50/80 border-indigo-500 ring-2 ring-indigo-500/20 shadow-xs"
+                            : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full mb-1">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-black border ${opt.badge}`}>
+                            {opt.code}
+                          </span>
+                          {isSelected && <IconCheck size={14} className="text-indigo-600" />}
+                        </div>
+                        <span className={`text-[11px] font-bold line-clamp-1 ${isSelected ? "text-indigo-950 font-extrabold" : "text-slate-700"}`}>
+                          {opt.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Section 2: Screen Permissions */}
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                  <div>
+                    <label className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <IconAdjustments size={16} className="text-emerald-700" />
+                      2. Màn Hình Được Phép Hiển Thị ({selectedModulesForModal.length}/{WORK_MODULES_LIST.length})
+                    </label>
+                    <span className="text-xs text-slate-500">
+                      Tích chọn các phân hệ công việc nhân sự này có quyền xem tại Workspace (/work)
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedModulesForModal(WORK_MODULES_LIST.map((m) => m.id))}
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                    >
+                      Chọn tất cả ({WORK_MODULES_LIST.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const defaultMods = ROLE_DEFAULT_MODULES[selectedRoleForModal] || ROLE_DEFAULT_MODULES["CBCNV"];
+                        setSelectedModulesForModal(defaultMods);
+                      }}
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors cursor-pointer"
+                    >
+                      Mặc định theo vai trò
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedModulesForModal([])}
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 transition-colors cursor-pointer"
+                    >
+                      Bỏ chọn hết
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {WORK_MODULES_LIST.map((mod) => {
+                    const isChecked = selectedModulesForModal.includes(mod.id);
+                    const ModIcon = mod.icon;
+                    return (
+                      <div
+                        key={mod.id}
+                        onClick={() => handleToggleModuleInModal(mod.id)}
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer select-none flex items-start gap-3 ${
+                          isChecked
+                            ? mod.highlight
+                              ? "bg-amber-50/70 border-amber-400 ring-2 ring-amber-400/20 shadow-xs"
+                              : "bg-emerald-50/50 border-emerald-400 ring-2 ring-emerald-400/10 shadow-xs"
+                            : "bg-slate-50/60 border-slate-200 opacity-60 hover:opacity-90 hover:bg-white"
+                        }`}
+                      >
+                        <div className="pt-0.5">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {}} // handled by parent div
+                            className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                          />
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <span className="font-mono text-[10px] font-black px-1.5 py-0.5 rounded bg-slate-200 text-slate-700">
+                              {mod.num}
+                            </span>
+                            <span className={`text-xs font-black truncate ${isChecked ? "text-slate-900" : "text-slate-500"}`}>
+                              {mod.name}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 line-clamp-1">
+                            {mod.sub}
+                          </p>
+                          {mod.highlight && (
+                            <span className="mt-1 inline-block px-1.5 py-0.5 rounded text-[9px] font-black bg-amber-200 text-amber-900 uppercase">
+                              ★ Hệ thống điều hành 1-5-2
+                            </span>
+                          )}
+                        </div>
+
+                        <div className={`p-1.5 rounded-xl ${isChecked ? "bg-white text-emerald-700 shadow-2xs" : "text-slate-400"}`}>
+                          <ModIcon size={18} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setPermissionModalEmp(null)}
+                className="px-4 py-2 rounded-xl bg-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-300 cursor-pointer transition-colors"
+              >
+                Hủy Bỏ
+              </button>
+
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-500">
+                  Đã chọn: <strong className="text-slate-900">{selectedModulesForModal.length}</strong> màn hình hiển thị
+                </span>
+
+                <button
+                  type="button"
+                  disabled={isSavingPermission}
+                  onClick={handleSavePermissionModal}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#004029] to-emerald-700 hover:from-[#003020] hover:to-emerald-800 text-white text-xs font-extrabold shadow-md cursor-pointer disabled:opacity-50 flex items-center gap-2 transition-all"
+                >
+                  {isSavingPermission ? (
+                    <>
+                      <div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                      <span>Đang Lưu Lên CSDL D1...</span>
+                    </>
+                  ) : (
+                    <>
+                      <IconShieldLock size={15} />
+                      <span>Lưu & Cập Nhật Quyền Ngay</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

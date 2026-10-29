@@ -658,6 +658,12 @@ export default function BookRoomClient({ initialCode }: { initialCode?: string }
               </div>
             )}
 
+            {timeSlot && slotConflict(timeSlot) && (
+              <div role="alert" className="mt-3 rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+                ⚠️ Trùng lịch: khung giờ {timeSlot} giao với lịch đã có ({slotConflict(timeSlot)}). Vui lòng chọn giờ khác.
+              </div>
+            )}
+
             <div className="mt-3 rounded-xl bg-slate-50 border border-slate-200 p-3">
               <p className="text-xs font-bold text-slate-700 mb-1.5">Lịch đã có ngày {formatDateVn(form.date)}:</p>
               {busySlots.length === 0 ? (

@@ -7,6 +7,10 @@ export const MODULE_ACCESS: Record<string, string[]> = {
   
   // BGK (Guest Judge)
   JUDGE_GUEST: ["home", "ci"],
+
+  // Trưởng/Thành viên Ban CI (Lê Khải & tương đương, vd 201711002): màn hình gọn,
+  // tập trung CI/Kaizen + công việc + nhà máy. Ẩn 1-5-2, GEMBA, QC, R&D, Logistics.
+  CI_LEAD: ["home", "overview", "my-tasks", "my_tasks", "tasks", "projects", "ci", "hr", "production", "production-output"],
 };
 
 /**
@@ -46,8 +50,32 @@ export const getNormalizedRoles = (activeUser: any, sysUser: any = null): string
  * Trả về danh sách các module ID được phép dựa trên cấu hình tập trung.
  * Nếu trả về mảng rỗng hoặc chứa "ALL", nghĩa là được full quyền (Admin/Exec).
  */
-export const getAllowedModules = (_activeUser: any, _sysUser: any = null): string[] | "ALL" => {
-  // Hệ thống Skechers Miền Đông — chỉ 1 nhà máy, không chia quyền module theo vai trò nữa: mọi
-  // tài khoản đăng nhập đều thấy đầy đủ sidebar như Admin/BGĐ, theo yêu cầu người dùng.
+
+export const getAllowedModules = (activeUser: any, sysUser: any = null): string[] | "ALL" => {
+  // 0. Nếu người dùng được cấu hình riêng danh sách màn hình (Custom Screen Display Permissions)
+  const customModules = activeUser?.allowedModules || activeUser?.allowed_modules || sysUser?.allowedModules || sysUser?.allowed_modules;
+  if (customModules) {
+    let parsed: string[] = [];
+    if (Array.isArray(customModules)) {
+      parsed = customModules;
+    } else if (typeof customModules === "string") {
+      try {
+        const json = JSON.parse(customModules);
+        if (Array.isArray(json)) parsed = json;
+      } catch {
+        parsed = customModules.split(",").map((s: string) => s.trim()).filter(Boolean);
+      }
+    }
+    if (parsed.length > 0) {
+      if (parsed.includes("ALL") || parsed.includes("*")) return "ALL";
+      const set = new Set(parsed);
+      if (set.has("my-tasks")) set.add("my_tasks");
+      if (set.has("my_tasks")) set.add("my-tasks");
+      set.add("home");
+      return Array.from(set);
+    }
+  }
+
+  // Hệ thống Skechers Miền Đông — chỉ 1 nhà máy: ai không có cấu hình màn hình riêng thì thấy đầy đủ sidebar như Admin/BGĐ.
   return "ALL";
 };
