@@ -886,12 +886,30 @@ function WorkDashboardPage({ initialDept }: { initialDept?: string | null }) {
     return () => { alive = false; };
   }, [isMounted, currentUser]);
 
+  // Quyền hiển thị màn hình do admin cấu hình (sys_users.allowed_modules), lấy mới từ máy chủ để áp dụng ngay
+  const [serverAllowedModules, setServerAllowedModules] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!isMounted) return;
+    let alive = true;
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const mods = data?.user?.allowedModules;
+        if (alive && Array.isArray(mods) && mods.length > 0) setServerAllowedModules(mods);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [isMounted, currentUser]);
+
   const visibleDepartments = useMemo(() => {
     const activeUser = currentUser || (isMounted ? getCurrentUser() : null) || getSystemUser("202608001");
     const normalizedCode = normalizeEmpCode(activeUser?.empCode || "202608001");
     const sysUser = getSystemUser(normalizedCode);
 
-    const allowedModules = getAllowedModules(activeUser, sysUser);
+    const allowedModules = getAllowedModules(
+      serverAllowedModules ? { ...activeUser, allowedModules: serverAllowedModules } : activeUser,
+      sysUser
+    );
 
     if (allowedModules === "ALL") {
       // Skechers Miền Đông — không chia quyền module nữa, ai đăng nhập cũng thấy đầy đủ sidebar.
@@ -899,7 +917,7 @@ function WorkDashboardPage({ initialDept }: { initialDept?: string | null }) {
     }
 
     return departments.filter((dept) => allowedModules.includes(dept.id) || (dept.id === "logistics" && scmMember === true));
-  }, [currentUser, departments, scmMember]);
+  }, [currentUser, departments, scmMember, serverAllowedModules]);
 
   useEffect(() => {
     if (selectedDept && !visibleDepartments.some((d) => d.id === selectedDept)) {
