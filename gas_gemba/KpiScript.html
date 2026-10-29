@@ -1,0 +1,365 @@
+<script>
+
+    (function () {
+        'use strict';
+
+        const g = id => document.getElementById('kp-' + id);
+        const esc = s => (s == null) ? '' : String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        const fmt = n => new Intl.NumberFormat('vi-VN').format(n || 0);
+        const FAC_COLORS = ['#059669', '#2563eb', '#d97706', '#7c3aed', '#db2777', '#0891b2'];
+        const TYPE_STYLE = {
+            '7S': ['kp-t-7s', 'fa-broom'], 'MMTB': ['kp-t-mmtb', 'fa-cogs'], 'Tuân thủ': ['kp-t-tt', 'fa-shield-alt'],
+            'Chất lượng': ['kp-t-cl', 'fa-medal'], 'Lãng phí': ['kp-t-lp', 'fa-trash-alt'], 'Khác': ['kp-t-k', 'fa-tag']
+        };
+
+        let DATA = null, loading = false, last = 0, inited = false;
+        let view = 'type', fac = '', ptMode = 'factory', topGroup = 'all';
+        const EXP = { mx: {}, sub: {} };
+        const charts = {};
+
+        function note(msg, type) { if (typeof showToast === 'function') showToast(msg, type || 'info'); }
+
+        function avgOf(n) {
+            if (!n || !n.y) return 0;
+            let c = 0; n.m.forEach(v => { if (v > 0) c++; });
+            return c ? Math.round(n.y / c * 10) / 10 : 0;
+        }
+        function fmtAvg(a) { return a > 0 ? (a % 1 === 0 ? String(a) : a.toFixed(1)) : '<span class="kp-dash">-</span>'; }
+        function monthCell(v, avg) {
+            if (!v) return '<td class="kp-c"><span class="kp-dash">-</span></td>';
+            const cls = avg > 0 ? (v > avg ? 'kp-up' : (v < avg ? 'kp-down' : 'kp-eq')) : '';
+            return `<td class="kp-c"><span class="kp-val ${cls}"${avg > 0 ? ` title="TB năm: ${avg}"` : ''}>${v}</span></td>`;
+        }
+        function sumNodes(list) {
+            const len = DATA.months.length, out = { y: 0, m: new Array(len).fill(0) };
+            list.forEach(n => { out.y += n.y; n.m.forEach((v, i) => { out.m[i] += v; }); });
+            return out;
+        }
+        function typeBadge(name) {
+            const s = TYPE_STYLE[name] || TYPE_STYLE['Khác'];
+            return `<span class="kp-type ${s[0]}"><i class="fas ${s[1]}"></i> ${esc(name)}</span>`;
+        }
+        function rowHtml(o) {
+            const n = o.node, avg = avgOf(n);
+            const tg = o.key ? `<span class="kp-tg"><i class="fas ${o.open ? 'fa-minus-square' : 'fa-plus-square'}"></i></span>` : '';
+            const attrs = o.key ? ` data-s="${o.scope}" data-k="${esc(o.key)}" style="cursor:pointer"` : '';
+            return `<tr class="${o.cls || ''}"${attrs}>`
+                + `<td class="kp-name" style="padding-left:${12 + (o.indent || 0) * 24}px">${tg}${o.label}</td>`
+                + `<td class="kp-c kp-avg">${fmtAvg(avg)}</td>`
+                + `<td class="kp-c kp-year">${n.y ? '<b>' + fmt(n.y) + '</b>' : '<span class="kp-dash">-</span>'}</td>`
+                + n.m.map(v => monthCell(v, avg)).join('') + '</tr>';
+        }
+        function headHtml(first) {
+            return '<thead><tr><th>' + esc(first) + '</th><th class="avg" title="Số phiếu trung bình mỗi tháng (tính các tháng có phát sinh)">TB NĂM</th><th class="year" title="Lũy kế từ đầu năm">LK NĂM</th>'
+                + DATA.months.map(m => '<th>' + esc(m.label.toUpperCase()) + '</th>').join('') + '</tr></thead>';
+        }
+
+        function isOpen(scope, key) {
+            const cur = EXP[scope][key];
+            return key.charAt(0) === 'f' ? cur !== false : cur === true;
+        }
+        function renderMatrix() {
+            const t = g('mxTable'); if (!t || !DATA) return;
+            const isType = view === 'type';
+            const list = (isType ? DATA.types : DATA.org).filter(f => !fac || f.name === fac);
+            const total = fac ? sumNodes(list) : DATA.total;
+            let html = headHtml(isType ? 'Nhà máy / Loại vấn đề' : 'Nhà máy / Line / Tổ') + '<tbody>';
+            html += rowHtml({ cls: 'kp-r-total', node: total, label: '<span style="color:#f59e0b;margin-right:6px">★</span>TỔNG CỘNG' + (fac ? ' (' + esc(fac) + ')' : '') });
+            if (!list.length) html += `<tr><td colspan="${3 + DATA.months.length}" class="kp-c" style="padding:22px;color:#94a3b8">Không có dữ liệu</td></tr>`;
+            list.forEach(f => {
+                const fk = 'f:' + f.name, open = isOpen('mx', fk);
+                html += rowHtml({
+                    cls: 'kp-r-fac', scope: 'mx', key: fk, open, node: f,
+                    label: '<i class="fas fa-industry"></i>' + esc(f.name) + '<span class="kp-badge">' + fmt(f.y) + ' phiếu</span>'
+                });
+                if (!open) return;
+                if (isType) {
+                    f.c.forEach(tp => { html += rowHtml({ cls: 'kp-r-type', indent: 1, node: tp, label: typeBadge(tp.name) }); });
+                } else {
+                    f.c.forEach(l => {
+                        const lk = 'l:' + f.name + '|' + l.name, lo = isOpen('mx', lk);
+                        html += rowHtml({
+                            cls: 'kp-r-line', scope: 'mx', key: lk, open: lo, indent: 1, node: l,
+                            label: '<i class="fas fa-stream"></i>' + esc(l.name)
+                        });
+                        if (lo) l.c.forEach(tm => { html += rowHtml({ cls: 'kp-r-team', indent: 2, node: tm, label: '<i class="fas fa-users" style="color:#94a3b8;font-size:.72rem"></i>' + esc(tm.name) }); });
+                    });
+                }
+            });
+            t.innerHTML = html + '</tbody>';
+        }
+
+        function subGroups() {
+            return fac ? (DATA.sub.byFactory[fac] || []) : DATA.sub.all;
+        }
+        function renderSub() {
+            const t = g('subTable'); if (!t || !DATA) return;
+            const groups = subGroups();
+            const total = sumNodes(groups);
+            let html = headHtml('Nhóm vấn đề / Tiêu chí con') + '<tbody>';
+            html += rowHtml({ cls: 'kp-r-total', node: total, label: '<span style="color:#f59e0b;margin-right:6px">★</span>TỔNG CỘNG' + (fac ? ' (' + esc(fac) + ')' : '') });
+            if (!groups.length) html += `<tr><td colspan="${3 + DATA.months.length}" class="kp-c" style="padding:22px;color:#94a3b8">Không có dữ liệu</td></tr>`;
+            groups.forEach(gr => {
+                const k = 'g:' + gr.name, open = isOpen('sub', k);
+                html += rowHtml({
+                    cls: 'kp-r-fac', scope: 'sub', key: k, open, node: gr,
+                    label: typeBadge(gr.name) + '<span class="kp-badge">' + fmt(gr.y) + ' phiếu</span>'
+                });
+                if (open) gr.c.forEach(it => {
+                    html += rowHtml({
+                        cls: 'kp-r-sub', indent: 1, node: it,
+                        label: '<i class="fas fa-angle-right" style="color:#94a3b8;margin-right:8px"></i>' + esc(it.name)
+                    });
+                });
+            });
+            t.innerHTML = html + '</tbody>';
+        }
+
+        function toggleKey(scope, key) {
+            EXP[scope][key] = !isOpen(scope, key);
+            if (scope === 'mx') renderMatrix(); else renderSub();
+        }
+        function setAll(scope, open) {
+            EXP[scope] = {};
+            if (scope === 'mx') {
+                (view === 'type' ? DATA.types : DATA.org).forEach(f => {
+                    EXP.mx['f:' + f.name] = open;
+                    if (view === 'org') f.c.forEach(l => { EXP.mx['l:' + f.name + '|' + l.name] = open; });
+                });
+                renderMatrix();
+            } else {
+                subGroups().forEach(gr => { EXP.sub['g:' + gr.name] = open; });
+                renderSub();
+            }
+        }
+
+        function killChart(id) { if (charts[id]) { try { charts[id].destroy(); } catch (e) { } delete charts[id]; } }
+        function setEmpty(id, msg) {
+            const el = g(id + 'Empty'); if (!el) return;
+            el.style.display = msg ? 'flex' : 'none';
+            if (msg) el.textContent = msg;
+        }
+        function baseOpts(extra) {
+            return Object.assign({
+                responsive: true, maintainAspectRatio: false, animation: { duration: 300 },
+                layout: { padding: { left: 4, right: 10, top: 6, bottom: 2 } },
+                font: { family: "'Inter','Be Vietnam Pro',sans-serif", size: 11 }
+            }, extra);
+        }
+        function facColor(f) {
+            const i = DATA.org.map(x => x.name).indexOf(f);
+            return FAC_COLORS[(i < 0 ? 0 : i) % FAC_COLORS.length];
+        }
+        function targetLine(labels, target) {
+            return {
+                type: 'line', label: 'Mục tiêu (' + target + ' ngày)', data: labels.map(() => target), borderColor: '#e11d48',
+                borderWidth: 2, borderDash: [5, 4], backgroundColor: 'transparent', pointRadius: 2, tension: 0
+            };
+        }
+
+        function renderPt() {
+            killChart('chartPt');
+            const cv = g('chartPt'); if (!cv || !DATA) return;
+            if (typeof Chart === 'undefined') { setEmpty('pt', 'Không tải được thư viện biểu đồ. Vui lòng tải lại trang.'); return; }
+            const pt = DATA.pt, target = pt.target;
+            let labels = [], datasets = [], msg = '', title = '', sub = '';
+            const where = fac ? ('Khu vực ' + fac + ' · ') : 'Toàn hệ thống · ';
+
+            if (ptMode === 'line') {
+                title = 'Thời gian xử lý TB theo Line (ngày)';
+                sub = 'So sánh các nhà máy trên từng Line · Mục tiêu: ' + target + ' ngày';
+                labels = pt.lines.slice();
+                pt.lineSeries.filter(s => !fac || s.factory === fac).forEach(s => {
+                    if (s.data.some(v => v > 0)) datasets.push({ label: s.factory, data: s.data, backgroundColor: facColor(s.factory), borderRadius: 4, maxBarThickness: 22 });
+                });
+                if (!datasets.length) msg = 'Chưa có phiếu hoàn thành theo Line';
+            } else if (ptMode === 'type') {
+                title = 'Thời gian xử lý TB theo Loại vấn đề (ngày)';
+                sub = where + 'Mục tiêu: ' + target + ' ngày';
+                const arr = (fac ? (pt.byType.byFactory[fac] || []) : pt.byType.all).filter(x => x.value > 0);
+                labels = arr.map(x => x.label);
+                datasets = [{ label: 'TGXL TB (ngày)', data: arr.map(x => x.value), backgroundColor: '#059669', borderRadius: 6, maxBarThickness: 38 }];
+                if (!arr.length) msg = 'Chưa có phiếu hoàn thành theo Loại vấn đề';
+            } else {
+                title = 'Thời gian xử lý TB theo Nhà máy (ngày)';
+                sub = 'So sánh thực tế với mục tiêu chuẩn (' + target + ' ngày)';
+                const arr = pt.byFactory.filter(x => !fac || x.label === fac);
+                const showTotal = !fac && arr.length > 1;
+                labels = (showTotal ? ['TỔNG'] : []).concat(arr.map(x => x.label));
+                const values = (showTotal ? [pt.avg] : []).concat(arr.map(x => x.value));
+                const colors = (showTotal ? ['#0f766e'] : []).concat(arr.map(x => facColor(x.label)));
+                datasets = [{ label: 'TGXL TB (ngày)', data: values, backgroundColor: colors, borderRadius: 6, maxBarThickness: 42 }];
+                if (!values.some(v => v > 0)) msg = 'Chưa có phiếu hoàn thành để tính thời gian xử lý';
+            }
+            g('ptTitle').lastChild.textContent = ' ' + title;
+            g('ptSub').textContent = sub;
+            setEmpty('pt', msg);
+            if (msg) return;
+            datasets.push(targetLine(labels, target));
+            charts.chartPt = new Chart(cv, {
+                type: 'bar', data: { labels, datasets },
+                options: baseOpts({
+                    plugins: {
+                        legend: { position: 'top', labels: { boxWidth: 12, padding: 8 } },
+                        tooltip: { callbacks: { label: c => ' ' + c.dataset.label + ': ' + c.parsed.y + ' ngày' } }
+                    },
+                    scales: { x: { grid: { display: false } }, y: { beginAtZero: true, title: { display: true, text: 'Số ngày' } } }
+                })
+            });
+        }
+
+        function topItems() {
+            const pt = DATA.pt;
+            if (topGroup === 'all') {
+                const src = fac ? (pt.bySub.byFactory[fac] || {}) : pt.bySub.all, list = [];
+                Object.keys(src).forEach(t => { src[t].forEach(it => { if (it.avgDays > 0) list.push({ label: t + ' : ' + it.label, avgDays: it.avgDays, count: it.count }); }); });
+                return list.sort((a, b) => b.avgDays - a.avgDays).slice(0, 7);
+            }
+            const src = fac ? ((pt.bySub.byFactory[fac] || {})[topGroup]) : pt.bySub.all[topGroup];
+            return (src || []).filter(x => x.avgDays > 0).slice(0, 8);
+        }
+        function renderTop() {
+            killChart('chartTop');
+            const cv = g('chartTop'); if (!cv || !DATA) return;
+            if (typeof Chart === 'undefined') { setEmpty('top', 'Không tải được thư viện biểu đồ. Vui lòng tải lại trang.'); return; }
+            const target = DATA.pt.target, items = topItems();
+            const where = fac ? ('Khu vực ' + fac + ' · ') : '';
+            g('topTitle').lastChild.textContent = topGroup === 'all' ? ' Top tiêu chí xử lý lâu nhất (ngày)' : ' Thời gian xử lý TB: nhóm ' + topGroup + ' (ngày)';
+            g('topSub').textContent = where + (topGroup === 'all' ? 'Các tiêu chí tốn nhiều thời gian xử lý nhất' : 'Chi tiết các tiêu chí thuộc nhóm ' + topGroup);
+            if (!items.length) { setEmpty('top', topGroup === 'all' ? 'Chưa có phiếu hoàn thành để xếp hạng' : 'Nhóm ' + topGroup + ' chưa có tiêu chí hoàn thành'); return; }
+            setEmpty('top', '');
+            const short = s => s.length > 34 ? s.slice(0, 33) + '…' : s;
+            charts.chartTop = new Chart(cv, {
+                type: 'bar',
+                data: {
+                    labels: items.map(x => short(x.label)), datasets: [
+                        { label: 'Số ngày xử lý', data: items.map(x => x.avgDays), backgroundColor: '#2563eb', borderRadius: 6, maxBarThickness: 22 },
+                        targetLine(items, target)
+                    ]
+                },
+                options: baseOpts({
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: { position: 'top', labels: { boxWidth: 12, padding: 8 } },
+                        tooltip: { callbacks: { title: its => its.length ? items[its[0].dataIndex].label : '', label: c => ' ' + c.dataset.label + ': ' + c.parsed.x + ' ngày' } }
+                    },
+                    scales: { x: { beginAtZero: true, title: { display: true, text: 'Số ngày xử lý' } }, y: { grid: { display: false } } }
+                })
+            });
+        }
+
+        function renderTopTabs() {
+            const el = g('topTabs'); if (!el) return;
+            el.innerHTML = ['all'].concat(DATA.typeOrder || []).map(t =>
+                `<button type="button" data-g="${esc(t)}" class="${t === topGroup ? 'on' : ''}">${t === 'all' ? 'Tất cả' : esc(t)}</button>`).join('');
+        }
+
+        function downloadCsv(name, rows) {
+            const body = '\uFEFF' + rows.map(r => r.map(c => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([body], { type: 'text/csv;charset=utf-8;' }));
+            a.download = name; document.body.appendChild(a); a.click();
+            setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+        }
+        const today = () => new Date().toISOString().slice(0, 10);
+        function nodeCells(n) { return [avgOf(n), n.y].concat(n.m); }
+
+        function exportMatrix() {
+            if (!DATA) { note('Chưa có dữ liệu để xuất', 'warning'); return; }
+            const isType = view === 'type';
+            const list = (isType ? DATA.types : DATA.org).filter(f => !fac || f.name === fac);
+            const head = (isType ? ['Cấp', 'Nhà máy', 'Loại vấn đề'] : ['Cấp', 'Nhà máy', 'Line', 'Tổ']).concat(['TB năm', 'LK năm'], DATA.months.map(m => m.label));
+            const pad = k => new Array(isType ? 3 - k : 4 - k).fill('');
+            const rows = [head, ['TỔNG CỘNG', fac || 'Tất cả'].concat(new Array(head.length - 2 - DATA.months.length - 2).fill(''), nodeCells(fac ? sumNodes(list) : DATA.total))];
+            list.forEach(f => {
+                rows.push(['Nhà máy', f.name].concat(pad(2), nodeCells(f)));
+                if (isType) f.c.forEach(t => rows.push(['Loại vấn đề', f.name, t.name].concat(nodeCells(t))));
+                else f.c.forEach(l => {
+                    rows.push(['Line', f.name, l.name, ''].concat(nodeCells(l)));
+                    l.c.forEach(tm => rows.push(['Tổ', f.name, l.name, tm.name].concat(nodeCells(tm))));
+                });
+            });
+            downloadCsv('KPI_Gemba_' + (isType ? 'LoaiVanDe' : 'Line_To') + '_' + today() + '.csv', rows);
+            note('Đã xuất báo cáo KPI', 'success');
+        }
+        function exportSub() {
+            if (!DATA) { note('Chưa có dữ liệu để xuất', 'warning'); return; }
+            const groups = subGroups();
+            const rows = [['Cấp', 'Nhóm vấn đề', 'Tiêu chí con', 'Khu vực', 'TB năm', 'LK năm'].concat(DATA.months.map(m => m.label))];
+            groups.forEach(gr => {
+                const n = nodeCells(gr);
+                rows.push(['Nhóm vấn đề', gr.name, '', fac || 'Tất cả', n[0], n[1]].concat(gr.m));
+                gr.c.forEach(it => { const x = nodeCells(it); rows.push(['Tiêu chí con', gr.name, it.name, fac || 'Tất cả', x[0], x[1]].concat(it.m)); });
+            });
+            downloadCsv('KPI_Gemba_TieuChiCon_' + (fac ? fac + '_' : '') + today() + '.csv', rows);
+            note('Đã xuất báo cáo tiêu chí con', 'success');
+        }
+        function printKpi() {
+            document.body.classList.add('kp-printing');
+            window.addEventListener('afterprint', () => document.body.classList.remove('kp-printing'), { once: true });
+            window.print();
+        }
+
+        function seg(container, attr, cb) {
+            container.addEventListener('click', e => {
+                const b = e.target.closest('button[' + attr + ']'); if (!b) return;
+                container.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+                cb(b.getAttribute(attr));
+            });
+        }
+        function initOnce() {
+            if (inited) return; inited = true;
+            seg(g('ptTabs'), 'data-m', v => { ptMode = v; renderPt(); });
+            seg(g('topTabs'), 'data-g', v => { topGroup = v; renderTop(); });
+            seg(g('viewTabs'), 'data-v', v => { view = v; renderMatrix(); });
+            g('facSel').addEventListener('change', e => { fac = e.target.value; renderAll(); });
+            g('mxTable').addEventListener('click', e => { const tr = e.target.closest('tr[data-k]'); if (tr) toggleKey(tr.dataset.s, tr.dataset.k); });
+            g('subTable').addEventListener('click', e => { const tr = e.target.closest('tr[data-k]'); if (tr) toggleKey(tr.dataset.s, tr.dataset.k); });
+            g('btnRefresh').addEventListener('click', () => load(true));
+            g('btnCollapse').addEventListener('click', () => setAll('mx', false));
+            g('btnExpand').addEventListener('click', () => setAll('mx', true));
+            g('btnExcel').addEventListener('click', exportMatrix);
+            g('btnPrint').addEventListener('click', printKpi);
+            g('subCollapse').addEventListener('click', () => setAll('sub', false));
+            g('subExpand').addEventListener('click', () => setAll('sub', true));
+            g('subExcel').addEventListener('click', exportSub);
+        }
+        function populateFactories() {
+            const sel = g('facSel'); if (!sel) return;
+            const names = DATA.org.map(f => f.name);
+            if (fac && names.indexOf(fac) < 0) fac = '';
+            sel.innerHTML = '<option value="">Tất cả</option>' + names.map(n => `<option value="${esc(n)}"${n === fac ? ' selected' : ''}>${esc(n)}</option>`).join('');
+        }
+        function renderAll() {
+            if (!DATA) return;
+            try { renderMatrix(); } catch (e) { console.error('[KPI] matrix', e); }
+            try { renderSub(); } catch (e) { console.error('[KPI] sub', e); }
+            try { renderPt(); } catch (e) { console.error('[KPI] pt', e); }
+            try { renderTop(); } catch (e) { console.error('[KPI] top', e); }
+        }
+        function load(force) {
+            if (loading) return;
+            if (!force && DATA && Date.now() - last < 120000) { setTimeout(renderAll, 80); return; }
+            loading = true;
+            if (typeof showLoader === 'function') showLoader('Đang tải báo cáo KPI...', 'soft');
+            const user = (typeof APP !== 'undefined') ? APP.user : null;
+            google.script.run
+                .withSuccessHandler(res => {
+                    loading = false;
+                    if (typeof hideLoader === 'function') hideLoader();
+                    if (!res || !res.success) { note((res && res.message) || 'Không tải được báo cáo KPI', 'danger'); return; }
+                    DATA = res; last = Date.now();
+                    initOnce(); populateFactories(); renderTopTabs(); renderAll();
+                })
+                .withFailureHandler(err => {
+                    loading = false;
+                    if (typeof hideLoader === 'function') hideLoader();
+                    console.error('[KPI] lỗi tải', err);
+                    note('Không tải được báo cáo KPI: ' + (err && err.message ? err.message : err), 'danger');
+                })
+                .getKpiData({ user: user });
+        }
+        window.loadKpi = load;
+
+    })();
+</script>

@@ -1,0 +1,532 @@
+<style>
+    #page-kpi .kp-chart-wrap {
+        position: relative;
+        width: 100%;
+        height: 270px
+    }
+
+    #page-kpi .kp-chart-wrap canvas {
+        max-width: 100%
+    }
+
+    #page-kpi .kp-empty {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 20px;
+        color: #94a3b8;
+        font-size: .85rem
+    }
+
+    #page-kpi .kp-seg {
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 3px;
+        padding: 3px;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        max-width: 100%
+    }
+
+    #page-kpi .kp-seg button {
+        border: none;
+        background: transparent;
+        padding: 5px 11px;
+        border-radius: 6px;
+        font-size: .77rem;
+        font-weight: 700;
+        color: #64748b;
+        white-space: nowrap
+    }
+
+    #page-kpi .kp-seg button:hover {
+        color: #059669
+    }
+
+    #page-kpi .kp-seg button.on {
+        background: #059669;
+        color: #fff;
+        box-shadow: 0 1px 4px rgba(5, 150, 105, .28)
+    }
+
+    #page-kpi .kp-sub {
+        display: block;
+        margin-top: 2px;
+        font-size: .76rem;
+        color: #94a3b8;
+        font-weight: 500
+    }
+
+    #page-kpi .kp-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding-bottom: 14px;
+        margin-bottom: 12px;
+        border-bottom: 1px solid var(--border)
+    }
+
+    #page-kpi .kp-ttl {
+        display: flex;
+        align-items: center;
+        gap: 12px
+    }
+
+    #page-kpi .kp-ico {
+        width: 38px;
+        height: 38px;
+        border-radius: 9px;
+        background: linear-gradient(135deg, #059669, #10b981);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.05rem;
+        box-shadow: 0 2px 8px rgba(5, 150, 105, .2)
+    }
+
+    #page-kpi .kp-ttl h3 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 750;
+        color: #0f172a
+    }
+
+    #page-kpi .kp-ttl p {
+        margin: 2px 0 0;
+        font-size: .76rem;
+        color: #64748b
+    }
+
+    #page-kpi .kp-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 9px
+    }
+
+    #page-kpi .kp-legend {
+        display: inline-flex;
+        gap: 12px;
+        font-size: .73rem;
+        font-weight: 600;
+        background: #fff;
+        padding: 5px 10px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px
+    }
+
+    #page-kpi .kp-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 5px
+    }
+
+    #page-kpi .kp-filter {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: #f8fafc;
+        padding: 3px 8px 3px 10px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        font-size: .78rem;
+        font-weight: 600;
+        color: #475569
+    }
+
+    #page-kpi .kp-filter select {
+        border: none;
+        background: transparent;
+        outline: none;
+        font-weight: 600;
+        color: #1e293b;
+        font-size: .8rem
+    }
+
+    #page-kpi .kp-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 11px;
+        font-size: .77rem;
+        font-weight: 600;
+        color: #334155;
+        background: #fff;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        white-space: nowrap
+    }
+
+    #page-kpi .kp-btn:hover {
+        background: #f1f5f9;
+        border-color: #94a3b8
+    }
+
+    #page-kpi .kp-btn.xl {
+        background: #059669;
+        border-color: #047857;
+        color: #fff
+    }
+
+    #page-kpi .kp-btn.xl:hover {
+        background: #047857
+    }
+
+    #page-kpi .kp-tablewrap {
+        overflow: auto;
+        max-height: 720px;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px
+    }
+
+    #page-kpi .kp-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: .82rem;
+        color: #1e293b;
+        background: #fff
+    }
+
+    #page-kpi .kp-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background: #f8fafc;
+        color: #475569;
+        font-size: .72rem;
+        font-weight: 750;
+        text-transform: uppercase;
+        letter-spacing: .4px;
+        padding: 10px 12px;
+        border-right: 1px solid #e2e8f0;
+        border-bottom: 2px solid #cbd5e1;
+        white-space: nowrap;
+        text-align: center
+    }
+
+    #page-kpi .kp-table thead th:first-child {
+        text-align: left;
+        min-width: 280px;
+        color: #0f172a
+    }
+
+    #page-kpi .kp-table thead th.avg {
+        background: #f0fdf4;
+        color: #047857;
+        border-bottom-color: #10b981
+    }
+
+    #page-kpi .kp-table thead th.year {
+        background: #eff6ff;
+        color: #1d4ed8;
+        border-bottom-color: #3b82f6
+    }
+
+    #page-kpi .kp-table td {
+        padding: 8px 12px;
+        border-bottom: 1px solid #f1f5f9;
+        border-right: 1px solid #f8fafc;
+        white-space: nowrap
+    }
+
+    #page-kpi .kp-c {
+        text-align: center
+    }
+
+    #page-kpi .kp-avg {
+        background: rgba(240, 253, 244, .5);
+        color: #047857;
+        font-weight: 700
+    }
+
+    #page-kpi .kp-year {
+        background: rgba(239, 246, 255, .5);
+        color: #1e40af
+    }
+
+    #page-kpi .kp-r-total td {
+        font-weight: 800;
+        border-bottom: 2px solid #cbd5e1
+    }
+
+    #page-kpi .kp-r-fac {
+        background: #f8fafc
+    }
+
+    #page-kpi .kp-r-fac td {
+        font-weight: 700;
+        border-top: 1px solid #e2e8f0;
+        border-bottom: 1px solid #e2e8f0
+    }
+
+    #page-kpi .kp-r-line td {
+        font-weight: 600;
+        color: #334155
+    }
+
+    #page-kpi .kp-r-team td {
+        font-size: .79rem;
+        color: #64748b
+    }
+
+    #page-kpi .kp-r-sub td {
+        color: #334155
+    }
+
+    #page-kpi .kp-table tbody tr[data-k]:hover,
+    #page-kpi .kp-r-type:hover,
+    #page-kpi .kp-r-team:hover,
+    #page-kpi .kp-r-sub:hover {
+        background: #f1f5f9
+    }
+
+    #page-kpi .kp-tg {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 19px;
+        height: 19px;
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        background: #fff;
+        color: #64748b;
+        font-size: .72rem;
+        margin-right: 8px
+    }
+
+    #page-kpi .kp-name i.fa-industry,
+    #page-kpi .kp-name i.fa-stream,
+    #page-kpi .kp-name i.fa-users {
+        margin-right: 7px
+    }
+
+    #page-kpi .kp-name i.fa-industry {
+        color: var(--tbs-primary, #006838)
+    }
+
+    #page-kpi .kp-name i.fa-stream {
+        color: var(--tbs-primary-light, #00a651)
+    }
+
+    #page-kpi .kp-badge {
+        display: inline-block;
+        margin-left: 8px;
+        font-size: .68rem;
+        font-weight: 600;
+        color: #047857;
+        background: #ecfdf5;
+        border: 1px solid #a7f3d0;
+        padding: 2px 7px;
+        border-radius: 10px
+    }
+
+    #page-kpi .kp-dash {
+        color: #94a3b8
+    }
+
+    #page-kpi .kp-val {
+        display: inline-block;
+        min-width: 28px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: .8rem;
+        text-align: center
+    }
+
+    #page-kpi .kp-up {
+        color: #dc2626;
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        font-weight: 700
+    }
+
+    #page-kpi .kp-down {
+        color: #15803d;
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        font-weight: 700
+    }
+
+    #page-kpi .kp-eq {
+        color: #475569;
+        font-weight: 600
+    }
+
+    #page-kpi .kp-type {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: .76rem;
+        font-weight: 600;
+        padding: 3px 9px;
+        border-radius: 6px
+    }
+
+    #page-kpi .kp-t-7s {
+        background: #ecfeff;
+        color: #0891b2;
+        border: 1px solid #a5f3fc
+    }
+
+    #page-kpi .kp-t-mmtb {
+        background: #fff7ed;
+        color: #c2410c;
+        border: 1px solid #fed7aa
+    }
+
+    #page-kpi .kp-t-tt {
+        background: #eef2ff;
+        color: #4338ca;
+        border: 1px solid #c7d2fe
+    }
+
+    #page-kpi .kp-t-cl {
+        background: #f0fdf4;
+        color: #15803d;
+        border: 1px solid #bbf7d0
+    }
+
+    #page-kpi .kp-t-lp {
+        background: #fef2f2;
+        color: #b91c1c;
+        border: 1px solid #fecaca
+    }
+
+    #page-kpi .kp-t-k {
+        background: #f8fafc;
+        color: #475569;
+        border: 1px solid #e2e8f0
+    }
+
+    @media print {
+
+        body.kp-printing .app-sidebar,
+        body.kp-printing .app-topbar,
+        body.kp-printing .kp-actions,
+        body.kp-printing .kp-seg,
+        body.kp-printing .toast-container-app,
+        body.kp-printing .global-loader {
+            display: none !important
+        }
+
+        body.kp-printing .app-main {
+            margin-left: 0 !important
+        }
+
+        body.kp-printing .kp-tablewrap {
+            max-height: none !important;
+            overflow: visible !important
+        }
+    }
+</style>
+
+<div class="row g-3 mb-3">
+    <div class="col-lg-6">
+        <div class="card-app h-100">
+            <div class="card-app-header">
+                <div>
+                    <h3 class="card-app-title" id="kp-ptTitle"><i class="fas fa-clock" style="color:#059669"></i> Thời
+                        gian xử lý TB theo Nhà máy (ngày)</h3>
+                    <small class="kp-sub" id="kp-ptSub">—</small>
+                </div>
+                <div class="kp-seg" id="kp-ptTabs">
+                    <button type="button" class="on" data-m="factory" title="Theo từng nhà máy">NM</button>
+                    <button type="button" data-m="line" title="Theo từng Line (so sánh các nhà máy)">Line</button>
+                    <button type="button" data-m="type" title="Theo loại vấn đề">V.đề</button>
+                </div>
+            </div>
+            <div class="kp-chart-wrap">
+                <canvas id="kp-chartPt"></canvas>
+                <div class="kp-empty" id="kp-ptEmpty"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card-app h-100">
+            <div class="card-app-header">
+                <div>
+                    <h3 class="card-app-title" id="kp-topTitle"><i class="fas fa-hourglass-half"
+                            style="color:#dc2626"></i> Top tiêu chí xử lý lâu nhất (ngày)</h3>
+                    <small class="kp-sub" id="kp-topSub">—</small>
+                </div>
+                <div class="kp-seg" id="kp-topTabs"></div>
+            </div>
+            <div class="kp-chart-wrap">
+                <canvas id="kp-chartTop"></canvas>
+                <div class="kp-empty" id="kp-topEmpty"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card-app mb-3">
+    <div class="kp-toolbar">
+        <div class="kp-ttl">
+            <div class="kp-ico"><i class="fas fa-layer-group"></i></div>
+            <div>
+                <h3>Báo cáo quản trị Gemba theo Nhà máy</h3>
+                <p>Lũy kế từ đầu năm · so sánh từng tháng với trung bình năm (TB NĂM)</p>
+            </div>
+        </div>
+        <div class="kp-actions">
+            <div class="kp-seg" id="kp-viewTabs">
+                <button type="button" data-v="org"><i class="fas fa-sitemap"></i> Line / Tổ</button>
+                <button type="button" class="on" data-v="type"><i class="fas fa-tags"></i> Loại vấn đề</button>
+            </div>
+            <div class="kp-legend" title="So sánh số phiếu của tháng với TB năm (tính theo các tháng có phát sinh)">
+                <span style="color:#dc2626"><span class="kp-dot" style="background:#dc2626"></span>Tăng &gt; TB</span>
+                <span style="color:#16a34a"><span class="kp-dot" style="background:#16a34a"></span>Giảm &lt; TB</span>
+            </div>
+            <div class="kp-filter"><i class="fas fa-map-marker-alt" style="color:#059669"></i> Khu vực:
+                <select id="kp-facSel">
+                    <option value="">Tất cả</option>
+                </select>
+            </div>
+            <button type="button" class="kp-btn" id="kp-btnRefresh"><i class="fas fa-sync-alt"></i> Tải lại</button>
+            <button type="button" class="kp-btn" id="kp-btnCollapse"><i class="fas fa-compress-alt"></i> Thu
+                gọn</button>
+            <button type="button" class="kp-btn" id="kp-btnExpand"><i class="fas fa-expand-alt"></i> Mở rộng</button>
+            <button type="button" class="kp-btn xl" id="kp-btnExcel"><i class="fas fa-file-excel"></i> Xuất
+                Excel</button>
+            <button type="button" class="kp-btn" id="kp-btnPrint"><i class="fas fa-print"></i> In</button>
+        </div>
+    </div>
+    <div class="kp-tablewrap">
+        <table class="kp-table" id="kp-mxTable"></table>
+    </div>
+</div>
+
+<div class="card-app">
+    <div class="kp-toolbar">
+        <div class="kp-ttl">
+            <div class="kp-ico" style="background:linear-gradient(135deg,#0d9488,#14b8a6)"><i
+                    class="fas fa-list-ol"></i></div>
+            <div>
+                <h3>Báo cáo chi tiết theo Tiêu chí con</h3>
+                <p>Từng nhóm vấn đề (7S, Tuân thủ, MMTB, Chất lượng, Lãng phí…) và tiêu chí con · theo khu vực đang chọn
+                </p>
+            </div>
+        </div>
+        <div class="kp-actions">
+            <button type="button" class="kp-btn" id="kp-subCollapse"><i class="fas fa-compress-alt"></i> Thu
+                gọn</button>
+            <button type="button" class="kp-btn" id="kp-subExpand"><i class="fas fa-expand-alt"></i> Mở rộng</button>
+            <button type="button" class="kp-btn xl" id="kp-subExcel"><i class="fas fa-file-excel"></i> Xuất
+                Excel</button>
+        </div>
+    </div>
+    <div class="kp-tablewrap">
+        <table class="kp-table" id="kp-subTable"></table>
+    </div>
+</div>
