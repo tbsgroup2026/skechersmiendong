@@ -16,11 +16,11 @@ import {
   IconX,
   IconUserCheck,
   IconPencil,
-  IconPercentage,
   IconBug,
   IconRefresh,
   IconArrowsLeftRight,
   IconPalette,
+  IconGauge,
 } from '@tabler/icons-react';
 
 type PphSlotEntry = {
@@ -30,7 +30,6 @@ type PphSlotEntry = {
   model?: string | null;
   color?: string | null;
   plannedQty?: number | null;
-  targetRft?: number | null;
   actualQty?: number | null;
   errorCount?: number | null;
   shortfallReason?: string | null;
@@ -46,7 +45,7 @@ type ScanInfo = {
   filledSlots?: string[];
   entries?: PphSlotEntry[];
   perHourTarget?: number | null;
-  setup?: { workerCount: number; model: string; color?: string | null; plannedQty: number; targetRft: number; productionHours: number | null } | null;
+  setup?: { workerCount: number; model: string; color?: string | null; plannedQty: number; productionHours: number | null } | null;
   nextAction?: 'setup' | 'quantity' | 'wait' | 'done';
   targetSlot?: string | null;
   nextSlot?: string;
@@ -54,6 +53,19 @@ type ScanInfo = {
 
 type ShortfallCauseGroup = { id: string; name: string; subs: { id: string; name: string }[] };
 type ShoeModelSuggestion = { code: string; imageUrl: string };
+// PPH chuẩn theo mã giày (IE cung cấp, xem PphShoePphTargetsView.tsx) — tải sẵn để TỰ ĐIỀN ô "PPH
+// chuẩn mã này" bên dưới mỗi khi tổ trưởng chọn 1 Mã giày đã có số chuẩn, đỡ phải gõ lại từ đầu.
+type PphTargetRow = { code: string; dauVaoKg12: number | null; dauVaoKg3: number | null; mayKg12: number | null; mayKg3: number | null; go: number | null };
+// Suy đúng cột áp dụng theo Xưởng + Nhà máy đang đứng — PHẢI khớp đúng pphStandardPphColumnName()
+// bên _worker.js (cùng 1 luật Đầu vào/May/Gò × KG1-2/KG3), chỉ dùng để tự điền sẵn ở FE.
+function pphPickTargetValue(row: PphTargetRow | undefined, areaName?: string | null, factoryName?: string | null): number | null {
+  if (!row) return null;
+  const isKg3 = factoryName === 'Kiên Giang 3';
+  if (areaName === 'Đầu vào') return isKg3 ? row.dauVaoKg3 : row.dauVaoKg12;
+  if (areaName === 'May') return isKg3 ? row.mayKg3 : row.mayKg12;
+  if (areaName === 'Gò') return row.go;
+  return null;
+}
 // Hình dạng cây Nhà máy›Xưởng›Chuyền›Tổ — khớp đúng pphBuildTree() bên _worker.js (GET /api/pph/scan-tree).
 type PphTreeTeam = { id: string; name: string };
 type PphTreeLine = { id: string; name: string; teams: PphTreeTeam[] };
@@ -137,7 +149,12 @@ export default function PphScanClient() {
   const [color, setColor] = useState('');
   const [shoeModels, setShoeModels] = useState<ShoeModelSuggestion[]>([]);
   const [plannedQty, setPlannedQty] = useState('');
-  const [targetRft, setTargetRft] = useState('');
+  // PPH chuẩn riêng cho Mã giày đang khai — tổ trưởng tự gõ, LƯU LUÔN vào bảng "PPH chuẩn theo mã"
+  // (Cài Đặt) cho đúng Xưởng/Nhà máy của Tổ mình, xem handleSubmit (PUT /shoe-pph-targets/one) và
+  // pphTargets/pphPickTargetValue ở trên (tự điền sẵn nếu mã này Xưởng này đã có số chuẩn từ trước).
+  const [modelPph, setModelPph] = useState('');
+  const [pphTargets, setPphTargets] = useState<Map<string, PphTargetRow>>(new Map());
+  const [modelPphTouched, setModelPphTouched] = useState(false);
   const [actualQty, setActualQty] = useState('');
   const [errorCount, setErrorCount] = useState('');
   // Nguyên nhân hụt chỉ tiêu — combobox 2 cấp (nhóm 5M1E › chi tiết), "Khác" thì nhập tự do ở ô riêng.
@@ -293,6 +310,34 @@ export default function PphScanClient() {
       })
       .catch(() => {});
   }, []);
+
+  // Bảng PPH chuẩn theo mã giày (Cài Đặt > PPH Chuẩn Theo Mã Giày) — tải sẵn để tự điền ô "PPH chuẩn
+  // mã này" ngay khi chọn Mã giày đã có số chuẩn (xem effect điền sẵn bên dưới, dựa theo Xưởng của Tổ).
+  useEffect(() => {
+    fetch('/api/pph/shoe-pph-targets')
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success && Array.isArray(res.targets)) {
+          setPphTargets(new Map((res.targets as PphTargetRow[]).map((t) => [t.code, t])));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Tự điền "PPH chuẩn mã này" — đổi SANG Mã giày khác thì luôn điền lại (reset "đã tự gõ"); bảng
+  // PPH chuẩn tải xong SAU khi đã chọn mã (mạng chậm) thì điền bù thêm 1 lần, NHƯNG chỉ khi người
+  // dùng chưa tự gõ tay gì cho đúng mã đang chọn (modelPphTouched) — không đè số họ vừa gõ.
+  useEffect(() => {
+    setModelPphTouched(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model]);
+  useEffect(() => {
+    if (modelPphTouched) return;
+    const code = model.trim().toUpperCase().replace(/_[^_]+$/, '');
+    const v = code ? pphPickTargetValue(pphTargets.get(code), info?.team?.areaName, info?.team?.factoryName) : null;
+    setModelPph(v != null ? String(v) : '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model, pphTargets]);
 
 
   // Sau khi ghi nhận thành công, tự chuyển sang khung giờ TIẾP THEO mà KHÔNG cần quét lại mã QR —
@@ -471,18 +516,17 @@ export default function PphScanClient() {
         const ph = Number(productionHours);
         const wc = Number(workerCount);
         const pq = Number(plannedQty);
-        const rft = Number(targetRft);
+        const mp = Number(modelPph);
         if (!Number.isFinite(ph) || ph <= 0 || ph > 24) { setFormError('Vui lòng nhập đúng Thời gian sản xuất (giờ)'); setSubmitting(false); return; }
         if (!Number.isFinite(wc) || wc <= 0) { setFormError('Vui lòng nhập đúng Số lượng công nhân'); setSubmitting(false); return; }
         if (!model.trim()) { setFormError('Vui lòng nhập Model sản xuất'); setSubmitting(false); return; }
         if (!Number.isFinite(pq) || pq <= 0) { setFormError('Vui lòng nhập đúng Sản lượng kế hoạch cả ca'); setSubmitting(false); return; }
-        if (!Number.isFinite(rft) || rft < 0 || rft > 100) { setFormError('Vui lòng nhập đúng Mục tiêu tỉ lệ đạt chất lượng RFT (0-100%)'); setSubmitting(false); return; }
+        if (!Number.isFinite(mp) || mp < 0) { setFormError('Vui lòng nhập đúng PPH chuẩn mã này'); setSubmitting(false); return; }
         body.productionHours = ph;
         body.workerCount = wc;
         body.model = model.trim();
         body.color = color.trim();
         body.plannedQty = pq;
-        body.targetRft = rft;
       } else {
         const aq = Number(actualQty);
         if (!Number.isFinite(aq) || aq < 0) { setFormError('Vui lòng nhập đúng Số lượng'); setSubmitting(false); return; }
@@ -515,6 +559,21 @@ export default function PphScanClient() {
         return;
       }
       clearPending();
+      // Lưu PPH chuẩn vừa gõ vào bảng "PPH chuẩn theo mã" (Cài Đặt) cho đúng mã + Xưởng của Tổ này —
+      // best-effort, KHÔNG chặn/báo lỗi ra màn hình nếu việc này thất bại (Đầu ca đã lưu thành công
+      // là việc quan trọng nhất, bảng PPH chuẩn chỉ là dữ liệu phụ trợ cho ô "PPH" trên thẻ Tổ).
+      if (isSetup && info?.team) {
+        fetch('/api/pph/shoe-pph-targets/one', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: model.trim(),
+            areaName: info.team.areaName,
+            factoryName: info.team.factoryName,
+            pph: Number(modelPph),
+          }),
+        }).catch(() => {});
+      }
       try {
         window.localStorage.setItem(REMEMBERED_NAME_KEY, finalName);
       } catch {}
@@ -683,6 +742,25 @@ export default function PphScanClient() {
             <Field label="Model sản xuất *" icon={IconShoe}>
               <ModelAutocompleteInput value={model} onChange={setModel} shoeModels={shoeModels} placeholder="VD: 4442" required />
             </Field>
+            {/* PPH chuẩn riêng cho mã giày này (IE cung cấp) — tự điền sẵn nếu mã + Xưởng này đã có
+                số chuẩn lưu từ trước (xem effect điền sẵn ở trên); gõ/sửa số mới thì LƯU LUÔN vào
+                bảng "PPH chuẩn theo mã" (Cài Đặt) khi bấm Gửi, dùng cho mọi ca sau của mã này. */}
+            <Field label="PPH chuẩn mã này (đôi/người/giờ) *" icon={IconGauge}>
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.01"
+                value={modelPph}
+                onChange={(e) => {
+                  setModelPph(e.target.value);
+                  setModelPphTouched(true);
+                }}
+                placeholder="VD: 1.92"
+                className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#006838]"
+                required
+              />
+            </Field>
             <Field label="Màu sắc" icon={IconPalette}>
               <input
                 value={color}
@@ -722,20 +800,6 @@ export default function PphScanClient() {
                   : '—'}
               </span>
             </div>
-            <Field label="Mục tiêu tỉ lệ đạt chất lượng RFT (%) *" icon={IconPercentage}>
-              <input
-                type="number"
-                inputMode="decimal"
-                min={0}
-                max={100}
-                step="0.1"
-                value={targetRft}
-                onChange={(e) => setTargetRft(e.target.value)}
-                placeholder="VD: 98"
-                className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#006838]"
-                required
-              />
-            </Field>
           </>
         ) : (
           <>
@@ -1340,14 +1404,13 @@ function EditableSetupField({
 // tiêu nếu số mới sau khi sửa vẫn/mới hụt Mục tiêu/giờ). Sửa xong gọi onSetupSaved() để trang cha
 // tải lại info NGẦM (không bật loading — xem ghi chú ở load() phía trên), Dashboard các cấp cũng tự
 // cập nhật theo vì PUT /api/pph/scan đã tự xoá cache liên quan.
-type SetupFieldKey = 'model' | 'color' | 'workerCount' | 'plannedQty' | 'productionHours' | 'targetRft';
+type SetupFieldKey = 'model' | 'color' | 'workerCount' | 'plannedQty' | 'productionHours';
 const SETUP_FIELD_LABELS: Record<SetupFieldKey, string> = {
   model: 'Model sản xuất',
   color: 'Màu sắc',
   workerCount: 'Số lượng công nhân',
   plannedQty: 'Sản lượng kế hoạch cả ca',
   productionHours: 'Thời gian sản xuất',
-  targetRft: 'Mục tiêu tỉ lệ đạt chất lượng RFT',
 };
 
 function SlotHistoryPanel({
@@ -1494,7 +1557,6 @@ function SlotHistoryPanel({
       workerCount?: number;
       plannedQty?: number;
       productionHours?: number;
-      targetRft?: number;
     } = { teamId };
     if (editingField === 'model') {
       body.model = trimmed;
@@ -1502,14 +1564,8 @@ function SlotHistoryPanel({
       body.color = trimmed;
     } else {
       const num = Number(trimmed);
-      // targetRft cho phép 0-100 (0% là giá trị hợp lệ, không bị chặn bởi num <= 0 như các field số
-      // lượng khác); productionHours tối đa 24 giờ/ngày — khớp đúng giới hạn backend đang kiểm.
-      if (editingField === 'targetRft') {
-        if (!Number.isFinite(num) || num < 0 || num > 100) {
-          setFieldError('Vui lòng nhập đúng Mục tiêu tỉ lệ đạt chất lượng RFT (0-100%)');
-          return;
-        }
-      } else if (editingField === 'productionHours') {
+      // productionHours tối đa 24 giờ/ngày — khớp đúng giới hạn backend đang kiểm.
+      if (editingField === 'productionHours') {
         if (!Number.isFinite(num) || num <= 0 || num > 24) {
           setFieldError('Vui lòng nhập đúng Thời gian sản xuất (giờ, tối đa 24)');
           return;
@@ -1704,29 +1760,6 @@ function SlotHistoryPanel({
                               ? `${Math.round((e.plannedQty / info.setup.productionHours) * 10) / 10} đôi/giờ`
                               : '—'
                           }
-                        />
-                        <EditableSetupField
-                          label="Mục tiêu tỉ lệ đạt chất lượng RFT"
-                          displayValue={e.targetRft != null ? `${e.targetRft}%` : '—'}
-                          editing={editingField === 'targetRft'}
-                          saving={savingField}
-                          error={editingField === 'targetRft' ? fieldError : null}
-                          onStartEdit={() => startEdit('targetRft', e.targetRft != null ? String(e.targetRft) : '')}
-                          onCancel={cancelEdit}
-                          onSave={saveField}
-                          renderInput={() => (
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              min="0"
-                              max="100"
-                              step="0.1"
-                              value={fieldDraft}
-                              onChange={(ev) => setFieldDraft(ev.target.value)}
-                              autoFocus
-                              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:border-[#006838]"
-                            />
-                          )}
                         />
                       </>
                     ) : editingQty ? (

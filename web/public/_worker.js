@@ -1262,16 +1262,22 @@ async function pphGetShoePphTargetMap(env) {
 }
 // Suy đúng cột PPH áp dụng theo Xưởng (areaName) + Nhà máy (factoryName) đang xét — Gò dùng CHUNG 1
 // cột cho cả 3 Nhà máy, Đầu vào/May tách riêng KG1-2 và KG3. Xưởng khác (BP mài rửa, Phòng ban...)
-// không có trong file IE, trả null — chỗ gọi tự rớt về số tự tính như trước.
+// không có trong file IE, trả null — chỗ gọi tự rớt về số tự tính như trước. Tách riêng khỏi
+// pphResolveStandardPph() để PUT /shoe-pph-targets/one (ghi 1 mã, từ form "Cập nhật đầu ca") dùng lại
+// ĐÚNG CÙNG 1 luật chọn cột, không lặp lại if/else riêng dễ lệch nhau.
+function pphStandardPphColumnName(areaName, factoryName) {
+  const isKg3 = factoryName === "Kiên Giang 3";
+  if (areaName === "Đầu vào") return isKg3 ? "pph_dau_vao_kg3" : "pph_dau_vao_kg12";
+  if (areaName === "May") return isKg3 ? "pph_may_kg3" : "pph_may_kg12";
+  if (areaName === "Gò") return "pph_go";
+  return null;
+}
 function pphResolveStandardPph(targetMap, model, areaName, factoryName) {
   if (!model) return null;
   const row = targetMap.get(pphBaseShoeCode(model));
   if (!row) return null;
-  const isKg3 = factoryName === "Kiên Giang 3";
-  if (areaName === "Đầu vào") return isKg3 ? row.pph_dau_vao_kg3 : row.pph_dau_vao_kg12;
-  if (areaName === "May") return isKg3 ? row.pph_may_kg3 : row.pph_may_kg12;
-  if (areaName === "Gò") return row.pph_go;
-  return null;
+  const col = pphStandardPphColumnName(areaName, factoryName);
+  return col ? row[col] : null;
 }
 
 async function pphGetDashboardLines(env) {
@@ -1393,6 +1399,31 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
       return pphJson({ success: true, count: seenCode.size });
     } catch (err) {
       return pphJson({ success: false, error: err.message || "Không lưu được" }, 500);
+    }
+  }
+  // ---- PPH chuẩn theo mã giày — GHI 1 MÃ (từ ô "PPH chuẩn mã này" ở form "Cập nhật đầu ca", tổ
+  // trưởng tự gõ) — KHÁC hẳn PUT /shoe-pph-targets ở trên (ghi đè TOÀN BỘ bảng, chỉ dùng cho nạp file
+  // Excel ở Cài Đặt): ở đây CHỈ UPDATE đúng 1 cột tương ứng Xưởng+Nhà máy hiện tại của đúng 1 mã, các
+  // mã khác/cột khác của CHÍNH mã này giữ nguyên (ON CONFLICT DO UPDATE chỉ set 1 cột, không ghi đè
+  // cả dòng). `col` LUÔN lấy từ pphStandardPphColumnName() (1 trong 5 tên cột cố định đã khai ở
+  // CREATE TABLE phía trên) — không phải chuỗi do client tự gửi, nên ghép thẳng vào SQL an toàn.
+  if (sub === "/shoe-pph-targets/one" && request.method === "PUT") {
+    try {
+      const body = await request.json();
+      const code = pphBaseShoeCode(String(body.code || ""));
+      const pph = Number(body.pph);
+      if (!code) return pphJson({ success: false, error: "Thiếu mã giày" }, 400);
+      if (!Number.isFinite(pph) || pph < 0) return pphJson({ success: false, error: "PPH không hợp lệ" }, 400);
+      const col = pphStandardPphColumnName(String(body.areaName || ""), String(body.factoryName || ""));
+      if (!col) return pphJson({ success: false, error: "Xưởng này chưa hỗ trợ lưu PPH chuẩn theo mã" }, 400);
+      await pphPphTargetEnsureTable(env);
+      await env.DB.prepare(
+        `INSERT INTO pph_shoe_pph_targets (code, ${col}, updated_at) VALUES (?, ?, ?) ON CONFLICT(code) DO UPDATE SET ${col} = excluded.${col}, updated_at = excluded.updated_at`,
+      ).bind(code, pph, new Date().toISOString()).run();
+      await pphCacheInvalidate(env, "pph:dashboard");
+      return pphJson({ success: true });
+    } catch (err) {
+      return pphJson({ success: false, error: err.message || "Không lưu được" }, 400);
     }
   }
 
@@ -1986,13 +2017,15 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
         // trên TV, xem pphDisplayModel() ở ProductionPerformanceModule.tsx.
         const color = String(body.color || "").trim().slice(0, 50);
         const plannedQty = Number(body.plannedQty);
-        const targetRft = Number(body.targetRft);
+        // Mục tiêu RFT — KHÔNG còn bắt tổ trưởng nhập tay (trước đây là ô bắt buộc ở form), luôn
+        // mặc định ngầm 100%. "% Quality" thật hiện ở thẻ Tổ vẫn tính từ Số lỗi nhập mỗi khung giờ
+        // như cũ (xem qualityPct ở GET /dashboard), không liên quan gì tới giá trị cố định này.
+        const targetRft = 100;
         const productionHours = Number(body.productionHours);
         if (!Number.isFinite(productionHours) || productionHours <= 0 || productionHours > 24) return pphJson({ success: false, error: "Vui lòng nhập đúng Thời gian sản xuất (giờ)" }, 400);
         if (!Number.isFinite(workerCount) || workerCount <= 0) return pphJson({ success: false, error: "Vui lòng nhập đúng Số lượng công nhân" }, 400);
         if (!model) return pphJson({ success: false, error: "Vui lòng nhập Model sản xuất" }, 400);
         if (!Number.isFinite(plannedQty) || plannedQty <= 0) return pphJson({ success: false, error: "Vui lòng nhập đúng Sản lượng kế hoạch cả ca" }, 400);
-        if (!Number.isFinite(targetRft) || targetRft < 0 || targetRft > 100) return pphJson({ success: false, error: "Vui lòng nhập đúng Mục tiêu tỉ lệ đạt chất lượng RFT (0-100%)" }, 400);
         try {
           await env.DB.prepare(
             "INSERT INTO pph_entries (id, team_id, entry_date, slot, worker_count, model, color, planned_qty, target_rft, production_hours, submitted_by, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
@@ -2212,14 +2245,6 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
         }
         sets.push("production_hours = ?");
         binds.push(productionHours);
-      }
-      if (body.targetRft !== undefined) {
-        const targetRft = Number(body.targetRft);
-        if (!Number.isFinite(targetRft) || targetRft < 0 || targetRft > 100) {
-          return pphJson({ success: false, error: "Vui lòng nhập đúng Mục tiêu tỉ lệ đạt chất lượng RFT (0-100%)" }, 400);
-        }
-        sets.push("target_rft = ?");
-        binds.push(targetRft);
       }
       if (sets.length === 0) return pphJson({ success: false, error: "Không có gì để sửa" }, 400);
 
