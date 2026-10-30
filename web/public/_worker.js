@@ -16783,23 +16783,139 @@ function getValidWorkerImageUrl(rawUrl, attachmentsJson) {
         if (fnName === "loginByToken") {
           const token = str(args[0]);
           let user = null;
-          const GEMBA_WHITELIST = [
-            "LÊ KHẢI",
-            "PHẠM MINH TÙNG",
-            "ĐỖ ĐẮC MIỀN",
-            "DƯ THỊ THANH TÌNH",
-            "TRẦN NGỌC HUY",
-            "PHẠM NGUYỄN ANH HUY",
-            "NGUYỄN VĂN TÌNH"
+                    const GEMBA_WHITELIST = [
+                    "LÊ KHẢI",
+                    "PHẠM MINH TÙNG",
+                    "LÊ HUY TUẤN",
+                    "ĐỖ ĐẮC MIỀN",
+                    "PHAN THỊ THANH TÂM",
+                    "CAO THỊ MỸ HẠNH",
+                    "CÔNG HOÀNG CHIẾN",
+                    "TRẦN VĂN HOÁ",
+                    "ĐẶNG THỊ LÀI",
+                    "LĂNG VĂN QUẾ",
+                    "NGUYỄN THỊ LOA",
+                    "NGUYỄN HOÀI HƯNG",
+                    "HOÀNG QUỐC NGHỊ",
+                    "VŨ THỊ HƯỜNG",
+                    "LÊ VĂN TUẤN",
+                    "HỒ KHẮC NGHĨA",
+                    "NGUYỄN THẠCH TRƯỜNG",
+                    "MAI ĐỨC VIỆT",
+                    "LÊ VĂN CƯỜNG",
+                    "NGUYỄN THỊ NHUNG",
+                    "NGUYỄN THỊ LOAN",
+                    "LÊ VĂN THUỶ",
+                    "NGUYỄN THỊ DIỆU",
+                    "PHẠM VĂN TUẤN",
+                    "LÝ HỒNG THÁI",
+                    "THẠCH SANH",
+                    "TRẦN VĂN TUÂN",
+                    "NGUYỄN THỊ THU HIỀN",
+                    "NGUYỄN HOÀI LINH",
+                    "TRẦN DUY CHƯƠNG",
+                    "PHẠM VĂN ĐĂNG",
+                    "THẠCH SÀ RINH",
+                    "NGUYỄN VĂN TÌNH",
+                    "DƯ THỊ THANH TÌNH",
+                    "TRẦN NGỌC HUY",
+                    "PHẠM NGUYỄN ANH HUY"
+          ];
+          const GEMBA_ALLOWED_CODES = [
+                    "202112003",
+                    "202608010",
+                    "LEKHAI",
+                    "ADMIN-2026",
+                    "ADMIN",
+                    "200405004",
+                    "TGD",
+                    "TGĐ CHUỖI",
+                    "201711002",
+                    "CN- CI CHUỖI",
+                    "249507002",
+                    "GDDACMIEN",
+                    "GĐ NM  MĐ",
+                    "200212001",
+                    "CN - CI SK MĐ",
+                    "QLCL SK MĐ",
+                    "GMB-003",
+                    "MMTB  SK MĐ",
+                    "GMB-004",
+                    "210906005",
+                    "ĐH PX ĐẦU VÀO",
+                    "QLCL PX ĐẦU VÀO",
+                    "GMB-005",
+                    "222407082",
+                    "TỔ CẮT",
+                    "222407041",
+                    "TỔ LẠNG-CÁN DÁN&ĐỒNG BỘ",
+                    "222509018",
+                    "TỔ IN-ÉP",
+                    "222502031",
+                    "ĐH PX MAY",
+                    "QLCL PX MAY",
+                    "GMB-008",
+                    "211209006",
+                    "TỔ MAY 1",
+                    "211104005",
+                    "TỔ MAY 2",
+                    "222308001",
+                    "TỔ MAY 3",
+                    "211404028",
+                    "TỔ MAY 4",
+                    "222306186",
+                    "TỔ MAY 5",
+                    "210807002",
+                    "TỔ MAY 6",
+                    "210303003",
+                    "TỔ MAY 7",
+                    "211003016",
+                    "ĐH PX GÒ",
+                    "QLCL PX GÒ",
+                    "GMB-011",
+                    "222404007",
+                    "TRƯỞNG LINE GÒ 1",
+                    "222506057",
+                    "GÒ 1 - TỔ CĐ 1",
+                    "222507014",
+                    "GÒ 1 - TỔ CĐ 3",
+                    "222504006",
+                    "TRƯỞNG LINE GÒ 2",
+                    "222410017",
+                    "201507008",
+                    "GÒ 2 - TỔ CĐ 1",
+                    "211503192",
+                    "GÒ 2 - TỔ CĐ 3",
+                    "GMB-015",
+                    "222604025",
+                    "TRƯỞNG LINE GÒ 3",
+                    "222506012",
+                    "GÒ 3 - TỔ CĐ 2",
+                    "222408050",
+                    "GÒ 3 - TỔ CĐ 3",
+                    "211206004",
+                    "TINHNGUYENVAN",
+                    "219810001",
+                    "222102020",
+                    "DUTHITHANHTINH",
+                    "DƯ THỊ THANH TÌNH",
+                    "202608002",
+                    "TRẦN NGỌC HUY",
+                    "202608001",
+                    "PHẠM NGUYỄN ANH HUY"
           ];
           const isWhitelisted = (name, uname, emp) => {
             const clean = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/đ/g, "d").trim();
-            const allowedClean = GEMBA_WHITELIST.map(clean);
             const targetClean = clean(name);
             const unameClean = clean(uname);
             const empClean = clean(emp);
-            return allowedClean.some(a => targetClean.includes(a) || a.includes(targetClean) || (unameClean && (unameClean.includes(a) || a.includes(unameClean))))
-              || ["202112003", "202608010", "200405004", "249507002", "222102020", "202608002", "202608001", "211206004", "TINHNGUYENVAN", "ADMIN-2026", "ADMIN"].includes(String(emp || uname).toUpperCase());
+            const isNameMatched = GEMBA_WHITELIST.some(a => {
+              const ca = clean(a);
+              return targetClean.includes(ca) || ca.includes(targetClean) || (unameClean && (unameClean.includes(ca) || ca.includes(unameClean)));
+            });
+            if (isNameMatched) return true;
+            const codeUpper = String(emp || uname || "").toUpperCase().trim();
+            return GEMBA_ALLOWED_CODES.includes(codeUpper);
           };
 
           if (token.startsWith("sso_token_")) {
