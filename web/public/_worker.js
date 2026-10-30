@@ -238,6 +238,21 @@ function authDepartmentFor(roleCode, isExecutiveOrAdmin) {
   return { LE_TAN: "Lễ Tân", KE_TOAN: "Kế Toán", NHAN_SU: "Nhân Sự", KY_THUAT: "Bảo Trì" }[roleCode] || "Văn Phòng";
 }
 
+// allowed_modules trong sys_users: chuỗi JSON (["overview","ci"]) hoặc danh sách cách nhau bởi dấu phẩy; null = theo mặc định
+function parseAllowedModules(raw) {
+  if (!raw) return null;
+  if (Array.isArray(raw)) return raw.length ? raw : null;
+  let list = [];
+  try {
+    const parsed = JSON.parse(String(raw));
+    if (Array.isArray(parsed)) list = parsed;
+  } catch {
+    list = String(raw).split(",");
+  }
+  list = list.map((s) => String(s).trim()).filter(Boolean);
+  return list.length ? list : null;
+}
+
 function authIsGuestCode(empCode, roleCode) {
   const c = String(empCode || "").toUpperCase();
   return c.startsWith("BGK") || c.startsWith("GUEST_") || String(roleCode || "").toUpperCase() === "JUDGE_GUEST";
@@ -3171,7 +3186,7 @@ export default {
         (p === "/api/landing-cms" && m === "GET") ||                    // nội dung trang chủ công khai
         p === "/api/version" || p === "/api/kaizen/version" ||
         p === "/api/zalo/webhook" ||
-        p === "/api/gemba/rpc" || p === "/api/gemba/zalo-webhook" ||
+        p === "/api/gemba/deploy-html" || p === "/api/gemba/rpc" || p === "/api/gemba/zalo-webhook" ||
         p === "/api/gemba/sheet-sync" || p.startsWith("/api/gemba/sheet-changes") || // Apps Script, có khóa X-Sheet-Key
         ((p === "/api/ci-kaizen") && (m === "POST" || m === "PUT")) ||  // trang nộp Kaizen công khai /work/kaizen/register
         ((p === "/api/ci-kaizen/check-duplicate" || p === "/api/ci-kaizen/merge") && m === "POST") ||
@@ -3693,10 +3708,18 @@ export default {
       if (url.pathname === "/api/auth/me") {
         const s = __authSession;
         if (!s) return json({ success: false, error: "UNAUTHORIZED" }, 401);
+        // Quyền hiển thị màn hình (admin cấu hình ở /admin) đọc trực tiếp từ D1 để áp dụng ngay, không cần đăng nhập lại
+        let allowedModules = null;
+        if (env.DB) {
+          const row = await env.DB.prepare("SELECT allowed_modules FROM sys_users WHERE UPPER(emp_code) = UPPER(?) LIMIT 1")
+            .bind(s.empCode).first().catch(() => null);
+          allowedModules = parseAllowedModules(row && row.allowed_modules);
+        }
         return json({
           success: true,
           mustChangePwd: s.mustChangePwd,
           user: {
+            allowedModules,
             userId: s.empCode,
             empCode: s.empCode,
             name: s.name,
@@ -3915,6 +3938,7 @@ export default {
             mustChangePwd: mustChange,
             avatar: userRecord.avatar || "",
             redirectUrl: userRecord.redirect_url || userRecord.redirectUrl || "/work",
+            allowedModules: parseAllowedModules(userRecord.allowed_modules),
           };
           const token = await issueToken(userProfile, mustChange);
           await recordAuditLogDetailed({ empCode, roleCode }, "auth", "LOGIN_SUCCESS", empCode, null, { mustChange }, request);
@@ -16766,22 +16790,139 @@ function getValidWorkerImageUrl(rawUrl, attachmentsJson) {
         if (fnName === "loginByToken") {
           const token = str(args[0]);
           let user = null;
-          const GEMBA_WHITELIST = [
-            "LÊ KHẢI",
-            "PHẠM MINH TÙNG",
-            "ĐỖ ĐẮC MIỀN",
-            "DƯ THỊ THANH TÌNH",
-            "TRẦN NGỌC HUY",
-            "PHẠM NGUYỄN ANH HUY"
+                    const GEMBA_WHITELIST = [
+                    "LÊ KHẢI",
+                    "PHẠM MINH TÙNG",
+                    "LÊ HUY TUẤN",
+                    "ĐỖ ĐẮC MIỀN",
+                    "PHAN THỊ THANH TÂM",
+                    "CAO THỊ MỸ HẠNH",
+                    "CÔNG HOÀNG CHIẾN",
+                    "TRẦN VĂN HOÁ",
+                    "ĐẶNG THỊ LÀI",
+                    "LĂNG VĂN QUẾ",
+                    "NGUYỄN THỊ LOA",
+                    "NGUYỄN HOÀI HƯNG",
+                    "HOÀNG QUỐC NGHỊ",
+                    "VŨ THỊ HƯỜNG",
+                    "LÊ VĂN TUẤN",
+                    "HỒ KHẮC NGHĨA",
+                    "NGUYỄN THẠCH TRƯỜNG",
+                    "MAI ĐỨC VIỆT",
+                    "LÊ VĂN CƯỜNG",
+                    "NGUYỄN THỊ NHUNG",
+                    "NGUYỄN THỊ LOAN",
+                    "LÊ VĂN THUỶ",
+                    "NGUYỄN THỊ DIỆU",
+                    "PHẠM VĂN TUẤN",
+                    "LÝ HỒNG THÁI",
+                    "THẠCH SANH",
+                    "TRẦN VĂN TUÂN",
+                    "NGUYỄN THỊ THU HIỀN",
+                    "NGUYỄN HOÀI LINH",
+                    "TRẦN DUY CHƯƠNG",
+                    "PHẠM VĂN ĐĂNG",
+                    "THẠCH SÀ RINH",
+                    "NGUYỄN VĂN TÌNH",
+                    "DƯ THỊ THANH TÌNH",
+                    "TRẦN NGỌC HUY",
+                    "PHẠM NGUYỄN ANH HUY"
+          ];
+          const GEMBA_ALLOWED_CODES = [
+                    "202112003",
+                    "202608010",
+                    "LEKHAI",
+                    "ADMIN-2026",
+                    "ADMIN",
+                    "200405004",
+                    "TGD",
+                    "TGĐ CHUỖI",
+                    "201711002",
+                    "CN- CI CHUỖI",
+                    "249507002",
+                    "GDDACMIEN",
+                    "GĐ NM  MĐ",
+                    "200212001",
+                    "CN - CI SK MĐ",
+                    "QLCL SK MĐ",
+                    "GMB-003",
+                    "MMTB  SK MĐ",
+                    "GMB-004",
+                    "210906005",
+                    "ĐH PX ĐẦU VÀO",
+                    "QLCL PX ĐẦU VÀO",
+                    "GMB-005",
+                    "222407082",
+                    "TỔ CẮT",
+                    "222407041",
+                    "TỔ LẠNG-CÁN DÁN&ĐỒNG BỘ",
+                    "222509018",
+                    "TỔ IN-ÉP",
+                    "222502031",
+                    "ĐH PX MAY",
+                    "QLCL PX MAY",
+                    "GMB-008",
+                    "211209006",
+                    "TỔ MAY 1",
+                    "211104005",
+                    "TỔ MAY 2",
+                    "222308001",
+                    "TỔ MAY 3",
+                    "211404028",
+                    "TỔ MAY 4",
+                    "222306186",
+                    "TỔ MAY 5",
+                    "210807002",
+                    "TỔ MAY 6",
+                    "210303003",
+                    "TỔ MAY 7",
+                    "211003016",
+                    "ĐH PX GÒ",
+                    "QLCL PX GÒ",
+                    "GMB-011",
+                    "222404007",
+                    "TRƯỞNG LINE GÒ 1",
+                    "222506057",
+                    "GÒ 1 - TỔ CĐ 1",
+                    "222507014",
+                    "GÒ 1 - TỔ CĐ 3",
+                    "222504006",
+                    "TRƯỞNG LINE GÒ 2",
+                    "222410017",
+                    "201507008",
+                    "GÒ 2 - TỔ CĐ 1",
+                    "211503192",
+                    "GÒ 2 - TỔ CĐ 3",
+                    "GMB-015",
+                    "222604025",
+                    "TRƯỞNG LINE GÒ 3",
+                    "222506012",
+                    "GÒ 3 - TỔ CĐ 2",
+                    "222408050",
+                    "GÒ 3 - TỔ CĐ 3",
+                    "211206004",
+                    "TINHNGUYENVAN",
+                    "219810001",
+                    "222102020",
+                    "DUTHITHANHTINH",
+                    "DƯ THỊ THANH TÌNH",
+                    "202608002",
+                    "TRẦN NGỌC HUY",
+                    "202608001",
+                    "PHẠM NGUYỄN ANH HUY"
           ];
           const isWhitelisted = (name, uname, emp) => {
             const clean = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/đ/g, "d").trim();
-            const allowedClean = GEMBA_WHITELIST.map(clean);
             const targetClean = clean(name);
             const unameClean = clean(uname);
             const empClean = clean(emp);
-            return allowedClean.some(a => targetClean.includes(a) || a.includes(targetClean) || (unameClean && (unameClean.includes(a) || a.includes(unameClean))))
-              || ["202112003", "202608010", "200405004", "249507002", "222102020", "202608002", "202608001", "ADMIN-2026", "ADMIN"].includes(String(emp || uname).toUpperCase());
+            const isNameMatched = GEMBA_WHITELIST.some(a => {
+              const ca = clean(a);
+              return targetClean.includes(ca) || ca.includes(targetClean) || (unameClean && (unameClean.includes(ca) || ca.includes(unameClean)));
+            });
+            if (isNameMatched) return true;
+            const codeUpper = String(emp || uname || "").toUpperCase().trim();
+            return GEMBA_ALLOWED_CODES.includes(codeUpper);
           };
 
           if (token.startsWith("sso_token_")) {
@@ -16812,7 +16953,7 @@ function getValidWorkerImageUrl(rawUrl, attachmentsJson) {
               result: {
                 success: false,
                 notAllowed: true,
-                message: "Tài khoản của bạn (" + (user.full_name || user.username) + ") không nằm trong danh sách 6 người được cấp quyền truy cập Gemba.Pro."
+                message: "Tài khoản của bạn (" + (user.full_name || user.username) + ") không nằm trong danh sách nhân sự được cấp quyền truy cập Gemba.Pro."
               }
             }), { headers: jsonHeaders });
           }
@@ -18234,6 +18375,28 @@ function getValidWorkerImageUrl(rawUrl, attachmentsJson) {
         } catch (err) {
           return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers: SECURE_JSON_HEADERS });
         }
+      }
+
+      
+      // POST /api/gemba/deploy-html — Cập nhật trực tiếp gemba.html lên R2
+      if (url.pathname === "/api/gemba/deploy-html" && request.method === "POST") {
+        const secret = request.headers.get("x-secret");
+        if (secret !== "tbs-sks-123") {
+          return new Response("Unauthorized", { status: 401 });
+        }
+        const html = await request.text();
+        if (!html || !html.includes("GEMBA_PERMITTED_USERS")) {
+          return new Response("Invalid HTML", { status: 400 });
+        }
+        if (env && env.BUCKET) {
+          await env.BUCKET.put("gemba.html", html, {
+            httpMetadata: { contentType: "text/html; charset=utf-8" }
+          });
+          return new Response(JSON.stringify({ success: true, message: "gemba.html deployed to R2 successfully" }), {
+            headers: { "content-type": "application/json" }
+          });
+        }
+        return new Response(JSON.stringify({ success: false, message: "No BUCKET binding" }), { status: 500 });
       }
 
       // 9. GET /api/admin/backup
@@ -20018,6 +20181,41 @@ async function ensureKaizenGuestTable(env) {
       return new Response(JSON.stringify({ success: false, error: "NOT_FOUND", message: `API ${url.pathname} không tồn tại` }), { status: 404, headers: CORS });
     }
 
+    
+    // Serve Gemba Portal directly from R2 if present (bypassing stale static asset cache)
+    if (request.method === "GET") {
+      const cleanPath = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
+      if (cleanPath === "/work/gemba" || cleanPath === "/work/gemba.html" || cleanPath === "/work/gemba-app.html") {
+        try {
+          if (env && env.BUCKET) {
+            const r2Obj = await env.BUCKET.get("gemba.html");
+            if (r2Obj) {
+              const htmlContent = await r2Obj.text();
+              return new Response(htmlContent, {
+                headers: {
+                  "content-type": "text/html; charset=utf-8",
+                  "cache-control": "no-cache, no-store, must-revalidate",
+                  "x-served-by": "r2-gemba"
+                }
+              });
+            }
+          }
+        } catch (err) {
+          console.error("[GEMBA R2 FETCH ERROR]", err);
+        }
+        // Chưa có bản trên R2: trả thẳng nội dung gemba-app.html tại /work/gemba (giữ nguyên URL, không redirect)
+        const gembaAssets = env && (env.ASSET_BINDING || env.ASSETS);
+        if (gembaAssets && cleanPath !== "/work/gemba-app.html") {
+          const appRes = await gembaAssets.fetch(new Request(new URL("/work/gemba-app", url.origin))).catch(() => null);
+          if (appRes && appRes.ok) {
+            return new Response(appRes.body, {
+              headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache, no-store, must-revalidate" },
+            });
+          }
+        }
+      }
+    }
+
     // Default Fallback: Serve Next.js Static Export Assets with HTML extension resolution
     const assetsFetcher = env && (env.ASSET_BINDING || env.ASSETS);
     if (assetsFetcher) {
@@ -20029,6 +20227,8 @@ async function ensureKaizenGuestTable(env) {
 
         if (request.method === "GET") {
           const cleanPath = url.pathname.endsWith("/") ? url.pathname.slice(0, -1) : url.pathname;
+
+          
           const fallbackPaths = [];
           if (cleanPath) {
             fallbackPaths.push(`${cleanPath}.html`, `${cleanPath}/index.html`);
@@ -20040,6 +20240,7 @@ async function ensureKaizenGuestTable(env) {
             fallbackPaths.push("/work/kaizen.html", "/work/kaizen/index.html");
           }
           if (cleanPath.startsWith("/work/gemba")) {
+            fallbackPaths.unshift("/work/gemba-app.html");
             fallbackPaths.push("/work/gemba.html", "/work/gemba/index.html");
           }
           if (cleanPath.startsWith("/work/ci") || cleanPath.startsWith("/work/cn-ci")) {

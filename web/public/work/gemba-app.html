@@ -5244,7 +5244,89 @@
             font-size: 1.35rem;
         }
     }
-</style>
+
+    /* Professional Portal Navigation Buttons */
+    .btn-topbar-portal {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 15px;
+        border-radius: 999px;
+        background: #eef9f3;
+        color: #006838;
+        border: 1px solid #a3e6be;
+        font-size: 13px;
+        font-weight: 700;
+        text-decoration: none;
+        transition: all 0.2s ease;
+        box-shadow: 0 1px 3px rgba(0, 104, 56, 0.08);
+        white-space: nowrap;
+    }
+    .btn-topbar-portal:hover {
+        background: #006838;
+        color: #ffffff;
+        border-color: #006838;
+        box-shadow: 0 4px 12px rgba(0, 104, 56, 0.2);
+        transform: translateY(-1px);
+    }
+    .btn-topbar-portal i {
+        font-size: 13px;
+    }
+
+    .btn-back-sidebar {
+        width: 100%;
+        border: 1px solid #cce8d7;
+        border-radius: var(--r-sm);
+        padding: 10px 12px;
+        background: rgba(0, 104, 56, .08);
+        color: #006838;
+        font-weight: 650;
+        font-size: 13px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none;
+        margin-bottom: 8px;
+        transition: all var(--t-fast);
+        white-space: nowrap;
+    }
+    .btn-back-sidebar:hover {
+        background: #006838;
+        color: #ffffff;
+        border-color: #006838;
+    }
+    .app-sidebar.sidebar-collapsed .btn-back-sidebar span {
+        display: none;
+    }
+
+    .btn-login-portal {
+        position: absolute;
+        top: 20px;
+        left: 24px;
+        z-index: 100;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 18px;
+        border-radius: 999px;
+        background: #ffffff;
+        color: #006838;
+        border: 1px solid #a3e6be;
+        font-size: 13px;
+        font-weight: 700;
+        text-decoration: none;
+        box-shadow: 0 4px 12px rgba(0, 104, 56, 0.1);
+        transition: all 0.2s ease;
+    }
+    .btn-login-portal:hover {
+        background: #006838;
+        color: #ffffff;
+        border-color: #006838;
+        box-shadow: 0 6px 16px rgba(0, 104, 56, 0.2);
+        transform: translateY(-1px);
+    }
+  </style>
 
 <style>
 #loginScreen { display: none !important; }
@@ -5310,6 +5392,9 @@
     <div id="toastContainer" class="toast-container-app"></div>
 
     <div id="loginScreen" class="login-wrapper">
+        <a href="/work" class="btn-login-portal" title="Quay về trang làm việc Skechers Miền Đông">
+            <i class="fas fa-arrow-left"></i> <span>Về Skechers Miền Đông</span>
+        </a>
         <div class="login-bg-shapes">
             <div class="shape shape-1"></div>
             <div class="shape shape-2"></div>
@@ -5605,6 +5690,9 @@
             </nav>
 
             <div class="sidebar-footer">
+                <a href="/work" class="btn-back-sidebar" title="Quay về trang làm việc Skechers Miền Đông">
+                    <i class="fas fa-arrow-left"></i> <span>Về Skechers Miền Đông</span>
+                </a>
                 <button class="btn-logout-app" onclick="handleLogout()">
                     <i class="fas fa-sign-out-alt"></i>
                     <span>Đăng xuất</span>
@@ -5627,6 +5715,9 @@
                 </div>
 
                 <div class="topbar-actions">
+                    <a href="/work" class="btn-topbar-portal" title="Quay về trang làm việc Skechers Miền Đông">
+                        <i class="fas fa-arrow-left"></i> <span>Về Skechers Miền Đông</span>
+                    </a>
                     <button class="btn-quick-create" onclick="openCreateGembaModal()" title="Tạo Gemba nhanh">
                         <i class="fas fa-plus"></i>
                     </button>
@@ -8737,14 +8828,44 @@
  * Direct high-speed connection between frontend and Cloudflare Worker / D1 / R2 / Zalo Bot
  */
 (function() {
-  // 1. AUTO-LOGIN / SSO FROM SKECHERS MIEN DONG SYSTEM WITH STRICT 6-USER WHITELIST
+    // 1. AUTO-LOGIN / SSO FROM SKECHERS MIEN DONG SYSTEM WITH WHITELIST (36 USERS)
   var GEMBA_PERMITTED_USERS = [
-    { name: 'LÊ KHẢI', role: 'Admin', group: 'VP Chuỗi', codes: ['202112003', '202608010', 'LEKHAI', 'ADMIN-2026', 'ADMIN'] },
-    { name: 'PHẠM MINH TÙNG', role: 'Tổng Giám đốc', group: 'VP Chuỗi', codes: ['200405004', 'TGD'] },
-    { name: 'ĐỖ ĐẮC MIỀN', role: 'Tổng Giám đốc', group: 'VP Khu vực', codes: ['249507002', 'GDDACMIEN'] },
-    { name: 'DƯ THỊ THANH TÌNH', role: 'Giám đốc', group: 'VP Khu vực', codes: ['222102020'] },
-    { name: 'TRẦN NGỌC HUY', role: 'Admin', group: 'VP Chuỗi', codes: ['202608002'] },
-    { name: 'PHẠM NGUYỄN ANH HUY', role: 'Admin', group: 'VP Chuỗi', codes: ['202608001'] }
+    { name: 'LÊ KHẢI', role: 'Admin', group: 'VP Chuỗi', codes: ["202112003","202608010","LEKHAI","ADMIN-2026","ADMIN","Admin"] },
+    { name: 'PHẠM MINH TÙNG', role: 'Tổng Giám đốc', group: 'VP Chuỗi', codes: ["200405004","TGD","TGĐ Chuỗi"] },
+    { name: 'LÊ HUY TUẤN', role: 'Giám đốc', group: 'VP Chuỗi', codes: ["201711002","CN- CI Chuỗi"] },
+    { name: 'ĐỖ ĐẮC MIỀN', role: 'Tổng Giám đốc', group: 'VP Khu vực', codes: ["249507002","GDDACMIEN","GĐ NM  MĐ"] },
+    { name: 'PHAN THỊ THANH TÂM', role: 'Giám đốc', group: 'VP Khu vực', codes: ["200212001","CN - CI SK MĐ"] },
+    { name: 'CAO THỊ MỸ HẠNH', role: 'Giám đốc', group: 'VP Khu vực', codes: ["QLCL SK MĐ","GMB-003"] },
+    { name: 'CÔNG HOÀNG CHIẾN', role: 'Giám đốc', group: 'VP Khu vực', codes: ["MMTB  SK MĐ","GMB-004"] },
+    { name: 'TRẦN VĂN HOÁ', role: 'Giám đốc', group: 'PX Đầu vào', codes: ["210906005","ĐH PX Đầu vào"] },
+    { name: 'ĐẶNG THỊ LÀI', role: 'Giám đốc', group: 'PX Đầu vào', codes: ["QLCL PX Đầu vào","GMB-005"] },
+    { name: 'LĂNG VĂN QUẾ', role: 'Giám đốc', group: 'PX Đầu vào', codes: ["222407082","Tổ Cắt"] },
+    { name: 'NGUYỄN THỊ LOA', role: 'Giám đốc', group: 'PX Đầu vào', codes: ["222407041","Tổ Lạng-Cán dán&Đồng bộ"] },
+    { name: 'NGUYỄN HOÀI HƯNG', role: 'Giám đốc', group: 'PX Đầu vào', codes: ["222509018","Tổ In-ép"] },
+    { name: 'HOÀNG QUỐC NGHỊ', role: 'Giám đốc', group: 'PX May', codes: ["222502031","ĐH PX May"] },
+    { name: 'VŨ THỊ HƯỜNG', role: 'Giám đốc', group: 'PX May', codes: ["QLCL PX May","GMB-008"] },
+    { name: 'LÊ VĂN TUẤN', role: 'Giám đốc', group: 'PX May', codes: ["211209006","Tổ May 1"] },
+    { name: 'HỒ KHẮC NGHĨA', role: 'Giám đốc', group: 'PX May', codes: ["211104005","Tổ May 2"] },
+    { name: 'NGUYỄN THẠCH TRƯỜNG', role: 'Giám đốc', group: 'PX May', codes: ["222308001","Tổ May 3"] },
+    { name: 'MAI ĐỨC VIỆT', role: 'Giám đốc', group: 'PX May', codes: ["211404028","Tổ May 4"] },
+    { name: 'LÊ VĂN CƯỜNG', role: 'Giám đốc', group: 'PX May', codes: ["222306186","Tổ May 5"] },
+    { name: 'NGUYỄN THỊ NHUNG', role: 'Giám đốc', group: 'PX May', codes: ["210807002","Tổ May 6"] },
+    { name: 'NGUYỄN THỊ LOAN', role: 'Giám đốc', group: 'PX May', codes: ["210303003","Tổ May 7"] },
+    { name: 'LÊ VĂN THUỶ', role: 'Giám đốc', group: 'PX Gò', codes: ["211003016","ĐH PX Gò"] },
+    { name: 'NGUYỄN THỊ DIỆU', role: 'Giám đốc', group: 'PX Gò', codes: ["QLCL PX Gò","GMB-011"] },
+    { name: 'PHẠM VĂN TUẤN', role: 'Giám đốc', group: 'PX Gò', codes: ["222404007","Trưởng Line Gò 1"] },
+    { name: 'LÝ HỒNG THÁI', role: 'Giám đốc', group: 'PX Gò', codes: ["222506057","Gò 1 - Tổ CĐ 1"] },
+    { name: 'THẠCH SANH', role: 'Giám đốc', group: 'PX Gò', codes: ["222507014","Gò 1 - Tổ CĐ 3"] },
+    { name: 'TRẦN VĂN TUÂN', role: 'Giám đốc', group: 'PX Gò', codes: ["222504006","Trưởng Line Gò 2","222410017"] },
+    { name: 'NGUYỄN THỊ THU HIỀN', role: 'Giám đốc', group: 'PX Gò', codes: ["201507008","Gò 2 - Tổ CĐ 1","211503192"] },
+    { name: 'NGUYỄN HOÀI LINH', role: 'Giám đốc', group: 'PX Gò', codes: ["Gò 2 - Tổ CĐ 3","GMB-015"] },
+    { name: 'TRẦN DUY CHƯƠNG', role: 'Giám đốc', group: 'PX Gò', codes: ["222604025","Trưởng Line Gò 3"] },
+    { name: 'PHẠM VĂN ĐĂNG', role: 'Giám đốc', group: 'PX Gò', codes: ["222506012","Gò 3 - Tổ CĐ 2"] },
+    { name: 'THẠCH SÀ RINH', role: 'Giám đốc', group: 'PX Gò', codes: ["222408050","Gò 3 - Tổ CĐ 3"] },
+    { name: 'NGUYỄN VĂN TÌNH', role: 'Giám đốc', group: 'VP Chuỗi', codes: ["211206004","TINHNGUYENVAN","Tinhnguyenvan","219810001"] },
+    { name: 'DƯ THỊ THANH TÌNH', role: 'Giám đốc', group: 'VP Khu vực', codes: ["222102020","DUTHITHANHTINH","Dư Thị Thanh Tình"] },
+    { name: 'TRẦN NGỌC HUY', role: 'Admin', group: 'VP Chuỗi', codes: ["202608002","Trần Ngọc Huy"] },
+    { name: 'PHẠM NGUYỄN ANH HUY', role: 'Admin', group: 'VP Chuỗi', codes: ["202608001","Phạm Nguyễn Anh Huy"] }
   ];
 
   window.__GEMBA_PERMITTED = GEMBA_PERMITTED_USERS;
@@ -8896,21 +9017,52 @@
             </div>
             <h2 style="font-size:22px;font-weight:800;margin-bottom:10px;color:#fff;">Từ chối quyền truy cập</h2>
             <p style="color:#94a3b8;font-size:14px;line-height:1.6;margin-bottom:24px;">
-              Phân hệ <b>Gemba.Pro</b> chỉ dành riêng cho 6 nhân sự được cấp quyền.<br>
+              Phân hệ <b>Gemba.Pro</b> chỉ dành riêng cho các nhân sự được cấp quyền.<br>
               Tài khoản hiện tại của bạn: <strong style="color:#38bdf8;">${d.name || d.empCode}</strong>
             </p>
             <div style="background:#0f172a;border:1px solid #334155;border-radius:16px;padding:16px;margin-bottom:28px;text-align:left;">
               <div style="font-size:12px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">
                 Danh sách nhân sự được cấp quyền:
               </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:13px;font-weight:600;color:#e2e8f0;">
+              <div style="max-height:220px;overflow-y:auto;display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;font-weight:600;color:#e2e8f0;padding-right:4px;">
                 <div>1. LÊ KHẢI</div>
-                <div>4. DƯ THỊ THANH TÌNH</div>
                 <div>2. PHẠM MINH TÙNG</div>
-                <div>5. TRẦN NGỌC HUY</div>
-                <div>3. ĐỖ ĐẮC MIỀN</div>
-                <div>6. PHẠM NGUYỄN ANH HUY</div>
+                <div>3. LÊ HUY TUẤN</div>
+                <div>4. ĐỖ ĐẮC MIỀN</div>
+                <div>5. PHAN THỊ THANH TÂM</div>
+                <div>6. CAO THỊ MỸ HẠNH</div>
+                <div>7. CÔNG HOÀNG CHIẾN</div>
+                <div>8. TRẦN VĂN HOÁ</div>
+                <div>9. ĐẶNG THỊ LÀI</div>
+                <div>10. LĂNG VĂN QUẾ</div>
+                <div>11. NGUYỄN THỊ LOA</div>
+                <div>12. NGUYỄN HOÀI HƯNG</div>
+                <div>13. HOÀNG QUỐC NGHỊ</div>
+                <div>14. VŨ THỊ HƯỜNG</div>
+                <div>15. LÊ VĂN TUẤN</div>
+                <div>16. HỒ KHẮC NGHĨA</div>
+                <div>17. NGUYỄN THẠCH TRƯỜNG</div>
+                <div>18. MAI ĐỨC VIỆT</div>
+                <div>19. LÊ VĂN CƯỜNG</div>
+                <div>20. NGUYỄN THỊ NHUNG</div>
+                <div>21. NGUYỄN THỊ LOAN</div>
+                <div>22. LÊ VĂN THUỶ</div>
+                <div>23. NGUYỄN THỊ DIỆU</div>
+                <div>24. PHẠM VĂN TUẤN</div>
+                <div>25. LÝ HỒNG THÁI</div>
+                <div>26. THẠCH SANH</div>
+                <div>27. TRẦN VĂN TUÂN</div>
+                <div>28. NGUYỄN THỊ THU HIỀN</div>
+                <div>29. NGUYỄN HOÀI LINH</div>
+                <div>30. TRẦN DUY CHƯƠNG</div>
+                <div>31. PHẠM VĂN ĐĂNG</div>
+                <div>32. THẠCH SÀ RINH</div>
+                <div>33. NGUYỄN VĂN TÌNH</div>
+                <div>34. DƯ THỊ THANH TÌNH</div>
+                <div>35. TRẦN NGỌC HUY</div>
+                <div>36. PHẠM NGUYỄN ANH HUY</div>
               </div>
+            </div>
             </div>
             <a href="/work" style="display:inline-block;background:#006838;color:#fff;font-weight:700;padding:12px 28px;border-radius:12px;text-decoration:none;">
               ← Quay về Trang làm việc
@@ -8938,9 +9090,9 @@
         var opts = GEMBA_PERMITTED_USERS.map(function(u, idx) {
           return (idx + 1) + '. ' + u.name + ' (' + u.role + ' • ' + u.group + ')';
         }).join('\n');
-        var choice = prompt('CHỌN TÀI KHOẢN TRUY CẬP GEMBA (Nhập số từ 1 đến 6):\n\n' + opts, '1');
+        var choice = prompt('CHỌN TÀI KHOẢN TRUY CẬP GEMBA (Nhập số từ 1 đến 36):\n\n' + opts, '1');
         var num = parseInt(choice, 10);
-        if (num >= 1 && num <= 6) {
+        if (num >= 1 && num <= 36) {
           var sel = GEMBA_PERMITTED_USERS[num - 1];
           localStorage.setItem('gemba_active_user_override', sel.name);
           localStorage.setItem('gembaToken', 'sso_token_' + sel.name);

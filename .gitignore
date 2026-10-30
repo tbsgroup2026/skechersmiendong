@@ -27,3 +27,9 @@ backups/
 Thumbs.db
 ~$*
 gas_gemba/script_properties.env
+
+gas_gemba/*.cjs
+gas_gemba/*.png
+gas_gemba/*.json
+gemba.html
+web/out_test/
