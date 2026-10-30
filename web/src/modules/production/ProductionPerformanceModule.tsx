@@ -2134,12 +2134,14 @@ function AreaPanel({
 // Gò) → hiện chi tiết đúng điểm quét đó (kèm bảng 8 khung giờ).
 // `sel` không còn dùng trong thân hàm (tiêu đề Line giờ hiện ở header ngoài cùng của trang, xem
 // nhánh factory && lineSel ở component cha) — vẫn giữ trong type vì component cha vẫn truyền vào.
-// Thẻ Tổ hiện GIẢM DẦN theo số Tổ (VD 30, 29, 28...) — chỉ đổi thứ tự HIỂN THỊ ở lưới "Chi tiết
-// các tổ sản xuất" cấp Line (rollup/HourlyChart phía trên KHÔNG dùng hàm này, thứ tự cộng dồn
-// không quan trọng). Tên Tổ luôn dạng "Tổ {số}" (khảo sát thật trong DB, không có ngoại lệ) nên
-// tách số cuối cùng ra so sánh; leaf hiếm gặp không có số cuối thì giữ nguyên vị trí tương đối
-// (đẩy xuống cuối, không random) để không vỡ layout nếu phát sinh dữ liệu lạ.
-function sortLeavesTeamDesc(leaves: PphLeaf[]): PphLeaf[] {
+// Thẻ Tổ hiện TĂNG DẦN theo số Tổ, trái → phải (VD Tổ 1, Tổ 2, Tổ 3...) — chỉ đổi thứ tự HIỂN THỊ
+// ở lưới "Chi tiết các tổ sản xuất" cấp Line (rollup/HourlyChart phía trên KHÔNG dùng hàm này, thứ
+// tự cộng dồn không quan trọng). Dùng CHUNG cho LineBoard nên áp dụng đồng loạt mọi link TV
+// (pph-view, pph-view-factory, pph-view-workshop, pph-view-combo). Tên Tổ luôn dạng "Tổ {số}"
+// (khảo sát thật trong DB, không có ngoại lệ) nên tách số cuối cùng ra so sánh; leaf hiếm gặp
+// không có số cuối thì giữ nguyên vị trí tương đối (đẩy xuống cuối, không random) để không vỡ
+// layout nếu phát sinh dữ liệu lạ.
+function sortLeavesTeamAsc(leaves: PphLeaf[]): PphLeaf[] {
   const numOf = (name: string) => {
     const m = name.match(/(\d+)\s*$/);
     return m ? parseInt(m[1], 10) : null;
@@ -2147,7 +2149,7 @@ function sortLeavesTeamDesc(leaves: PphLeaf[]): PphLeaf[] {
   return [...leaves].sort((a, b) => {
     const na = numOf(a.name);
     const nb = numOf(b.name);
-    if (na != null && nb != null) return nb - na;
+    if (na != null && nb != null) return na - nb;
     if (na != null) return -1;
     if (nb != null) return 1;
     return 0;
@@ -2180,7 +2182,7 @@ export function LineBoard({
 }) {
   const r = rollup(leaves);
   const tone = toneFor(r.pct);
-  const teamCards = useMemo(() => sortLeavesTeamDesc(leaves), [leaves]);
+  const teamCards = useMemo(() => sortLeavesTeamAsc(leaves), [leaves]);
 
   // Nhắc TRỄ NHẬP bằng file ghi âm thật (xem PPH_ALERT_AUDIO_BASE ở trên) — CHỈ bật khi alertOverdue
   // (đúng phạm vi đã chốt "ở link màn hình TV cấp Line", xem PphViewClient), song song với chớp đỏ
