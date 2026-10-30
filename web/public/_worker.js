@@ -2663,6 +2663,19 @@ async function mmtbKgDeleteEmployee(env, id) {
 // User.scopeCategoryId bên tbsMayMoc) và cache key riêng ("mmtbmd:token" thay vì "mmtbkg:token") —
 // để 2 token không đè lên nhau trong bảng pph_cache dùng chung. KHÔNG đụng gì tới khối mmtbKg* ở
 // trên (vẫn nguyên như cũ cho Tổ hợp KG).
+//
+// Tài khoản ADSKMD chỉ giới hạn được phạm vi MÁY (areaScopeWhere lọc theo Nhà máy ở tbsMayMoc) —
+// KHÔNG giới hạn được NGƯỜI thực hiện, vì role "Kiểm kê" (quét mã máy) và kỹ thuật viên xử lý sự
+// cố không gắn cố định 1 Nhà máy (đi làm việc được ở bất kỳ đâu trong toàn hệ thống, xem comment
+// enum Role bên tbsMayMoc/prisma/schema.prisma) — nên vẫn có thể lọt dòng dữ liệu do nhân viên
+// Kiên Giang thực hiện trên máy SKMD (xác nhận thật ngày 2026-10-30, trang Kiểm Kê). Theo xác nhận
+// người dùng: mã nhân viên Kiên Giang LUÔN bắt đầu bằng số "4" (SKMD luôn bắt đầu "1"/"2"/khác) —
+// lọc thêm NGAY TẠI ĐÂY (chặn tại nguồn dùng chung cho mọi route mmtbMd*) thay vì lọc riêng từng
+// trang FE, để áp dụng đồng loạt toàn bộ trang MMTB SKMD.
+function mmtbMdIsKienGiangEmployeeCode(code) {
+  return typeof code === "string" && code.trim().startsWith("4");
+}
+
 let mmtbMdLoginInFlight = null;
 
 async function mmtbMdLogin(env) {
@@ -2869,12 +2882,25 @@ async function mmtbMdGetLogs(env, limit) {
 
 async function mmtbMdGetInventoryLog(env) {
   const r = await mmtbMdCall(env, "/api/inventory-log");
-  return r.ok ? { success: true, ...r.data } : { success: false, error: (r.data && r.data.error) || "Không lấy được nhật ký Kiểm kê từ MMTB SK Miền Đông", status: r.status };
+  if (!r.ok) return { success: false, error: (r.data && r.data.error) || "Không lấy được nhật ký Kiểm kê từ MMTB SK Miền Đông", status: r.status };
+  // Bỏ hẳn dòng nào do nhân viên Kiên Giang thực hiện (xem mmtbMdIsKienGiangEmployeeCode) — không
+  // chỉ ẩn tên, vì cả lượt quét đó không phải hoạt động của SKMD.
+  const rows = Array.isArray(r.data?.rows) ? r.data.rows.filter((row) => !mmtbMdIsKienGiangEmployeeCode(row?.user?.employeeCode)) : r.data?.rows;
+  return { success: true, ...r.data, rows };
 }
 
 async function mmtbMdGetResponseTime(env) {
   const r = await mmtbMdCall(env, "/api/response-time");
-  return r.ok ? { success: true, ...r.data } : { success: false, error: (r.data && r.data.error) || "Không lấy được dữ liệu thời gian phản hồi từ MMTB SK Miền Đông", status: r.status };
+  if (!r.ok) return { success: false, error: (r.data && r.data.error) || "Không lấy được dữ liệu thời gian phản hồi từ MMTB SK Miền Đông", status: r.status };
+  // Giống inventory-log — bỏ hẳn sự cố/lượt xử lý do người Kiên Giang đảm nhận (assignedTo/
+  // technician), đồng bộ cách lọc với trang Kiểm Kê.
+  const incidents = Array.isArray(r.data?.incidents)
+    ? r.data.incidents.filter((i) => !mmtbMdIsKienGiangEmployeeCode(i?.assignedTo?.employeeCode))
+    : r.data?.incidents;
+  const logs = Array.isArray(r.data?.logs)
+    ? r.data.logs.filter((l) => !mmtbMdIsKienGiangEmployeeCode(l?.technician?.employeeCode))
+    : r.data?.logs;
+  return { success: true, ...r.data, incidents, logs };
 }
 
 async function mmtbMdGetOverviewReport(env, searchParams) {
@@ -2900,7 +2926,11 @@ async function mmtbMdGetWorkRequests(env) {
 
 async function mmtbMdGetEmployees(env) {
   const r = await mmtbMdCall(env, "/api/employees");
-  return r.ok ? { success: true, data: r.data } : { success: false, error: (r.data && r.data.error) || "Không lấy được nhân sự từ MMTB SK Miền Đông", status: r.status };
+  if (!r.ok) return { success: false, error: (r.data && r.data.error) || "Không lấy được nhân sự từ MMTB SK Miền Đông", status: r.status };
+  // Phòng hờ tài khoản Kiểm kê (role INVENTORY, không gắn Nhà máy) vẫn lọt qua lọc scope gốc —
+  // đồng bộ cách lọc với mmtbMdGetInventoryLog/mmtbMdGetResponseTime ở trên.
+  const data = Array.isArray(r.data) ? r.data.filter((e) => !mmtbMdIsKienGiangEmployeeCode(e?.employeeCode)) : r.data;
+  return { success: true, data };
 }
 
 async function mmtbMdCreateEmployee(env, payload) {
