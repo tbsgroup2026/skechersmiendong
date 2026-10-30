@@ -1165,7 +1165,8 @@ function pphNewShortCode(len) {
 // mở rộng thêm targetType ('line' | 'factory') để route redirect biết trả về đúng dạng URL nào.
 async function pphGetOrCreateTvShortLink(env, targetId, targetType) {
   await pphBoardEnsureTable(env);
-  const type = targetType === "factory" ? "factory" : targetType === "workshop" ? "workshop" : "line";
+  const type =
+    targetType === "factory" ? "factory" : targetType === "workshop" ? "workshop" : targetType === "combo" ? "combo" : "line";
   const existing = await env.DB.prepare("SELECT code FROM pph_tv_short_links WHERE line_id = ? AND target_type = ?").bind(targetId, type).first();
   if (existing && existing.code) return existing.code;
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -1187,7 +1188,8 @@ async function pphResolveTvShortLink(env, code) {
   if (!row) return null;
   return {
     targetId: row.line_id,
-    targetType: row.target_type === "factory" ? "factory" : row.target_type === "workshop" ? "workshop" : "line",
+    targetType:
+      row.target_type === "factory" ? "factory" : row.target_type === "workshop" ? "workshop" : row.target_type === "combo" ? "combo" : "line",
   };
 }
 
@@ -1601,15 +1603,20 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
   if (sub === "/tv-short-link" && request.method === "POST") {
     try {
       const body = await request.json();
-      // Nhận 1 trong 3 — lineId (TV cấp Line) / factoryId (TV cấp Nhà máy) / areaId (TV gộp cả
-      // Xưởng, mới thêm cho Gò — xem copyTvLinkWorkshop() ở ProductionPerformanceModule.tsx) — cùng
-      // 1 route, khác targetType lúc lưu.
+      // Nhận 1 trong 4 — lineId (TV cấp Line) / factoryId (TV cấp Nhà máy) / areaId (TV gộp cả
+      // Xưởng, cho Gò — xem copyTvLinkWorkshop() ở ProductionPerformanceModule.tsx) / lineIds (TV
+      // GỘP NHIỀU Line luân phiên, cho TV 1-cái-2-Line — xem PphViewComboClient.tsx) — cùng 1 route,
+      // khác targetType lúc lưu.
       const lineId = String(body.lineId || "").trim();
       const factoryId = String(body.factoryId || "").trim();
       const areaId = String(body.areaId || "").trim();
-      const targetId = lineId || factoryId || areaId;
-      if (!targetId) return pphJson({ success: false, error: "Thiếu lineId/factoryId/areaId" }, 400);
-      const targetType = factoryId ? "factory" : areaId ? "workshop" : "line";
+      const lineIds = Array.isArray(body.lineIds)
+        ? body.lineIds.map((x) => String(x || "").trim()).filter(Boolean)
+        : [];
+      const comboId = lineIds.length >= 2 ? lineIds.join(",") : "";
+      const targetId = lineId || factoryId || areaId || comboId;
+      if (!targetId) return pphJson({ success: false, error: "Thiếu lineId/factoryId/areaId/lineIds" }, 400);
+      const targetType = factoryId ? "factory" : areaId ? "workshop" : comboId ? "combo" : "line";
       const code = await pphGetOrCreateTvShortLink(env, targetId, targetType);
       return pphJson({ success: true, code });
     } catch (err) {
@@ -18441,6 +18448,11 @@ function getValidWorkerImageUrl(rawUrl, attachmentsJson) {
         }
         if (resolved && resolved.targetType === "workshop") {
           return Response.redirect(new URL(`/pph-view-workshop?areaId=${encodeURIComponent(resolved.targetId)}`, request.url), 302);
+        }
+        if (resolved && resolved.targetType === "combo") {
+          // targetId đã là "<lineId 1>,<lineId 2>,..." (nối sẵn lúc tạo mã, xem POST /tv-short-link)
+          // — encodeURIComponent cả cụm, trình duyệt tự decode lại dấu phẩy khi đọc query string.
+          return Response.redirect(new URL(`/pph-view-combo?lineIds=${encodeURIComponent(resolved.targetId)}`, request.url), 302);
         }
         if (resolved) {
           return Response.redirect(new URL(`/pph-view?lineId=${encodeURIComponent(resolved.targetId)}`, request.url), 302);
