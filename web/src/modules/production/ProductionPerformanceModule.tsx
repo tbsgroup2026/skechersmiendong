@@ -1967,6 +1967,37 @@ function AreaPanel({
               Chi tiết ›
             </button>
           </div>
+        ) : !tv && (area.name === 'Gò' || (showLines && lineGroups.length >= 2)) ? (
+          // Icon lấy link TV — gộp CẢ Xưởng (chỉ Gò) + luân phiên NHIỀU Line (Xưởng có ≥ 2 Line) —
+          // đặt ở hàng tiêu đề (cạnh tên Xưởng) thay vì đè lên ô gauge, theo yêu cầu người dùng.
+          <div className="flex shrink-0 items-center gap-1">
+            {area.name === 'Gò' && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  copyTvLinkWorkshop(area.id);
+                }}
+                title="Lấy link TV gộp cả Xưởng (xem riêng, không cần đăng nhập)"
+                className={`rounded-lg border p-1 ${light ? 'border-gray-200 bg-gray-100 text-gray-500 hover:bg-gray-200' : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20'}`}
+              >
+                <IconDeviceTv size={14} />
+              </button>
+            )}
+            {showLines && lineGroups.length >= 2 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  copyTvLinkCombo(lineGroups.map((lg) => lg.id));
+                }}
+                title="Lấy link TV luân phiên các Line (1 TV chiếu xoay vòng, không cần đăng nhập)"
+                className={`rounded-lg border p-1 ${light ? 'border-gray-200 bg-gray-100 text-gray-500 hover:bg-gray-200' : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20'}`}
+              >
+                <IconRotateClockwise2 size={14} />
+              </button>
+            )}
+          </div>
         ) : undefined
       }
     >
@@ -1995,38 +2026,6 @@ function AreaPanel({
         <div
           className={`relative flex shrink-0 flex-col items-center justify-center border px-3 ${tv ? '' : 'rounded-xl'} ${light ? 'border-gray-200 bg-gray-50' : 'border-cyan-500/20 bg-cyan-500/5'}`}
         >
-          {/* Icon lấy link TV GỘP cả Xưởng — CHỈ Gò (5 Chuyền độc lập không Tổ con, gộp quan sát 1
-              màn hình theo yêu cầu riêng, KHÔNG áp dụng Xưởng khác) — đặt góc phải-trên đè lên ô
-              gauge, không chiếm thêm chỗ trong layout. */}
-          {!tv && area.name === 'Gò' && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                copyTvLinkWorkshop(area.id);
-              }}
-              title="Lấy link TV gộp cả Xưởng (xem riêng, không cần đăng nhập)"
-              className={`absolute -right-1.5 -top-1.5 rounded-full border p-1 ${light ? 'border-gray-200 bg-white text-gray-500 hover:bg-gray-100' : 'border-cyan-500/30 bg-[#0a1a2f] text-cyan-200 hover:bg-cyan-500/20'}`}
-            >
-              <IconDeviceTv size={12} />
-            </button>
-          )}
-          {/* Icon lấy link TV LUÂN PHIÊN nhiều Line (copyTvLinkCombo) — hiện khi Xưởng có ≥ 2 Line
-              (showLines + lineGroups.length >= 2), dùng cho trường hợp 1 Xưởng nhiều Line nhưng chỉ
-              có 1 TV vật lý. Đặt góc phải-dưới để không đè lên nút gộp-Xưởng (Gò) ở góc phải-trên. */}
-          {!tv && showLines && lineGroups.length >= 2 && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                copyTvLinkCombo(lineGroups.map((lg) => lg.id));
-              }}
-              title="Lấy link TV luân phiên các Line (1 TV chiếu xoay vòng, không cần đăng nhập)"
-              className={`absolute -right-1.5 -bottom-1.5 rounded-full border p-1 ${light ? 'border-gray-200 bg-white text-gray-500 hover:bg-gray-100' : 'border-cyan-500/30 bg-[#0a1a2f] text-cyan-200 hover:bg-cyan-500/20'}`}
-            >
-              <IconRotateClockwise2 size={12} />
-            </button>
-          )}
           <Gauge pct={r.pct} size={tv ? 84 : 66} tone={tone} light={light} />
           <span className={`-mt-0.5 font-black uppercase tracking-wide ${tv ? 'text-xs' : 'text-[8px]'} ${light ? 'text-gray-500' : 'text-slate-400'}`}>
             % Sản lượng
