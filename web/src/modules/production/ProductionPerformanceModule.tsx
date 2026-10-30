@@ -9,6 +9,7 @@ import {
   IconMaximize,
   IconMinimize,
   IconDeviceTv,
+  IconRotateClockwise2,
 } from '@tabler/icons-react';
 import PphSettingsView from './PphSettingsView';
 
@@ -1879,6 +1880,34 @@ async function copyTvLinkWorkshop(areaId: string) {
     .catch(() => alert(`Không sao chép được — link TV: ${longUrl}`));
 }
 
+// Link TV LUÂN PHIÊN nhiều Line trên CÙNG 1 TV vật lý (PphViewComboClient.tsx) — khác hẳn
+// copyTvLinkWorkshop() ở trên (gộp SỐ LIỆU nhiều điểm quét thành 1 board duy nhất, chỉ dùng cho
+// Gò): ở đây mỗi Line vẫn giữ board riêng, to đủ đọc từ xa, chỉ XOAY VÒNG qua lại theo thời gian —
+// dùng khi 1 Xưởng có ≥ 2 Line nhưng không đủ TV để chiếu riêng từng cái (yêu cầu thực tế: Xưởng
+// May 2 Line / 1 TV). Áp dụng CHUNG cho mọi Xưởng có ≥ 2 Line, không riêng May.
+async function copyTvLinkCombo(lineIds: string[]) {
+  const longUrl = `${window.location.origin}/pph-view-combo?lineIds=${lineIds.map(encodeURIComponent).join(',')}`;
+  try {
+    const res = await fetch('/api/pph/tv-short-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lineIds }),
+    }).then((r) => r.json());
+    if (res?.success && res.code) {
+      const shortUrl = `${window.location.origin}/tv/${res.code}`;
+      await navigator.clipboard.writeText(shortUrl);
+      alert(`Đã sao chép link TV luân phiên ${lineIds.length} Line (rút gọn):\n${shortUrl}`);
+      return;
+    }
+  } catch {
+    // Rơi xuống fallback link dài bên dưới.
+  }
+  navigator.clipboard
+    .writeText(longUrl)
+    .then(() => alert(`Đã sao chép link TV luân phiên ${lineIds.length} Line:\n${longUrl}`))
+    .catch(() => alert(`Không sao chép được — link TV: ${longUrl}`));
+}
+
 function AreaPanel({
   area,
   lines,
@@ -1980,6 +2009,22 @@ function AreaPanel({
               className={`absolute -right-1.5 -top-1.5 rounded-full border p-1 ${light ? 'border-gray-200 bg-white text-gray-500 hover:bg-gray-100' : 'border-cyan-500/30 bg-[#0a1a2f] text-cyan-200 hover:bg-cyan-500/20'}`}
             >
               <IconDeviceTv size={12} />
+            </button>
+          )}
+          {/* Icon lấy link TV LUÂN PHIÊN nhiều Line (copyTvLinkCombo) — hiện khi Xưởng có ≥ 2 Line
+              (showLines + lineGroups.length >= 2), dùng cho trường hợp 1 Xưởng nhiều Line nhưng chỉ
+              có 1 TV vật lý. Đặt góc phải-dưới để không đè lên nút gộp-Xưởng (Gò) ở góc phải-trên. */}
+          {!tv && showLines && lineGroups.length >= 2 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                copyTvLinkCombo(lineGroups.map((lg) => lg.id));
+              }}
+              title="Lấy link TV luân phiên các Line (1 TV chiếu xoay vòng, không cần đăng nhập)"
+              className={`absolute -right-1.5 -bottom-1.5 rounded-full border p-1 ${light ? 'border-gray-200 bg-white text-gray-500 hover:bg-gray-100' : 'border-cyan-500/30 bg-[#0a1a2f] text-cyan-200 hover:bg-cyan-500/20'}`}
+            >
+              <IconRotateClockwise2 size={12} />
             </button>
           )}
           <Gauge pct={r.pct} size={tv ? 84 : 66} tone={tone} light={light} />
