@@ -257,12 +257,30 @@ export default function InventoryPage() {
     [factories, factoryName],
   );
 
+  // Nút "Nhà máy" + lưới "Theo Chuyền/Tổ" phải tính theo VỊ TRÍ HIỆN TẠI của từng máy, không phải
+  // "mọi nơi máy từng được quét qua" — mỗi máy có thể bị quét lại nhiều lần trong 90 ngày (quét
+  // nhầm rồi quét lại đúng Chuyền/Tổ, hoặc đổi vị trí thật), mỗi lần quét là 1 dòng log riêng.
+  // Trước đây gộp set theo TẤT CẢ các dòng log của 1 máy -> máy quét lại bị đếm ở CẢ 2 ô (vị trí
+  // cũ lẫn mới) cùng lúc dù `machines`/vị trí thật chỉ còn đúng 1 nơi — chỉ giữ dòng log MỚI NHẤT
+  // của mỗi mã máy trước khi đếm, khớp đúng cách trang "Máy móc" đang đếm (đọc thẳng vị trí hiện
+  // tại). Bảng lịch sử bên dưới (filteredRows) vẫn giữ NGUYÊN mọi dòng log, không khử trùng.
+  const latestRowByMachine = useMemo(() => {
+    const byMachine = new Map<string, InventoryLogRow>();
+    for (const r of rows) {
+      const prev = byMachine.get(r.machine.code);
+      if (!prev || new Date(r.createdAt).getTime() > new Date(prev.createdAt).getTime()) {
+        byMachine.set(r.machine.code, r);
+      }
+    }
+    return byMachine;
+  }, [rows]);
+
   // Nút Nhà máy: mỗi Nhà máy TỪNG có ai kiểm kê -> 1 nút, kèm số máy KHÁC NHAU đã kiểm ở đó tính
   // trên TOÀN BỘ dữ liệu (~90 ngày), KHÔNG theo bộ lọc ngày — giống cách lưới "Theo Chuyền/Tổ"
   // đang đếm. Nhà máy nhiều máy nhất hiện trước.
   const factoryButtons = useMemo(() => {
     const byFactory = new Map<string, Set<string>>();
-    for (const r of rows) {
+    for (const r of latestRowByMachine.values()) {
       if (!r.factoryName) continue;
       const set = byFactory.get(r.factoryName) || new Set<string>();
       set.add(r.machine.code);
@@ -271,7 +289,7 @@ export default function InventoryPage() {
     return Array.from(byFactory.entries())
       .map(([name, set]) => ({ name, count: set.size }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'vi'));
-  }, [rows]);
+  }, [latestRowByMachine]);
 
   const filteredRows = useMemo(
     () => rows.filter((r) => (!factoryName || r.factoryName === factoryName) && inDateRange(r.createdAt, dateFrom, dateTo)),
@@ -281,8 +299,8 @@ export default function InventoryPage() {
   // Lưới Chuyền/Tổ tính trên TOÀN BỘ lịch sử (mọi ngày trong ~90 ngày dữ liệu), KHÔNG theo bộ lọc
   // ngày ở trên — bấm 1 ô là thấy ngay hết máy đã kiểm ở Tổ đó, không phải chỉnh lại khoảng ngày.
   const gridScopeRows = useMemo(
-    () => rows.filter((r) => !factoryName || r.factoryName === factoryName),
-    [rows, factoryName],
+    () => Array.from(latestRowByMachine.values()).filter((r) => !factoryName || r.factoryName === factoryName),
+    [latestRowByMachine, factoryName],
   );
 
   // Tính danh sách ô Chuyền/Tổ cho 1 Nhà máy BẤT KỲ (không chỉ Nhà máy đang chọn) — để khi chọn
