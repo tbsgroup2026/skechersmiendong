@@ -22,6 +22,7 @@ import {
   DEFAULT_TARGET_PPH,
   pphWorkshopTitle,
   PPH_ALERT_AUDIO_BASE,
+  settleAll,
   type PphFactory,
   type FactoryConfig,
 } from '@/modules/production/ProductionPerformanceModule';
@@ -117,7 +118,7 @@ export default function PphViewWorkshopClient() {
     async function load(fresh: boolean) {
       try {
         const d = todayVNStr();
-        const [dashRes, cfgRes] = await Promise.allSettled([
+        const [dashRes, cfgRes] = await settleAll([
           fetch(`/api/pph/dashboard?date=${d}${fresh ? '&fresh=1' : ''}`).then((r) => r.json()),
           fetch('/api/pph/factory-config').then((r) => r.json()),
         ]);

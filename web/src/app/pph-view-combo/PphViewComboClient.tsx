@@ -28,6 +28,7 @@ import {
   DEFAULT_TARGET_PPH,
   pphLineTitle,
   PPH_ALERT_AUDIO_BASE,
+  settleAll,
   type PphFactory,
   type DashLine,
   type PphLeaf,
@@ -116,7 +117,7 @@ export default function PphViewComboClient() {
     async function load(fresh: boolean) {
       try {
         const d = todayVNStr();
-        const [dashRes, lineRes, cfgRes] = await Promise.allSettled([
+        const [dashRes, lineRes, cfgRes] = await settleAll([
           fetch(`/api/pph/dashboard?date=${d}${fresh ? '&fresh=1' : ''}`).then((r) => r.json()),
           fetch('/api/pph/dashboard-lines').then((r) => r.json()),
           fetch('/api/pph/factory-config').then((r) => r.json()),

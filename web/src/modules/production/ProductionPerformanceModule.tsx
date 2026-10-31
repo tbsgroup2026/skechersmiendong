@@ -121,6 +121,23 @@ export const TONE_LIGHT: Record<Tone, { text: string; ring: string; chipBg: stri
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
+
+// Thay Promise.allSettled() (ES2020) — TV gắn cố định ngoài xưởng thường dùng trình duyệt tích
+// hợp RẤT CŨ (xác nhận thật ngày 2026-10-31: TV Asanzo báo "Không kết nối được tới hệ thống" dù
+// vẫn vào được web khác bình thường — do gọi Promise.allSettled bị ném lỗi NGAY LẬP TỨC trên máy
+// đó, rơi thẳng vào catch() dù chưa hề có request nào thật sự thất bại). Hàm này cho ra đúng hình
+// dạng kết quả y hệt Promise.allSettled (mảng {status, value|reason}) nhưng chỉ dùng Promise.all +
+// .then/.catch (ES2015), chạy được trên mọi trình duyệt hỗ trợ Promise cơ bản.
+export function settleAll<T>(promises: Promise<T>[]): Promise<({ status: 'fulfilled'; value: T } | { status: 'rejected'; reason: unknown })[]> {
+  return Promise.all(
+    promises.map((p) =>
+      p.then(
+        (value) => ({ status: 'fulfilled' as const, value }),
+        (reason) => ({ status: 'rejected' as const, reason }),
+      ),
+    ),
+  );
+}
 export function fmtInt(n: number): string {
   return Math.round(n).toLocaleString('vi-VN');
 }

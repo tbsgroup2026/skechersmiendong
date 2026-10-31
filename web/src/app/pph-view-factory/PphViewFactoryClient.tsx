@@ -20,6 +20,7 @@ import {
   POLL_MS,
   DEFAULT_TARGET_PPH,
   pphLineTitle,
+  settleAll,
   type PphFactory,
   type DashLine,
   type PphLeaf,
@@ -57,7 +58,7 @@ export default function PphViewFactoryClient() {
   const load = useCallback(async (opts?: { fresh?: boolean }) => {
     try {
       const d = todayVNStr();
-      const [dashRes, lineRes, cfgRes] = await Promise.allSettled([
+      const [dashRes, lineRes, cfgRes] = await settleAll([
         fetch(`/api/pph/dashboard?date=${d}${opts?.fresh ? '&fresh=1' : ''}`).then((r) => r.json()),
         fetch('/api/pph/dashboard-lines').then((r) => r.json()),
         fetch('/api/pph/factory-config').then((r) => r.json()),
