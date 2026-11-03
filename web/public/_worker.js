@@ -769,6 +769,129 @@ async function pphEnsureTable(env) {
   await env.DB.prepare("ALTER TABLE pph_entries ADD COLUMN color TEXT").run().catch(() => {});
 }
 
+// ---- Mã PHỤ (Tổ sản xuất 2+ mã giày CÙNG lúc trong 1 ngày, có thể cùng 1 khung giờ — khác hẳn chỉ
+// đổi mã giữa ngày) — THIẾT KẾ CỘNG THÊM, không đụng gì bảng pph_entries/luồng 1-mã cũ: mã CHÍNH
+// (Tổ nào chỉ 1 mã, đa số, luôn vậy) vẫn 100% đi qua pph_entries như trước, KHÔNG migrate gì cả. Mã
+// PHỤ (thứ 2, 3...) khai 1 lần ở Đầu ca (pph_team_models, giống model/planned_qty của mã chính
+// nhưng tách bảng riêng) rồi mỗi khung giờ có thêm số liệu riêng (pph_entry_models). Tổ không khai
+// mã phụ nào thì 2 bảng này luôn rỗng cho Tổ đó — mọi công thức dashboard/trạng thái CỘNG THÊM 0,
+// ra kết quả giống y hệt trước khi có tính năng này.
+let __pphTeamModelsSchemaMigratedOnce = false;
+async function pphTeamModelsEnsureTable(env) {
+  if (__pphTeamModelsSchemaMigratedOnce) return;
+  __pphTeamModelsSchemaMigratedOnce = true;
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS pph_team_models (
+      team_id TEXT NOT NULL,
+      entry_date TEXT NOT NULL,
+      model TEXT NOT NULL,
+      color TEXT,
+      planned_qty INTEGER,
+      order_num INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (team_id, entry_date, model)
+    )
+  `).run().catch(() => {});
+}
+
+let __pphEntryModelsSchemaMigratedOnce = false;
+async function pphEntryModelsEnsureTable(env) {
+  if (__pphEntryModelsSchemaMigratedOnce) return;
+  __pphEntryModelsSchemaMigratedOnce = true;
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS pph_entry_models (
+      id TEXT PRIMARY KEY,
+      team_id TEXT NOT NULL,
+      entry_date TEXT NOT NULL,
+      slot TEXT NOT NULL,
+      model TEXT NOT NULL,
+      actual_qty INTEGER,
+      error_count INTEGER,
+      shortfall_reason TEXT,
+      shortfall_solution TEXT,
+      shortfall_cause_group TEXT,
+      shortfall_cause_sub TEXT,
+      submitted_by TEXT,
+      submitted_at TEXT NOT NULL,
+      UNIQUE(team_id, entry_date, slot, model)
+    )
+  `).run().catch(() => {});
+}
+
+// Danh sách mã PHỤ (đã khai ở Đầu ca) + số liệu từng khung giờ của chúng — dùng CHUNG cho
+// /scan-info, /scan (POST) và /dashboard để không lệch logic "khung đã đủ" (pphSlotFullyFilled)
+// giữa các nơi. Tổ không có mã phụ → extraModels=[] (rỗng), entryModelsBySlot rỗng.
+async function pphGetExtraModelsState(env, teamId, date) {
+  await pphTeamModelsEnsureTable(env);
+  await pphEntryModelsEnsureTable(env);
+  let extraModels = [];
+  try {
+    const r = await env.DB.prepare(
+      "SELECT model, color, planned_qty, order_num FROM pph_team_models WHERE team_id = ? AND entry_date = ? ORDER BY order_num ASC"
+    ).bind(teamId, date).all();
+    extraModels = r.results || [];
+  } catch {}
+  let entryModelRows = [];
+  try {
+    const r = await env.DB.prepare(
+      "SELECT slot, model, actual_qty, error_count, shortfall_reason, shortfall_solution, shortfall_cause_group, shortfall_cause_sub, submitted_by, submitted_at FROM pph_entry_models WHERE team_id = ? AND entry_date = ?"
+    ).bind(teamId, date).all();
+    entryModelRows = r.results || [];
+  } catch {}
+  const entryModelsBySlot = new Map();
+  for (const row of entryModelRows) {
+    if (!entryModelsBySlot.has(row.slot)) entryModelsBySlot.set(row.slot, new Map());
+    entryModelsBySlot.get(row.slot).set(row.model, row);
+  }
+  return { extraModels, entryModelsBySlot };
+}
+
+// 1 khung giờ coi là ĐỦ (đã nộp xong) khi mã chính đã có dòng (primaryFilled) VÀ mọi mã phụ đã khai
+// cũng đã có dòng riêng cho đúng khung đó — Tổ không có mã phụ (extraModels rỗng) thì luôn = y hệt
+// primaryFilled, không đổi gì hành vi cũ (pphResolveStatus vẫn chỉ cần primaryFilled để tiến khung).
+function pphSlotFullyFilled(slot, primaryFilled, extraModels, entryModelsBySlot) {
+  if (!primaryFilled) return false;
+  if (!extraModels || extraModels.length === 0) return true;
+  const bySlotModel = entryModelsBySlot.get(slot);
+  if (!bySlotModel) return false;
+  return extraModels.every((em) => bySlotModel.has(em.model));
+}
+
+// Tính các số liệu cộng dồn theo khung giờ (Mục tiêu/giờ, SLTH, %Đạt cộng dồn, %Quality...) cho 1
+// "luồng" số liệu — DÙNG CHUNG cho mã chính (đọc từ pph_entries, qua bySlotRow) VÀ mỗi mã phụ (đọc
+// từ pph_entry_models) ở GET /dashboard, để Tổ nhiều mã cộng dồn mã phụ bằng ĐÚNG công thức mã
+// chính đang dùng rồi gộp lại — không viết lại công thức lần 2. Trích nguyên công thức đã có từ
+// trước khi có tính năng mã phụ (xem lịch sử GET /dashboard), KHÔNG đổi gì cả.
+function pphComputeSlotMetrics(bySlotRow, plannedQty, qSlots) {
+  const slotDetails = qSlots.map((s) => {
+    const row = bySlotRow.get(s);
+    return {
+      slot: s,
+      actualQty: row ? row.actual_qty : null,
+      errorCount: row && row.error_count != null ? row.error_count : null,
+      filled: !!row,
+      submittedBy: row ? row.submitted_by : null,
+      submittedAt: row ? row.submitted_at : null,
+      shortfallReason: row ? row.shortfall_reason : null,
+      shortfallSolution: row ? row.shortfall_solution : null,
+      shortfallCauseGroup: row ? (row.shortfall_cause_group || null) : null,
+    };
+  });
+  const filledQtySlots = slotDetails.filter((s) => s.filled);
+  const latest = filledQtySlots[filledQtySlots.length - 1] || null;
+  const perHourTarget = plannedQty ? plannedQty / qSlots.length : 0;
+  const cumulativeActual = filledQtySlots.reduce((s, x) => s + (x.actualQty || 0), 0);
+  const cumulativeTarget = perHourTarget * filledQtySlots.length;
+  const qualitySlots = filledQtySlots.filter((s) => s.errorCount != null);
+  const cumulativeErrors = qualitySlots.reduce((s, x) => s + x.errorCount, 0);
+  const cumulativeQualifiedQty = qualitySlots.reduce((s, x) => s + (x.actualQty || 0), 0);
+  const qualityPct = qualitySlots.length > 0 && cumulativeQualifiedQty > 0
+    ? Math.round(((cumulativeQualifiedQty - cumulativeErrors) / cumulativeQualifiedQty) * 1000) / 10
+    : null;
+  const pphLatest = latest ? latest.actualQty : null;
+  const efficiencyPctLatest = latest && perHourTarget > 0 ? Math.round((latest.actualQty / perHourTarget) * 1000) / 10 : null;
+  return { slotDetails, filledQtySlots, perHourTarget, cumulativeActual, cumulativeTarget, qualitySlots, cumulativeErrors, cumulativeQualifiedQty, qualityPct, pphLatest, efficiencyPctLatest, latest };
+}
+
 // "Ràng buộc thời gian" — giờ MỞ/ĐÓNG của từng khung trong 9 khung PPH_SLOTS, DÙNG CHUNG cho toàn
 // hệ thống (không phải riêng từng điểm quét). Giờ MỞ (startTime) giờ đây LÀ MỐC THẬT dùng để chặn
 // nộp sớm trong pphResolveStatus() (đọc qua pphOpenMinutesBySlot()) — admin chỉnh ở đây thì đúng là
@@ -1685,53 +1808,58 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
           // sách cho mọi Tổ nữa vì mỗi Tổ có thể tăng ca khác nhau.
           const qSlots = buildPphSlots(setupRow ? setupRow.production_hours : null).slice(1);
 
-          // Chi tiết từng khung giờ — dùng cho bảng "chi tiết theo khung giờ" khi Dashboard đang lọc
-          // riêng 1 Tổ: cần thêm ai nhập (submittedBy) + lý do/giải pháp hụt chỉ tiêu để bấm xem.
-          const slotDetails = qSlots.map((s) => {
-            const row = bySlot.get(s);
-            return {
-              slot: s,
-              actualQty: row ? row.actual_qty : null,
-              // NULL cho khung nhập TRƯỚC khi có trường Số lỗi (không bịa lỗi=0 cho dữ liệu cũ) —
-              // xem cumulativeErrors/qualityPct bên dưới, chỉ cộng dồn khung nào CÓ giá trị này.
-              errorCount: row && row.error_count != null ? row.error_count : null,
-              filled: !!row,
-              submittedBy: row ? row.submitted_by : null,
-              submittedAt: row ? row.submitted_at : null,
-              shortfallReason: row ? row.shortfall_reason : null,
-              shortfallSolution: row ? row.shortfall_solution : null,
-              shortfallCauseGroup: row ? (row.shortfall_cause_group || null) : null,
-            };
-          });
-          const filledQtySlots = slotDetails.filter((s) => s.filled);
-          const latest = filledQtySlots[filledQtySlots.length - 1] || null;
-
           // Chỉ tiêu/giờ SUY RA từ kế hoạch cả ca chia đều cho ĐÚNG số khung số lượng thật của Tổ
           // này (8 hoặc hơn nếu tăng ca) — pph_org hiện chưa có field "chỉ tiêu/giờ" riêng, đây là
           // cách quy đổi hợp lý nhất từ dữ liệu đầu ca thật đang có (không bịa số).
+          // Mã chính — công thức GIỮ NGUYÊN 100% như trước khi có tính năng "mã phụ" (trích ra hàm
+          // pphComputeSlotMetrics() dùng chung với mã phụ bên dưới, xem định nghĩa ở trên).
           const plannedQty = setupRow ? setupRow.planned_qty : null;
-          const perHourTarget = plannedQty ? plannedQty / qSlots.length : 0;
+          const primary = pphComputeSlotMetrics(bySlot, plannedQty, qSlots);
+          // "Chi tiết từng khung giờ" (bảng xem riêng 1 Tổ) — CHỈ còn số của mã chính, chưa tách
+          // theo mã phụ (xem leaf.modelsBreakdown để biết số cộng dồn riêng từng mã).
+          const slotDetails = primary.slotDetails;
 
-          const cumulativeActual = filledQtySlots.reduce((s, x) => s + (x.actualQty || 0), 0);
-          const cumulativeTarget = perHourTarget * filledQtySlots.length;
-          // % Quality (RFT — Right First Time) = (SL đạt / SL làm ra) × 100, CỘNG DỒN cả ngày —
-          // khớp cách SLTH/% Đạt/PPH TH đang cộng dồn trên thẻ Tổ. Chỉ cộng khung nào CÓ error_count
-          // (bỏ qua khung cũ trước khi có trường này) — không đủ dữ liệu (chưa khung nào có) thì
-          // null, KHÔNG hiện 100% giả (dễ hiểu lầm là đạt tuyệt đối trong khi thực ra chưa có số).
-          const qualitySlots = filledQtySlots.filter((s) => s.errorCount != null);
-          const cumulativeErrors = qualitySlots.reduce((s, x) => s + x.errorCount, 0);
-          const cumulativeQualifiedQty = qualitySlots.reduce((s, x) => s + (x.actualQty || 0), 0);
-          const qualityPct = qualitySlots.length > 0 && cumulativeQualifiedQty > 0
-            ? Math.round(((cumulativeQualifiedQty - cumulativeErrors) / cumulativeQualifiedQty) * 1000) / 10
+          // Mã PHỤ (Tổ khai làm 2+ mã cùng ngày, xem pphGetExtraModelsState) — rỗng cho đa số Tổ,
+          // khi đó mọi field Tổ-level dưới đây cộng thêm đúng 0, ra kết quả giống y hệt trước khi
+          // có tính năng này.
+          const { extraModels, entryModelsBySlot } = await pphGetExtraModelsState(env, leaf.id, date);
+          const extraMetricsList = extraModels.map((em) => {
+            const rowBySlotForModel = new Map();
+            for (const s of qSlots) {
+              const bySlotModelMap = entryModelsBySlot.get(s);
+              const row = bySlotModelMap ? bySlotModelMap.get(em.model) : undefined;
+              if (row) rowBySlotForModel.set(s, row);
+            }
+            const metrics = pphComputeSlotMetrics(rowBySlotForModel, em.planned_qty, qSlots);
+            const emImageUrl = shoeModelMap.get(pphNormalizeShoeCode(em.model)) || null;
+            const emPphStandard = pphResolveStandardPph(pphTargetMap, em.model, leaf.areaName, f.name);
+            return { model: em.model, color: em.color ?? null, plannedQty: em.planned_qty, imageUrl: emImageUrl, pphStandard: emPphStandard, metrics };
+          });
+
+          // Tổ-level = mã chính + CỘNG DỒN mọi mã phụ — Tổ không có mã phụ (extraMetricsList rỗng)
+          // thì mọi .reduce() dưới đây cộng thêm 0, ra ĐÚNG số của mã chính như trước.
+          const perHourTarget = primary.perHourTarget + extraMetricsList.reduce((s, m) => s + m.metrics.perHourTarget, 0);
+          const cumulativeActual = primary.cumulativeActual + extraMetricsList.reduce((s, m) => s + m.metrics.cumulativeActual, 0);
+          const cumulativeTarget = primary.cumulativeTarget + extraMetricsList.reduce((s, m) => s + m.metrics.cumulativeTarget, 0);
+          // % Quality (RFT) — cộng dồn CẢ mã chính VÀ mọi mã phụ rồi tính lại 1 lần, khớp đúng cách
+          // SLTH/%Đạt/PPHTH/%PPH Tổ-level đã cộng dồn ở trên.
+          const allMetricsWithQuality = [primary, ...extraMetricsList.map((m) => m.metrics)].filter((m) => m.qualitySlots.length > 0);
+          const cumulativeErrorsSum = allMetricsWithQuality.reduce((s, m) => s + m.cumulativeErrors, 0);
+          const cumulativeQualifiedQtySum = allMetricsWithQuality.reduce((s, m) => s + m.cumulativeQualifiedQty, 0);
+          const qualityPct = allMetricsWithQuality.length > 0 && cumulativeQualifiedQtySum > 0
+            ? Math.round(((cumulativeQualifiedQtySum - cumulativeErrorsSum) / cumulativeQualifiedQtySum) * 1000) / 10
             : null;
-          const pphLatest = latest ? latest.actualQty : null;
-          const efficiencyPctLatest =
-            latest && perHourTarget > 0 ? Math.round((latest.actualQty / perHourTarget) * 1000) / 10 : null;
+          const hasAnyLatest = primary.pphLatest != null || extraMetricsList.some((m) => m.metrics.pphLatest != null);
+          const pphLatest = hasAnyLatest
+            ? (primary.pphLatest || 0) + extraMetricsList.reduce((s, m) => s + (m.metrics.pphLatest || 0), 0)
+            : null;
+          const efficiencyPctLatest = pphLatest != null && perHourTarget > 0 ? Math.round((pphLatest / perHourTarget) * 1000) / 10 : null;
 
           // Trạng thái nhập: so khung nào ĐÃ TỚI GIỜ MỞ (đọc từ openMinutesBySlot, khớp đúng luật
-          // đang chặn nộp thật ở pphResolveStatus) với khung đã thực sự nhập. "late" nếu có khung
-          // nhập trễ hơn 20 phút so với mốc của nó. Xem NGÀY QUÁ KHỨ thì cả ngày đã qua rồi — mọi
-          // khung đều coi là "đã tới giờ".
+          // đang chặn nộp thật ở pphResolveStatus) với khung đã thực sự nhập ĐỦ (mã chính VÀ mọi mã
+          // phụ — pphSlotFullyFilled; Tổ không có mã phụ thì y hệt "đã có dòng mã chính" như cũ).
+          // "late" nếu có khung nhập trễ hơn 20 phút so với mốc của nó. Xem NGÀY QUÁ KHỨ thì cả ngày
+          // đã qua rồi — mọi khung đều coi là "đã tới giờ".
           // Tạm ngưng sản xuất (leaf.paused, bật ở Cài Đặt) → LUÔN "paused", bỏ qua mọi luật
           // missing/late/ontime bên dưới — dù có/không có setupRow cũng không còn chớp đỏ/nhắc nữa.
           let entryStatus = "missing";
@@ -1749,7 +1877,7 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
             entryStatus = notYetDue ? "ontime" : "missing";
           } else {
             const dueSlots = isToday ? qSlots.filter((s) => nowMin >= pphOpenMinutesFor(s, openMinutesBySlot)) : qSlots;
-            const dueFilled = dueSlots.every((s) => bySlot.has(s));
+            const dueFilled = dueSlots.every((s) => pphSlotFullyFilled(s, bySlot.has(s), extraModels, entryModelsBySlot));
             if (dueSlots.length === 0 || dueFilled) {
               const anyLate = dueSlots.some((s) => {
                 const row = bySlot.get(s);
@@ -1775,6 +1903,40 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
           // null), xem pphResolveStandardPph() ở trên. Không tìm thấy mã/Xưởng không có trong file
           // IE thì null như cũ.
           const pphStandard = setupRow && setupRow.model ? pphResolveStandardPph(pphTargetMap, setupRow.model, leaf.areaName, f.name) : null;
+
+          // Dải chi tiết theo mã (cho thẻ TV hiện thêm bên dưới khung tổng) — CHỈ gửi xuống khi Tổ
+          // thật sự có ≥1 mã phụ; đa số Tổ (chỉ 1 mã) sẽ là undefined (không gửi field này xuống
+          // JSON), FE không hiện gì thêm — giao diện y hệt trước khi có tính năng này. Gồm cả mã
+          // chính để FE không phải tự ghép lại từ leaf.setup.
+          const modelsBreakdown = extraMetricsList.length > 0
+            ? [
+                {
+                  model: setupRow ? setupRow.model : null,
+                  color: setupRow ? (setupRow.color ?? null) : null,
+                  plannedQty,
+                  imageUrl: modelImageUrl || null,
+                  pphStandard,
+                  perHourTarget: Math.round(primary.perHourTarget * 10) / 10,
+                  cumulativeActual: primary.cumulativeActual,
+                  cumulativeTarget: Math.round(primary.cumulativeTarget),
+                  cumulativeErrors: primary.qualitySlots.length > 0 ? primary.cumulativeErrors : null,
+                  qualityPct: primary.qualityPct,
+                },
+                ...extraMetricsList.map((m) => ({
+                  model: m.model,
+                  color: m.color,
+                  plannedQty: m.plannedQty,
+                  imageUrl: m.imageUrl,
+                  pphStandard: m.pphStandard,
+                  perHourTarget: Math.round(m.metrics.perHourTarget * 10) / 10,
+                  cumulativeActual: m.metrics.cumulativeActual,
+                  cumulativeTarget: Math.round(m.metrics.cumulativeTarget),
+                  cumulativeErrors: m.metrics.qualitySlots.length > 0 ? m.metrics.cumulativeErrors : null,
+                  qualityPct: m.metrics.qualityPct,
+                })),
+              ]
+            : undefined;
+
           leafOut.push({
             id: leaf.id,
             name: leaf.name,
@@ -1802,9 +1964,10 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
             perHourTarget: Math.round(perHourTarget * 10) / 10,
             cumulativeActual,
             cumulativeTarget: Math.round(cumulativeTarget),
-            cumulativeErrors: qualitySlots.length > 0 ? cumulativeErrors : null,
+            cumulativeErrors: allMetricsWithQuality.length > 0 ? cumulativeErrorsSum : null,
             qualityPct,
             entryStatus,
+            modelsBreakdown,
           });
         }
         factoriesOut.push({ id: f.id, name: f.name, leaves: leafOut });
@@ -1901,11 +2064,17 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
     } catch {}
     const bySlot = new Map(results.map((r) => [r.slot, r]));
     const setupDone = bySlot.has("08:00");
-    const filledSlots = new Set([...bySlot.keys()].filter((s) => s !== "08:00"));
     const setupRow = bySlot.get("08:00");
     // Khung số lượng THẬT trong ngày — 8 khung chuẩn, hoặc nhiều hơn nếu Tổ khai "Thời gian sản
     // xuất" > 8 giờ (tăng ca) lúc Cập nhật đầu ca, xem buildPphSlots().
     const slots = buildPphSlots(setupRow ? setupRow.production_hours : null);
+    // Mã PHỤ (Tổ khai làm 2+ mã cùng ngày, xem pphGetExtraModelsState) — rỗng cho đa số Tổ (chỉ 1
+    // mã), khi đó fullyFilledSlots dưới đây luôn = đúng các khung đã có dòng mã chính, KHÔNG đổi gì
+    // hành vi cũ.
+    const { extraModels, entryModelsBySlot } = await pphGetExtraModelsState(env, teamId, date);
+    const filledSlots = new Set(
+      [...bySlot.keys()].filter((s) => s !== "08:00" && pphSlotFullyFilled(s, true, extraModels, entryModelsBySlot))
+    );
     const openMinutesBySlot = await pphOpenMinutesBySlot(env);
     const resolved = pphResolveStatus(setupDone, filledSlots, openMinutesBySlot, slots);
     // Mục tiêu/giờ — suy ra từ kế hoạch cả ca chia đều cho ĐÚNG số khung số lượng thật (8 hoặc hơn
@@ -1914,6 +2083,15 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
     // /scan (Math.round(perHourTarget) so với actualQty là số nguyên) và tránh hiện "Mục tiêu: 23,1
     // đôi/giờ" trong khi thực tế nhập đúng 23 đã coi là đạt, gây hoang mang.
     const perHourTarget = setupRow && setupRow.planned_qty ? Math.round(setupRow.planned_qty / (slots.length - 1)) : null;
+    // Mục tiêu/giờ RIÊNG của mỗi mã phụ — cùng công thức trên, nhưng theo Sản lượng kế hoạch riêng
+    // của từng mã (khai ở Đầu ca cùng lúc với mã chính) — FE dùng hiện nhãn + tự phát hiện hụt chỉ
+    // tiêu NGAY TRONG LÚC GÕ cho từng mã, giống hệt mã chính.
+    const extraModelsOut = extraModels.map((em) => ({
+      model: em.model,
+      color: em.color ?? null,
+      plannedQty: em.planned_qty,
+      perHourTarget: em.planned_qty ? Math.round(em.planned_qty / (slots.length - 1)) : null,
+    }));
 
     // Dữ liệu ĐẦY ĐỦ từng khung giờ trong ngày (kể cả khung đầu ca) — cho FE dựng bảng "xem lại các
     // khung đã quét" (chỉ xem, không sửa được) khi bấm vào ô giờ hiện tại.
@@ -1949,6 +2127,7 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
       filledSlots: [...bySlot.keys()],
       entries,
       perHourTarget,
+      extraModels: extraModelsOut,
       setup: setupRow
         ? {
             workerCount: setupRow.worker_count,
@@ -1990,7 +2169,14 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
       const slots = buildPphSlots(setupRow ? setupRow.production_hours : null);
       const perHourTarget = setupRow && setupRow.planned_qty ? setupRow.planned_qty / (slots.length - 1) : 0;
       const openMinutesBySlot = await pphOpenMinutesBySlot(env);
-      const resolved = pphResolveStatus(setupDone, filled, openMinutesBySlot, slots);
+      // Mã PHỤ (Tổ khai làm 2+ mã cùng ngày) — khung giờ chỉ coi là ĐỦ (tiến sang khung kế tiếp)
+      // khi mọi mã phụ CŨNG đã có dòng riêng cho khung đó, không chỉ riêng mã chính. Tổ không có mã
+      // phụ (đa số) → fullyFilled luôn = filled, KHÔNG đổi gì hành vi cũ.
+      const { extraModels, entryModelsBySlot } = await pphGetExtraModelsState(env, teamId, date);
+      const fullyFilled = new Set(
+        [...filled].filter((s) => s === "08:00" || pphSlotFullyFilled(s, true, extraModels, entryModelsBySlot))
+      );
+      const resolved = pphResolveStatus(setupDone, fullyFilled, openMinutesBySlot, slots);
 
       // Gửi lại số liệu lưu tạm (rớt mạng): form gửi kèm ngày + khung giờ đang nhập. Khung đó đã có số
       // liệu → coi như đã lưu (lần gửi trước tới được server); không khớp khung đang mở → KHÔNG ghi sang khung khác.
@@ -2054,6 +2240,27 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
           ).bind(id, teamId, date, slot, workerCount, model, color || null, plannedQty, targetRft, productionHours, submittedBy, nowIso).run();
         } catch {
           return pphJson({ success: false, error: "Đã có người cập nhật đầu giờ hôm nay rồi" }, 409);
+        }
+
+        // Mã PHỤ — Tổ sản xuất THÊM 1 (hoặc nhiều) mã khác CÙNG lúc với mã chính trong ngày hôm nay
+        // (khai 1 lần duy nhất ở đây, không đổi được giữa ngày) — mỗi mã có Màu + Sản lượng kế hoạch
+        // riêng, giống mã chính. Tổ chỉ 1 mã (đa số) → body.extraModels rỗng/không có, không chạy gì
+        // thêm ở đây — hành vi y hệt trước khi có tính năng này.
+        const extraModelsInput = Array.isArray(body.extraModels) ? body.extraModels : [];
+        if (extraModelsInput.length > 0) {
+          await pphTeamModelsEnsureTable(env);
+          for (let i = 0; i < extraModelsInput.length; i++) {
+            const em = extraModelsInput[i] || {};
+            const emModel = String(em.model || "").trim();
+            const emPlannedQty = Number(em.plannedQty);
+            if (!emModel) return pphJson({ success: false, error: `Vui lòng nhập Model cho mã phụ #${i + 1}` }, 400);
+            if (emModel.toUpperCase() === model.toUpperCase()) return pphJson({ success: false, error: `Mã phụ #${i + 1} ("${emModel}") không được trùng mã chính` }, 400);
+            if (!Number.isFinite(emPlannedQty) || emPlannedQty <= 0) return pphJson({ success: false, error: `Vui lòng nhập đúng Sản lượng kế hoạch cho mã "${emModel}"` }, 400);
+            const emColor = String(em.color || "").trim().slice(0, 50);
+            await env.DB.prepare(
+              "INSERT INTO pph_team_models (team_id, entry_date, model, color, planned_qty, order_num) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(team_id, entry_date, model) DO UPDATE SET color = excluded.color, planned_qty = excluded.planned_qty, order_num = excluded.order_num"
+            ).bind(teamId, date, emModel, emColor || null, emPlannedQty, i + 1).run();
+          }
         }
       } else {
         const actualQty = Number(body.actualQty);
@@ -2119,6 +2326,68 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
           ).bind(id, teamId, date, slot, actualQty, errorCount, shortfallReason, isShortfall ? shortfallSolution : null, shortfallCauseGroup, shortfallCauseSub, submittedBy, nowIso).run();
         } catch {
           return pphJson({ success: false, error: `Khung giờ ${slot} đã được cập nhật rồi` }, 409);
+        }
+
+        // Mã PHỤ — số liệu riêng của các mã thứ 2, 3... trong CÙNG khung giờ này (Tổ đã khai ở Đầu
+        // ca, xem nhánh setup phía trên). Mỗi mã tính hụt chỉ tiêu RIÊNG theo Mục tiêu/giờ của
+        // chính mã đó (planned_qty riêng / cùng số khung slots.length-1 như mã chính — Thời gian
+        // sản xuất là chung cả Tổ). Tổ không có mã phụ → extraModelsInput rỗng, không chạy gì thêm.
+        const extraModelsInput = Array.isArray(body.extraModels) ? body.extraModels : [];
+        if (extraModelsInput.length > 0) {
+          await pphEntryModelsEnsureTable(env);
+          const { extraModels: declaredExtraModels } = await pphGetExtraModelsState(env, teamId, date);
+          for (const em of extraModelsInput) {
+            const emModel = String(em?.model || "").trim();
+            const declared = declaredExtraModels.find((d) => d.model === emModel);
+            if (!declared) return pphJson({ success: false, error: `Mã "${emModel}" chưa được khai ở Đầu ca` }, 400);
+            const emQty = Number(em?.actualQty);
+            if (!Number.isFinite(emQty) || emQty < 0) return pphJson({ success: false, error: `Vui lòng nhập đúng Số lượng cho mã "${emModel}"` }, 400);
+            const emErr = Number(em?.errorCount);
+            if (!Number.isFinite(emErr) || emErr < 0) return pphJson({ success: false, error: `Vui lòng nhập đúng Số lỗi cho mã "${emModel}"` }, 400);
+            if (emErr > emQty) return pphJson({ success: false, error: `Số lỗi không thể lớn hơn Số lượng (mã "${emModel}")` }, 400);
+            const emPerHourTarget = declared.planned_qty ? declared.planned_qty / (slots.length - 1) : 0;
+            const emIsShortfall = emPerHourTarget > 0 && emQty < Math.round(emPerHourTarget);
+            let emShortfallReason = null, emShortfallSolution = null, emShortfallCauseGroup = null, emShortfallCauseSub = null;
+            if (emIsShortfall) {
+              const sol = String(em?.shortfallSolution || "").trim();
+              if (!sol) return pphJson({ success: false, error: `Mã "${emModel}" đang hụt mục tiêu/giờ — vui lòng nhập Giải pháp` }, 400);
+              emShortfallSolution = sol;
+              const groupId = String(em?.shortfallCauseGroupId || "").trim();
+              const subId = String(em?.shortfallCauseSubId || "").trim();
+              const detail = String(em?.shortfallDetail || "").trim();
+              if (groupId === PPH_CAUSE_OTHER_ID) {
+                if (!detail) return pphJson({ success: false, error: `Vui lòng mô tả nguyên nhân cụ thể cho mã "${emModel}"` }, 400);
+                emShortfallCauseGroup = "Khác";
+                emShortfallReason = `Khác: ${detail}`;
+              } else {
+                if (!groupId) return pphJson({ success: false, error: `Mã "${emModel}" đang hụt mục tiêu/giờ — vui lòng chọn Nhóm nguyên nhân` }, 400);
+                const causes = await pphGetShortfallCauses(env);
+                const g = causes.find((x) => x.id === groupId);
+                if (!g) return pphJson({ success: false, error: "Nhóm nguyên nhân không còn hợp lệ — vui lòng tải lại trang" }, 400);
+                emShortfallCauseGroup = g.name;
+                if (!subId) return pphJson({ success: false, error: `Vui lòng chọn chi tiết nguyên nhân cho nhóm "${g.name}" (mã "${emModel}")` }, 400);
+                if (subId === PPH_CAUSE_OTHER_ID) {
+                  if (!detail) return pphJson({ success: false, error: `Vui lòng mô tả nguyên nhân cụ thể cho mã "${emModel}"` }, 400);
+                  emShortfallCauseSub = "Khác";
+                  emShortfallReason = `${g.name} › Khác: ${detail}`;
+                } else {
+                  const s = g.subs.find((x) => x.id === subId);
+                  if (!s) return pphJson({ success: false, error: "Chi tiết nguyên nhân không còn hợp lệ — vui lòng tải lại trang" }, 400);
+                  emShortfallCauseSub = s.name;
+                  emShortfallReason = `${g.name} › ${s.name}`;
+                }
+              }
+            }
+            const emId = `pphm_${teamId}_${date}_${slot}_${emModel}`.replace(/[^a-zA-Z0-9_-]/g, "_");
+            try {
+              await env.DB.prepare(
+                "INSERT INTO pph_entry_models (id, team_id, entry_date, slot, model, actual_qty, error_count, shortfall_reason, shortfall_solution, shortfall_cause_group, shortfall_cause_sub, submitted_by, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+              ).bind(emId, teamId, date, slot, emModel, emQty, emErr, emShortfallReason, emIsShortfall ? emShortfallSolution : null, emShortfallCauseGroup, emShortfallCauseSub, submittedBy, nowIso).run();
+            } catch {
+              // Mã này của khung giờ này đã có dòng rồi (VD gửi lại do rớt mạng, mã chính vừa chặn ở
+              // trên bằng thông báo riêng nếu mới — ở đây bỏ qua yên lặng, không chặn cả request).
+            }
+          }
         }
       }
 
@@ -2921,7 +3190,34 @@ async function mmtbMdGetProposals(env) {
 
 async function mmtbMdGetWorkRequests(env) {
   const r = await mmtbMdCall(env, "/api/mobile/work-requests");
-  return r.ok ? { success: true, data: r.data } : { success: false, error: (r.data && r.data.error) || "Không lấy được dữ liệu Việc khác từ MMTB SK Miền Đông", status: r.status };
+  if (!r.ok) return { success: false, error: (r.data && r.data.error) || "Không lấy được dữ liệu Việc khác từ MMTB SK Miền Đông", status: r.status };
+  // QUAN TRỌNG: GET /api/mobile/work-requests phía tbsMayMoc CHỦ Ý không lọc gì cho tài khoản vai
+  // trò ADMIN (viết riêng cho trang MMTB Kiên Giang xem "Toàn bộ Tổ hợp KG" — xem chú thích route
+  // đó) — tài khoản ADSKMD của ta CŨNG đăng nhập vai trò ADMIN nên bị dính y hệt, trả về "Việc
+  // khác" của MỌI nhà máy trong tbsMayMoc (không riêng SKMD). Lọc lại ở đây theo area.id khớp
+  // đúng danh sách Khu vực CỦA RIÊNG SKMD — /api/categories CÓ lọc đúng theo scopeFactoryIds của
+  // tài khoản (đã xác nhận đúng ở mmtbMdGetMachines dùng chung cơ chế requireAdmin()+scopeFactoryIds).
+  const areaRes = await mmtbMdGetCategories(env, "AREA");
+  const validAreaIds = areaRes.success && Array.isArray(areaRes.data) ? new Set(areaRes.data.map((a) => a.id)) : null;
+  const items = Array.isArray(r.data && r.data.items)
+    ? (validAreaIds ? r.data.items.filter((it) => it.area && validAreaIds.has(it.area.id)) : r.data.items)
+    : (r.data && r.data.items);
+  // counts gốc từ tbsMayMoc cũng tính trên TOÀN BỘ (chưa lọc) — tính lại cho khớp đúng items đã lọc
+  // ở trên, dù FE trang "Nhu Cầu Sửa Chữa" hiện chỉ dùng items.length cho ô "Việc khác", không
+  // dùng counts này (để phòng chỗ khác sau này có dùng tới).
+  // `items` (sau khi lọc area) chỉ chứa việc DONE của HÔM NAY (tbsMayMoc tự giới hạn vậy ngay
+  // trong câu query items — DONE từ hôm trước không lọt vào) — nên suy được đúng DONE_TODAY đã lọc
+  // area, nhưng KHÔNG đủ dữ liệu để suy lại DONE mọi-thời-điểm gốc (counts.DONE), để null thay vì
+  // báo nhầm số của toàn bộ tbsMayMoc.
+  const counts = Array.isArray(items)
+    ? {
+        PENDING: items.filter((it) => it.status === "PENDING").length,
+        ACCEPTED: items.filter((it) => it.status === "ACCEPTED").length,
+        DONE: null,
+        DONE_TODAY: items.filter((it) => it.status === "DONE").length,
+      }
+    : (r.data && r.data.counts) || null;
+  return { success: true, data: { ...r.data, items, counts } };
 }
 
 async function mmtbMdGetEmployees(env) {

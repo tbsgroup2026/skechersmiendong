@@ -21,6 +21,8 @@ import {
   IconArrowsLeftRight,
   IconPalette,
   IconGauge,
+  IconPlus,
+  IconTrash,
 } from '@tabler/icons-react';
 
 type PphSlotEntry = {
@@ -36,6 +38,11 @@ type PphSlotEntry = {
   shortfallSolution?: string | null;
 };
 
+// Mã PHỤ — Tổ khai làm THÊM 1 (hay nhiều) mã khác CÙNG lúc với mã chính trong ngày hôm nay (có thể
+// ra sản phẩm CÙNG 1 khung giờ với mã chính, không phải chỉ đổi mã giữa ngày) — khai 1 lần duy
+// nhất ở Đầu ca, xem pphGetExtraModelsState() bên _worker.js. Tổ chỉ 1 mã (đa số) thì mảng này rỗng.
+type ExtraModelInfo = { model: string; color?: string | null; plannedQty: number | null; perHourTarget: number | null };
+
 type ScanInfo = {
   success: boolean;
   error?: string;
@@ -45,6 +52,7 @@ type ScanInfo = {
   filledSlots?: string[];
   entries?: PphSlotEntry[];
   perHourTarget?: number | null;
+  extraModels?: ExtraModelInfo[];
   setup?: { workerCount: number; model: string; color?: string | null; plannedQty: number; productionHours: number | null } | null;
   nextAction?: 'setup' | 'quantity' | 'wait' | 'done';
   targetSlot?: string | null;
@@ -155,6 +163,30 @@ export default function PphScanClient() {
   const [modelPph, setModelPph] = useState('');
   const [pphTargets, setPphTargets] = useState<Map<string, PphTargetRow>>(new Map());
   const [modelPphTouched, setModelPphTouched] = useState(false);
+
+  // Mã PHỤ — Tổ sản xuất THÊM 1 (hay nhiều) mã khác CÙNG lúc với mã chính trong ngày hôm nay, khai
+  // 1 lần duy nhất ở Đầu ca (không đổi được giữa ngày) — xem ExtraModelInfo. Danh sách này CHỈ dùng
+  // ở màn Đầu ca (isSetup); mỗi dòng có Mã + Màu + Sản lượng kế hoạch + PPH chuẩn RIÊNG, giống y hệt
+  // mã chính (model/color/plannedQty/modelPph phía trên).
+  const [extraModelsSetup, setExtraModelsSetup] = useState<
+    { model: string; color: string; plannedQty: string; modelPph: string; modelPphTouched: boolean }[]
+  >([]);
+  // Số liệu khung giờ của từng mã phụ — khởi tạo lại từ info.extraModels mỗi khi ĐỔI khung giờ
+  // (xem effect bên dưới), KHÔNG đổi khi info chỉ tải lại nền (silent) cùng 1 khung, để không mất số
+  // tổ trưởng đang gõ giữa đường.
+  type ExtraModelQtyRow = {
+    model: string;
+    color?: string | null;
+    perHourTarget: number | null;
+    actualQty: string;
+    errorCount: string;
+    causeGroupId: string;
+    causeSubId: string;
+    causeDetail: string;
+    shortfallSolution: string;
+  };
+  const [extraModelQty, setExtraModelQty] = useState<ExtraModelQtyRow[]>([]);
+
   const [actualQty, setActualQty] = useState('');
   const [errorCount, setErrorCount] = useState('');
   // Nguyên nhân hụt chỉ tiêu — combobox 2 cấp (nhóm 5M1E › chi tiết), "Khác" thì nhập tự do ở ô riêng.
@@ -339,6 +371,31 @@ export default function PphScanClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model, pphTargets]);
 
+  // Khởi tạo lại danh sách "số liệu khung giờ của mã phụ" mỗi khi ĐỔI khung giờ (targetSlot đổi) —
+  // lấy danh sách mã phụ Tổ đã khai ở Đầu ca (info.extraModels) rồi tạo ô nhập trống cho khung mới,
+  // giống cách actualQty/errorCount của mã chính được dọn trống sau mỗi lần nộp thành công. Tổ
+  // không có mã phụ → info.extraModels rỗng/không có → extraModelQty luôn rỗng, không hiện gì thêm.
+  useEffect(() => {
+    const list = info?.extraModels || [];
+    setExtraModelQty(
+      list.map((em) => ({
+        model: em.model,
+        color: em.color ?? null,
+        perHourTarget: em.perHourTarget ?? null,
+        actualQty: '',
+        errorCount: '',
+        causeGroupId: '',
+        causeSubId: '',
+        causeDetail: '',
+        shortfallSolution: '',
+      }))
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info?.targetSlot]);
+
+  function updateExtraModelQty(index: number, patch: Partial<ExtraModelQtyRow>) {
+    setExtraModelQty((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
 
   // Sau khi ghi nhận thành công, tự chuyển sang khung giờ TIẾP THEO mà KHÔNG cần quét lại mã QR —
   // tải lại thông tin sau ~1.8s (đủ để đọc dòng "Đã ghi nhận!"), rồi hiện thẳng form của khung kế
@@ -527,6 +584,22 @@ export default function PphScanClient() {
         body.model = model.trim();
         body.color = color.trim();
         body.plannedQty = pq;
+        // Mã PHỤ — Tổ khai làm THÊM mã khác cùng ngày hôm nay (xem extraModelsSetup phía trên).
+        // Danh sách rỗng (đa số Tổ, chỉ 1 mã) → KHÔNG gửi body.extraModels, hành vi y hệt trước khi
+        // có tính năng này.
+        if (extraModelsSetup.length > 0) {
+          const extraOut: { model: string; color: string; plannedQty: number }[] = [];
+          for (let i = 0; i < extraModelsSetup.length; i++) {
+            const em = extraModelsSetup[i];
+            if (!em.model.trim()) { setFormError(`Vui lòng nhập Model cho mã phụ #${i + 1}`); setSubmitting(false); return; }
+            const emPq = Number(em.plannedQty);
+            if (!Number.isFinite(emPq) || emPq <= 0) { setFormError(`Vui lòng nhập đúng Sản lượng kế hoạch cho mã "${em.model.trim()}"`); setSubmitting(false); return; }
+            const emMp = Number(em.modelPph);
+            if (!Number.isFinite(emMp) || emMp < 0) { setFormError(`Vui lòng nhập đúng PPH chuẩn cho mã "${em.model.trim()}"`); setSubmitting(false); return; }
+            extraOut.push({ model: em.model.trim(), color: em.color.trim(), plannedQty: emPq });
+          }
+          body.extraModels = extraOut;
+        }
       } else {
         const aq = Number(actualQty);
         if (!Number.isFinite(aq) || aq < 0) { setFormError('Vui lòng nhập đúng Số lượng'); setSubmitting(false); return; }
@@ -546,6 +619,36 @@ export default function PphScanClient() {
           if (!causeGroupIsOther) body.shortfallCauseSubId = causeSubId;
           if (needCauseDetail) body.shortfallDetail = causeDetail.trim();
           body.shortfallSolution = shortfallSolution.trim();
+        }
+
+        // Mã PHỤ — số liệu riêng của các mã thứ 2, 3... trong CÙNG khung giờ này (đã khai ở Đầu ca,
+        // xem extraModelQty phía trên). Rỗng (đa số Tổ) → KHÔNG gửi body.extraModels.
+        if (extraModelQty.length > 0) {
+          const extraOut: Record<string, unknown>[] = [];
+          for (const em of extraModelQty) {
+            const emAq = Number(em.actualQty);
+            if (!Number.isFinite(emAq) || emAq < 0) { setFormError(`Vui lòng nhập đúng Số lượng cho mã "${em.model}"`); setSubmitting(false); return; }
+            const emEc = Number(em.errorCount);
+            if (!Number.isFinite(emEc) || emEc < 0) { setFormError(`Vui lòng nhập đúng Số lỗi cho mã "${em.model}"`); setSubmitting(false); return; }
+            if (emEc > emAq) { setFormError(`Số lỗi không thể lớn hơn Số lượng (mã "${em.model}")`); setSubmitting(false); return; }
+            const emOut: Record<string, unknown> = { model: em.model, actualQty: emAq, errorCount: emEc };
+            const emIsShortfall = em.perHourTarget != null && em.perHourTarget > 0 && emAq < Math.round(em.perHourTarget);
+            if (emIsShortfall) {
+              const emCauseGroupIsOther = em.causeGroupId === CAUSE_OTHER_ID;
+              if (!em.causeGroupId) { setFormError(`Mã "${em.model}" đang hụt Mục tiêu/giờ — vui lòng chọn Nhóm nguyên nhân`); setSubmitting(false); return; }
+              if (!emCauseGroupIsOther && !em.causeSubId) { setFormError(`Vui lòng chọn chi tiết nguyên nhân cho mã "${em.model}"`); setSubmitting(false); return; }
+              const emCauseSubIsOther = em.causeSubId === CAUSE_OTHER_ID;
+              const emNeedDetail = emCauseGroupIsOther || (!!em.causeGroupId && !emCauseGroupIsOther && emCauseSubIsOther);
+              if (emNeedDetail && !em.causeDetail.trim()) { setFormError(`Vui lòng mô tả nguyên nhân cụ thể cho mã "${em.model}"`); setSubmitting(false); return; }
+              if (!em.shortfallSolution.trim()) { setFormError(`Mã "${em.model}" đang hụt Mục tiêu/giờ — vui lòng nhập Giải pháp`); setSubmitting(false); return; }
+              emOut.shortfallCauseGroupId = em.causeGroupId;
+              if (!emCauseGroupIsOther) emOut.shortfallCauseSubId = em.causeSubId;
+              if (emNeedDetail) emOut.shortfallDetail = em.causeDetail.trim();
+              emOut.shortfallSolution = em.shortfallSolution.trim();
+            }
+            extraOut.push(emOut);
+          }
+          body.extraModels = extraOut;
         }
       }
       const res = await fetch('/api/pph/scan', {
@@ -573,6 +676,21 @@ export default function PphScanClient() {
             pph: Number(modelPph),
           }),
         }).catch(() => {});
+        // Mã PHỤ — lưu luôn PPH chuẩn của TỪNG mã phụ vào cùng bảng, giống mã chính ở trên.
+        for (const em of extraModelsSetup) {
+          if (!em.model.trim()) continue;
+          fetch('/api/pph/shoe-pph-targets/one', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              code: em.model.trim(),
+              areaName: info.team.areaName,
+              factoryName: info.team.factoryName,
+              pph: Number(em.modelPph),
+            }),
+          }).catch(() => {});
+        }
+        setExtraModelsSetup([]);
       }
       try {
         window.localStorage.setItem(REMEMBERED_NAME_KEY, finalName);
@@ -800,6 +918,72 @@ export default function PphScanClient() {
                   : '—'}
               </span>
             </div>
+
+            {/* Mã PHỤ — Tổ làm THÊM 1 (hay nhiều) mã khác CÙNG lúc với mã chính trong ngày hôm nay
+                (có thể ra sản phẩm CÙNG 1 khung giờ với mã chính) — khai 1 lần duy nhất ở đây,
+                KHÔNG đổi/thêm được giữa ngày nữa. Phần lớn Tổ chỉ 1 mã — bỏ qua hẳn phần này. */}
+            {extraModelsSetup.map((em, idx) => (
+              <div key={idx} className="relative space-y-3 p-3.5 rounded-xl bg-amber-50/50 border border-amber-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-amber-700 uppercase tracking-wide">Mã phụ #{idx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => setExtraModelsSetup((prev) => prev.filter((_, i) => i !== idx))}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-rose-500 hover:bg-rose-100"
+                  >
+                    <IconTrash size={15} />
+                  </button>
+                </div>
+                <Field label="Model sản xuất (mã phụ) *" icon={IconShoe}>
+                  <ModelAutocompleteInput
+                    value={em.model}
+                    onChange={(v) => setExtraModelsSetup((prev) => prev.map((x, i) => (i === idx ? { ...x, model: v } : x)))}
+                    shoeModels={shoeModels}
+                    placeholder="VD: 4443"
+                  />
+                </Field>
+                <Field label="PPH chuẩn mã này (đôi/người/giờ) *" icon={IconGauge}>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    value={em.modelPph}
+                    onChange={(e) =>
+                      setExtraModelsSetup((prev) => prev.map((x, i) => (i === idx ? { ...x, modelPph: e.target.value, modelPphTouched: true } : x)))
+                    }
+                    placeholder="VD: 1.92"
+                    className="w-full px-3.5 py-3 bg-white border border-amber-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500"
+                  />
+                </Field>
+                <Field label="Màu sắc" icon={IconPalette}>
+                  <input
+                    value={em.color}
+                    onChange={(e) => setExtraModelsSetup((prev) => prev.map((x, i) => (i === idx ? { ...x, color: e.target.value } : x)))}
+                    placeholder="VD: Đỏ"
+                    className="w-full px-3.5 py-3 bg-white border border-amber-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500"
+                  />
+                </Field>
+                <Field label="Sản lượng kế hoạch cả ca (mã này) *" icon={IconTarget}>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    value={em.plannedQty}
+                    onChange={(e) => setExtraModelsSetup((prev) => prev.map((x, i) => (i === idx ? { ...x, plannedQty: e.target.value } : x)))}
+                    placeholder="VD: 150"
+                    className="w-full px-3.5 py-3 bg-white border border-amber-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500"
+                  />
+                </Field>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setExtraModelsSetup((prev) => [...prev, { model: '', color: '', plannedQty: '', modelPph: '', modelPphTouched: false }])}
+              className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl border-2 border-dashed border-amber-300 text-amber-700 text-xs font-bold hover:bg-amber-50"
+            >
+              <IconPlus size={15} /> Thêm mã khác (nếu Tổ làm thêm 1 mã khác hôm nay)
+            </button>
           </>
         ) : (
           <>
@@ -920,6 +1104,113 @@ export default function PphScanClient() {
                 </Field>
               </div>
             )}
+
+            {/* Mã PHỤ — số liệu riêng của các mã thứ 2, 3... Tổ đã khai ở Đầu ca, ra sản phẩm CÙNG
+                khung giờ này với mã chính ở trên. Rỗng (đa số Tổ, chỉ 1 mã) → không hiện gì thêm. */}
+            {extraModelQty.map((em, idx) => {
+              const emParsedQty = em.actualQty === '' ? null : Number(em.actualQty);
+              const emShortfallAmount =
+                em.perHourTarget != null && emParsedQty != null && Number.isFinite(emParsedQty) ? em.perHourTarget - emParsedQty : null;
+              const emIsShortfallNow = em.perHourTarget != null && em.perHourTarget > 0 && emShortfallAmount != null && emShortfallAmount > 0;
+              const emCauseGroupIsOther = em.causeGroupId === CAUSE_OTHER_ID;
+              const emSelectedCauseGroup = causeGroups.find((g) => g.id === em.causeGroupId) || null;
+              const emCauseSubIsOther = em.causeSubId === CAUSE_OTHER_ID;
+              const emNeedCauseDetail = emCauseGroupIsOther || (!!em.causeGroupId && !emCauseGroupIsOther && emCauseSubIsOther);
+              return (
+                <div key={em.model} className="space-y-3 p-3.5 rounded-xl bg-amber-50/50 border border-amber-200">
+                  <span className="text-xs font-black text-amber-700 uppercase tracking-wide">
+                    Mã phụ: SN {em.model}
+                    {em.color ? ` ${em.color}` : ''}
+                  </span>
+                  <Field
+                    label={`Số lượng làm được — ${em.model} (${info.targetSlot}) *`}
+                    hint={em.perHourTarget != null ? `Mục tiêu: ${em.perHourTarget} đôi/giờ` : undefined}
+                    icon={IconChartBar}
+                  >
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      value={em.actualQty}
+                      onChange={(e) => updateExtraModelQty(idx, { actualQty: e.target.value })}
+                      placeholder="VD: 20"
+                      className="w-full px-3.5 py-3 bg-white border border-amber-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500"
+                    />
+                  </Field>
+                  <Field label={`Số lỗi — ${em.model} *`} icon={IconBug}>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={em.actualQty || undefined}
+                      value={em.errorCount}
+                      onChange={(e) => updateExtraModelQty(idx, { errorCount: e.target.value })}
+                      placeholder="VD: 1"
+                      className="w-full px-3.5 py-3 bg-white border border-amber-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500"
+                    />
+                  </Field>
+
+                  {emIsShortfallNow && (
+                    <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 space-y-3">
+                      <p className="text-xs font-bold text-rose-700 flex items-center gap-1.5">
+                        <IconAlertTriangle size={14} className="shrink-0" />
+                        Mã {em.model} đang âm {emShortfallAmount} đôi so với Mục tiêu/giờ
+                      </p>
+                      <Field label="Nhóm nguyên nhân *" icon={IconAlertTriangle}>
+                        <select
+                          value={em.causeGroupId}
+                          onChange={(e) => updateExtraModelQty(idx, { causeGroupId: e.target.value, causeSubId: '', causeDetail: '' })}
+                          className="w-full px-3.5 py-3 bg-white border border-rose-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-rose-400"
+                        >
+                          <option value="">— Chọn nhóm nguyên nhân —</option>
+                          {causeGroups.map((g) => (
+                            <option key={g.id} value={g.id}>{g.name}</option>
+                          ))}
+                          <option value={CAUSE_OTHER_ID}>Khác</option>
+                        </select>
+                      </Field>
+
+                      {em.causeGroupId && !emCauseGroupIsOther && emSelectedCauseGroup && (
+                        <Field label="Chi tiết nguyên nhân *" icon={IconChevronRight}>
+                          <select
+                            value={em.causeSubId}
+                            onChange={(e) => updateExtraModelQty(idx, { causeSubId: e.target.value, causeDetail: '' })}
+                            className="w-full px-3.5 py-3 bg-white border border-rose-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-rose-400"
+                          >
+                            <option value="">— Chọn chi tiết —</option>
+                            {emSelectedCauseGroup.subs.map((s) => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                            <option value={CAUSE_OTHER_ID}>Khác (nhập cụ thể)</option>
+                          </select>
+                        </Field>
+                      )}
+
+                      {emNeedCauseDetail && (
+                        <Field label="Mô tả cụ thể *" icon={IconPencil}>
+                          <textarea
+                            value={em.causeDetail}
+                            onChange={(e) => updateExtraModelQty(idx, { causeDetail: e.target.value })}
+                            placeholder="Ghi rõ nguyên nhân hụt chỉ tiêu..."
+                            rows={2}
+                            className="w-full px-3.5 py-3 bg-white border border-rose-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-rose-400 resize-none"
+                          />
+                        </Field>
+                      )}
+                      <Field label="Giải pháp *" icon={IconCircleCheck}>
+                        <textarea
+                          value={em.shortfallSolution}
+                          onChange={(e) => updateExtraModelQty(idx, { shortfallSolution: e.target.value })}
+                          placeholder="VD: Đã gọi bảo trì, bổ sung nhân lực..."
+                          rows={2}
+                          className="w-full px-3.5 py-3 bg-white border border-rose-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-rose-400 resize-none"
+                        />
+                      </Field>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </>
         )}
 

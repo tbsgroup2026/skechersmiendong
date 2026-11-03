@@ -496,7 +496,7 @@ function WorkRequestListModal({ items, onClose }: { items: WorkRequestItem[]; on
         <div className="flex items-center justify-between gap-3 p-5 border-b border-gray-100">
           <div>
             <h3 className="text-lg font-extrabold text-tbs-dark">Việc Khác</h3>
-            <p className="text-xs text-gray-400 mt-0.5">Việc phát sinh không gắn máy cụ thể — Tổ Hợp Kiên Giang</p>
+            <p className="text-xs text-gray-400 mt-0.5">Việc phát sinh không gắn máy cụ thể — SK Miền Đông</p>
           </div>
           <button type="button" onClick={onClose} className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-500 flex items-center justify-center shrink-0 cursor-pointer">
             <IconX size={16} />

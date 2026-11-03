@@ -71,6 +71,22 @@ export type PphLeaf = {
   // thức thật ở backend (_worker.js, /dashboard): (SLTH các khung có lỗi − tổng lỗi) / SLTH đó.
   cumulativeErrors: number | null;
   qualityPct: number | null;
+  // Dải chi tiết theo mã — CHỈ có khi Tổ này khai ≥2 mã giày trong ngày (xem thiết kế "mã phụ" ở
+  // _worker.js, GET /dashboard). undefined/thiếu field = Tổ chỉ 1 mã như bình thường (đa số), các
+  // số SLKH/PPH/%Đạt/%Quality... phía trên đã là TỔNG cộng dồn mọi mã, dải này chỉ để xem RIÊNG
+  // từng mã đóng góp bao nhiêu.
+  modelsBreakdown?: Array<{
+    model: string | null;
+    color?: string | null;
+    plannedQty: number | null;
+    imageUrl: string | null;
+    pphStandard: number | null;
+    perHourTarget: number;
+    cumulativeActual: number;
+    cumulativeTarget: number;
+    cumulativeErrors: number | null;
+    qualityPct: number | null;
+  }>;
 };
 export type PphFactory = { id: string; name: string; leaves: PphLeaf[] };
 export type DashLine = { id: string; areaId: string; name: string; sortOrder: number; leafIds: string[] };
@@ -2828,6 +2844,8 @@ function TeamPanel({
             <RefStat label="Số lỗi" value={leaf.cumulativeErrors != null ? fmtInt(leaf.cumulativeErrors) : '—'} tone="plan" />
             <RefStat label="% Quality" value={leaf.qualityPct == null ? '—' : { raw: leaf.qualityPct, decimals: Number.isInteger(leaf.qualityPct) ? 0 : 1, suffix: '%' }} band={bandFor(leaf.qualityPct)} />
           </div>
+
+          {leaf.modelsBreakdown && leaf.modelsBreakdown.length > 0 && <ModelBreakdownStrip items={leaf.modelsBreakdown} />}
         </>
       )}
     </Panel>
@@ -2917,7 +2935,48 @@ function TeamPanelBody({
         <RefStat label="SỐ LỖI" value={leaf.cumulativeErrors != null ? fmtInt(leaf.cumulativeErrors) : '—'} light tv={tv} tone="plan" />
         <RefStat label="% QUALITY" value={leaf.qualityPct == null ? '—' : { raw: leaf.qualityPct, decimals: Number.isInteger(leaf.qualityPct) ? 0 : 1 }} light tv={tv} band={bandFor(leaf.qualityPct)} />
       </div>
+
+      {leaf.modelsBreakdown && leaf.modelsBreakdown.length > 0 && <ModelBreakdownStrip items={leaf.modelsBreakdown} light tv={tv} />}
     </>
+  );
+}
+
+// Dải chi tiết theo mã — CHỈ hiện khi Tổ thật sự khai ≥2 mã trong ngày (leaf.modelsBreakdown có dữ
+// liệu, xem thiết kế "mã phụ" ở GET /dashboard _worker.js). Tổ chỉ 1 mã (đa số, mặc định) không có
+// field này → không gọi component này, giao diện y hệt trước khi có tính năng này.
+function ModelBreakdownStrip({
+  items,
+  light = false,
+  tv = false,
+}: {
+  items: NonNullable<PphLeaf['modelsBreakdown']>;
+  light?: boolean;
+  tv?: boolean;
+}) {
+  const colors = light ? BAND_LIGHT : BAND_DARK;
+  return (
+    <div className={`mt-1 flex flex-col gap-1 ${light ? '' : 'rounded-lg border border-cyan-500/15 bg-cyan-500/5 p-1.5'}`}>
+      {items.map((m, i) => {
+        const pct = m.cumulativeTarget > 0 ? Math.round((m.cumulativeActual / m.cumulativeTarget) * 1000) / 10 : null;
+        const band = bandFor(pct);
+        return (
+          <div key={`${m.model ?? 'model'}_${i}`} className={`flex items-center gap-1.5 px-1 py-0.5 ${light ? 'bg-white' : 'rounded bg-slate-900/40'}`}>
+            {m.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={m.imageUrl} alt={m.model || ''} className={`shrink-0 rounded border border-gray-200 object-cover ${tv ? 'h-7 w-7' : 'h-5 w-5'}`} />
+            ) : (
+              <div className={`shrink-0 rounded border border-gray-200 bg-gray-50 ${tv ? 'h-7 w-7' : 'h-5 w-5'}`} />
+            )}
+            <span className={`min-w-0 flex-1 truncate font-extrabold uppercase ${light ? 'text-tbs-dark' : 'text-slate-200'} ${tv ? 'text-sm' : 'text-[10px]'}`}>
+              {m.model || '—'}
+            </span>
+            <span className={`shrink-0 rounded px-1.5 py-0.5 font-black ${tv ? 'text-sm' : 'text-[10px]'} ${colors[band].chipBg} ${colors[band].text}`}>
+              {pct == null ? '—' : `${pct}%`}
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
