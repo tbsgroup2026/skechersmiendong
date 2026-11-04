@@ -536,6 +536,7 @@ export default function PphTrackScanClient() {
     const set = (key: keyof typeof EMPTY_SETUP) => (e: React.ChangeEvent<HTMLInputElement>) => setSetupForm((prev) => ({ ...prev, [key]: e.target.value }));
     return (
       <ScanShell team={info.team} pointLabel={info.pointLabel} slotBadgeLabel="07:00">
+        <div className="mb-4">{reporterField}</div>
         <div className="mb-4 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
           <IconClock size={14} />
           <span className="flex-1">Nhập đầu ca</span>
@@ -567,7 +568,6 @@ export default function PphTrackScanClient() {
               <input type="number" inputMode="decimal" min={0.01} step="any" value={setupForm.planPph} onChange={set('planPph')} placeholder="Nhập mục tiêu của ngày" className={input} required />
             </Field>
           )}
-          {reporterField}
           {formError && <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">⚠️ {formError}</div>}
           <button type="submit" disabled={submitting} className="w-full py-3.5 rounded-xl bg-[#006838] text-white text-sm font-black hover:opacity-90 disabled:opacity-50 transition">
             {submitting ? 'Đang lưu...' : 'Lưu đầu ca'}
@@ -627,6 +627,7 @@ export default function PphTrackScanClient() {
 
   return (
     <ScanShell team={info.team} pointLabel={info.pointLabel} slotBadgeLabel={activeSlot || undefined}>
+      <div className="mb-4">{reporterField}</div>
       <div className="mb-4 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
         <IconClock size={14} />
         <span className="flex-1">Khung giờ {activeSlot}{editingSlot ? ' (đang sửa)' : pickedSlot ? ' (nhập bù)' : ' (giờ hiện tại)'}</span>
@@ -763,9 +764,7 @@ export default function PphTrackScanClient() {
           </>
         )}
 
-        {reporterField}
-
-        {formError && <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">⚠️ {formError}</div>}
+        {formError &&<div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">⚠️ {formError}</div>}
 
         <button
           type="submit"
