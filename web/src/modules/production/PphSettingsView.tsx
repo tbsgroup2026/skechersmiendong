@@ -68,6 +68,14 @@ export default function PphSettingsView({ onClose }: { onClose: () => void }) {
   // CHẾ ĐỘ DEMO — bật thì dashboard Hiệu suất tự sinh số liệu MINH HOẠ (không ghi CSDL) để trình
   // bày giao diện cho sếp. Lưu ở localStorage, dashboard tự đọc.
   const [demoOn, setDemoOn] = useState(false);
+  // Mục quản trị dữ liệu chỉ hiện với các MSNV được phép; server vẫn tự kiểm tra quyền.
+  const [canManageTrackData, setCanManageTrackData] = useState(false);
+  useEffect(() => {
+    fetch('/api/auth/me', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((res) => setCanManageTrackData(['202608001', '202608002'].includes(String(res?.user?.empCode))))
+      .catch(() => {});
+  }, []);
   useEffect(() => {
     try {
       setDemoOn(localStorage.getItem('pph_demo_mode') === '1');
@@ -532,7 +540,7 @@ export default function PphSettingsView({ onClose }: { onClose: () => void }) {
               <option value="pphTargets">PPH Chuẩn theo Mã Giày (IE)</option>
               <option value="tvMedia">Chiếu ảnh/video theo khung giờ (TV)</option>
               <option value="generalQr">Mã QR Chung (tự chọn vị trí khi quét)</option>
-              <option value="trackData">Dữ liệu Theo dõi chuyền (kiểm tra, xoá)</option>
+              {canManageTrackData && <option value="trackData">Dữ liệu Theo dõi chuyền (kiểm tra, xoá)</option>}
             </select>
           </label>
           <button
