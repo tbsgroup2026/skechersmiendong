@@ -17,15 +17,15 @@ import {
   IconTrash,
   IconRuler2,
   IconBug,
-  IconUsersGroup,
+  IconShoe,
+  IconPalette,
 } from '@tabler/icons-react';
 
 // Trang quét QR của module MỚI "Theo dõi chuyền" — ĐỘC LẬP hoàn toàn với PPH (/pph-scan), không
-// đăng nhập, không có "Cập nhật đầu ca" riêng. 4 điểm quét (point) cho cùng 1 Tổ (team):
-//   khutaptrung (Khu tập trung) / dauvao (Đầu vào) — nhiều dòng size+số lượng mỗi khung giờ
-//   daura (Đầu ra) — 1 số lượng duy nhất mỗi khung giờ, không size
-//   qc (QC) — nhiều dòng size + loại lỗi (danh mục cố định) + số lượng lỗi mỗi khung giờ
-// Dùng chung 8 khung giờ + luật chặn giờ với PPH (xem handlePphTrack() bên _worker.js).
+// đăng nhập. Mỗi trạm nhập đầu ca, sau đó mỗi giờ nhập 1 số sản lượng:
+//   khutaptrung (Khu tập trung) / dauvao (Đầu vào) — chỉ sản lượng giờ
+//   daura + qc (Đầu ra / QC, cùng 1 form) — sản lượng giờ + các dòng size + loại lỗi + số lượng lỗi
+// Xem handlePphTrack() bên _worker.js.
 
 type TrackRow = { size: string | null; qty: number; defectType: string | null };
 type TrackEntry = { slot: string; filled: boolean; rows: TrackRow[] };
@@ -38,9 +38,14 @@ type TrackInfo = {
   date?: string;
   entries?: TrackEntry[];
   defectTypes?: string[];
-  nextAction?: 'quantity' | 'wait' | 'done';
+  supply?: { collected: number; input: number; gap: number };
+  qcContext?: { dayOutput: number; dayDefects: number };
+  setup?: { shiftHours: number; workerCount: number; plannedQty: number; model: string; color: string; size: string; perHourTarget: number } | null;
+  nextAction?: 'setup' | 'quantity' | 'wait' | 'done';
   targetSlot?: string | null;
   nextSlot?: string;
+  currentSlot?: string | null;
+  missingSlots?: string[];
 };
 
 const REMEMBERED_NAME_KEY = 'pph_track_scan_reporter_name';
@@ -92,7 +97,8 @@ async function registerTrackPush(teamId: string, point: string, submittedBy: str
   }
 }
 
-type LineTeam = { id: string; name: string; path: string };
+type FormRow = { size: string; qty: string; defectType: string };
+const EMPTY_SETUP = { shiftHours: '', workerCount: '', model: '', color: '', size: '', plannedQty: '' };
 
 export default function PphTrackScanClient() {
   const searchParams = useSearchParams();
@@ -100,39 +106,30 @@ export default function PphTrackScanClient() {
   const lineIdParam = searchParams.get('lineId') || '';
   const point = searchParams.get('point') || '';
 
-  // Mã QC dùng CHUNG theo Line (quét vào ?point=qc&lineId=... KHÔNG kèm team) — hiện danh sách Tổ
-  // để chọn trước khi vào form QC của đúng Tổ đó. Khu tập trung/Đầu vào/Đầu ra vẫn luôn vào thẳng
-  // bằng ?team=... như cũ (isQcLinePicker luôn false với 3 điểm đó).
-  const isQcLinePicker = point === 'qc' && !!lineIdParam && !teamIdParam;
-  const [pickedTeamId, setPickedTeamId] = useState('');
-  const teamId = teamIdParam || pickedTeamId;
-
-  const [lineTeams, setLineTeams] = useState<LineTeam[] | null>(null);
-  const [lineName, setLineName] = useState('');
-  const [lineTeamsError, setLineTeamsError] = useState<string | null>(null);
+  // Link không kèm mã Tổ (kể cả mã QC dùng chung theo Line) tự vào Tổ 1, không bắt người nhập chọn Tổ.
+  const [defaultTeamId, setDefaultTeamId] = useState('');
+  const [defaultTeamError, setDefaultTeamError] = useState<string | null>(null);
+  const teamId = teamIdParam || defaultTeamId;
+  const resolvingDefaultTeam = !teamIdParam && !defaultTeamId && !defaultTeamError && VALID_POINTS.includes(point);
 
   useEffect(() => {
-    if (!isQcLinePicker || pickedTeamId) return;
+    if (!resolvingDefaultTeam) return;
     let cancelled = false;
-    fetch(`/api/pph-track/line-teams?lineId=${encodeURIComponent(lineIdParam)}`)
+    const query = lineIdParam ? `?lineId=${encodeURIComponent(lineIdParam)}` : '';
+    fetch(`/api/pph-track/default-team${query}`)
       .then((r) => r.json())
       .then((res) => {
         if (cancelled) return;
-        if (res.success) {
-          setLineTeams(res.teams || []);
-          setLineName(res.lineName || '');
-        } else {
-          setLineTeamsError(res.error || 'Không tải được danh sách Tổ');
-        }
+        if (res.success) setDefaultTeamId(res.teamId);
+        else setDefaultTeamError(res.error || 'Không tìm thấy Tổ 1');
       })
       .catch(() => {
-        if (!cancelled) setLineTeamsError('Không kết nối được tới hệ thống');
+        if (!cancelled) setDefaultTeamError('Không kết nối được tới hệ thống');
       });
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isQcLinePicker, lineIdParam, pickedTeamId]);
+  }, [resolvingDefaultTeam, lineIdParam]);
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -142,8 +139,12 @@ export default function PphTrackScanClient() {
   const [submittedBy, setSubmittedBy] = useState('');
   const [rememberedName, setRememberedName] = useState('');
   const [editingName, setEditingName] = useState(false);
-  const [rows, setRows] = useState<{ size: string; qty: string; defectType: string }[]>([{ size: '', qty: '', defectType: '' }]);
+  const [rows, setRows] = useState<FormRow[]>([]);
   const [singleQty, setSingleQty] = useState('');
+  const [setupForm, setSetupForm] = useState(EMPTY_SETUP);
+  const [editingSetup, setEditingSetup] = useState(false);
+  // Khung giờ chọn để nhập bù; rỗng = khung của giờ hiện tại do server trả về.
+  const [pickedSlot, setPickedSlot] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ slot: string } | null>(null);
@@ -167,8 +168,12 @@ export default function PphTrackScanClient() {
       if (!opts?.silent) setLoading(true);
       const res = await fetch(`/api/pph-track/scan-info?team=${encodeURIComponent(teamId)}&point=${encodeURIComponent(point)}`).then((r) => r.json());
       setInfo(res);
-      setRows([{ size: '', qty: '', defectType: '' }]);
+      setRows([]);
       setSingleQty('');
+      setEditingSetup(false);
+      setPickedSlot('');
+      const s = res?.setup;
+      setSetupForm(s ? { shiftHours: String(s.shiftHours), workerCount: String(s.workerCount), model: s.model, color: s.color, size: s.size, plannedQty: String(s.plannedQty) } : EMPTY_SETUP);
     } catch {
       if (!opts?.silent) setInfo({ success: false, error: 'Không kết nối được tới hệ thống' });
     } finally {
@@ -203,35 +208,28 @@ export default function PphTrackScanClient() {
       setFormError('Vui lòng nhập tên người báo cáo');
       return;
     }
-    const needsSize = point === 'khutaptrung' || point === 'dauvao' || point === 'qc';
-    const needsDefect = point === 'qc';
-
-    let payloadRows: { size?: string; qty: number; defectType?: string }[] = [];
-    if (point === 'daura') {
-      const qty = Number(singleQty);
-      if (!Number.isFinite(qty) || qty <= 0 || !Number.isInteger(qty)) {
-        setFormError('Vui lòng nhập đúng Số lượng');
+    const hourQty = Number(singleQty);
+    if (singleQty.trim() === '' || !Number.isInteger(hourQty) || hourQty < 0) {
+      setFormError('Vui lòng nhập đúng sản lượng của giờ này');
+      return;
+    }
+    const payloadRows: { size: string; qty: number; defectType: string }[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const qty = Number(r.qty);
+      if (!Number.isInteger(qty) || qty <= 0) {
+        setFormError(`Dòng ${i + 1}: Vui lòng nhập đúng Số lượng`);
         return;
       }
-      payloadRows = [{ qty }];
-    } else {
-      for (let i = 0; i < rows.length; i++) {
-        const r = rows[i];
-        const qty = Number(r.qty);
-        if (!Number.isFinite(qty) || qty <= 0 || !Number.isInteger(qty)) {
-          setFormError(`Dòng ${i + 1}: Vui lòng nhập đúng Số lượng`);
-          return;
-        }
-        if (needsSize && !r.size.trim()) {
-          setFormError(`Dòng ${i + 1}: Vui lòng nhập Size`);
-          return;
-        }
-        if (needsDefect && !r.defectType) {
-          setFormError(`Dòng ${i + 1}: Vui lòng chọn Loại lỗi`);
-          return;
-        }
-        payloadRows.push({ size: needsSize ? r.size.trim() : undefined, qty, defectType: needsDefect ? r.defectType : undefined });
+      if (!r.size.trim()) {
+        setFormError(`Dòng ${i + 1}: Vui lòng nhập Size`);
+        return;
       }
+      if (!r.defectType) {
+        setFormError(`Dòng ${i + 1}: Vui lòng chọn Loại lỗi`);
+        return;
+      }
+      payloadRows.push({ size: r.size.trim(), qty, defectType: r.defectType });
     }
 
     setSubmitting(true);
@@ -240,7 +238,7 @@ export default function PphTrackScanClient() {
       const res = await fetch('/api/pph-track/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ team: teamId, point, submittedBy: name, expectedSlot: info.targetSlot, rows: payloadRows }),
+        body: JSON.stringify({ team: teamId, point, submittedBy: name, expectedSlot: pickedSlot || info.targetSlot, rows: payloadRows, qty: hourQty }),
       }).then((r) => r.json());
       if (!res.success) {
         setFormError(res.error || 'Không lưu được, vui lòng thử lại');
@@ -259,53 +257,121 @@ export default function PphTrackScanClient() {
     }
   }
 
-  if (!mounted || loading) {
+  async function handleSetupSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const name = submittedBy.trim();
+    if (!name) {
+      setFormError('Vui lòng nhập tên người báo cáo');
+      return;
+    }
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      const res = await fetch('/api/pph-track/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          team: teamId,
+          point,
+          submittedBy: name,
+          shiftHours: Number(setupForm.shiftHours),
+          workerCount: Number(setupForm.workerCount),
+          plannedQty: Number(setupForm.plannedQty),
+          model: setupForm.model,
+          color: setupForm.color,
+          size: setupForm.size,
+        }),
+      }).then((r) => r.json());
+      if (!res.success) {
+        setFormError(res.error || 'Không lưu được đầu ca');
+        return;
+      }
+      try {
+        window.localStorage.setItem(REMEMBERED_NAME_KEY, name);
+      } catch {}
+      setRememberedName(name);
+      setEditingName(false);
+      await load({ silent: true });
+    } catch {
+      setFormError('Không kết nối được tới hệ thống');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // Mục tiêu sản lượng giờ = Số lượng kế hoạch cả ca / Thời gian sản xuất, tự tính khi đang gõ.
+  const setupHours = Number(setupForm.shiftHours);
+  const setupPlanned = Number(setupForm.plannedQty);
+  const setupTarget = setupHours > 0 && setupPlanned > 0 ? Math.round(setupPlanned / setupHours) : null;
+
+  const reporterField =
+    rememberedName && !editingName ? (
+      <div className="flex items-center gap-2.5 px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl">
+        <IconUserCheck size={16} className="text-emerald-700 shrink-0" />
+        <span className="flex-1 text-sm font-semibold text-slate-700 truncate">
+          Báo cáo bởi <span className="font-black text-slate-900">{rememberedName}</span>
+        </span>
+        <button type="button" onClick={() => setEditingName(true)} className="text-[11px] font-bold text-emerald-700 hover:underline flex items-center gap-1 shrink-0">
+          <IconPencil size={12} /> Đổi tên
+        </button>
+      </div>
+    ) : (
+      <Field label="Tên người báo cáo *" icon={IconUsers}>
+        <input
+          type="text"
+          value={submittedBy}
+          onChange={(e) => setSubmittedBy(e.target.value)}
+          placeholder="Nhập họ tên của bạn"
+          className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#006838]"
+          required
+          autoFocus={!!rememberedName}
+        />
+      </Field>
+    );
+  const editSetupButton =
+    info?.setup ? (
+      <button type="button" onClick={() => setEditingSetup(true)} className="w-full py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">
+        Sửa đầu ca
+      </button>
+    ) : null;
+
+  const activeSlot = pickedSlot || info?.targetSlot || '';
+  // Giờ đã qua mà chưa nhập, bấm để nhập bù. Khung giờ hiện tại đã là mặc định nên không cần nút riêng.
+  const backfillSlots = (info?.missingSlots || []).filter((s) => s !== info?.currentSlot);
+  const backfillChips =
+    backfillSlots.length > 0 ? (
+      <div className="mb-4 space-y-1.5">
+        <p className="text-xs font-bold text-slate-600">Giờ trước chưa nhập — bấm để nhập bù:</p>
+        <div className="flex flex-wrap gap-1.5">
+          {backfillSlots.map((s) => (
+            <button
+              key={s}
+              type="button"
+              aria-pressed={pickedSlot === s}
+              onClick={() => setPickedSlot((prev) => (prev === s ? '' : s))}
+              className={`min-h-[44px] rounded-lg border px-3 py-2 text-sm font-black ${pickedSlot === s ? 'border-[#006838] bg-[#006838] text-white' : 'border-slate-200 bg-white text-slate-700'}`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+    ) : null;
+
+  if (!mounted || loading || resolvingDefaultTeam) {
     return (
       <ScanShell>
         <div className="flex items-center justify-center py-10">
-          <div className="w-8 h-8 rounded-full border-4 border-amber-600 border-t-transparent animate-spin" />
+          <div className="w-8 h-8 rounded-full border-4 border-[#006838] border-t-transparent animate-spin" />
         </div>
       </ScanShell>
     );
   }
 
-  if (isQcLinePicker && !pickedTeamId) {
+  if (defaultTeamError) {
     return (
-      <ScanShell pointLabel="QC">
-        {lineTeamsError ? (
-          <StateCard icon={IconAlertTriangle} tone="rose" title="Không tải được danh sách Tổ" desc={lineTeamsError} />
-        ) : lineTeams === null ? (
-          <div className="flex items-center justify-center py-10">
-            <div className="w-8 h-8 rounded-full border-4 border-amber-600 border-t-transparent animate-spin" />
-          </div>
-        ) : lineTeams.length === 0 ? (
-          <StateCard icon={IconAlertTriangle} tone="amber" title="Line chưa có Tổ" desc="Line này chưa gán Tổ nào — liên hệ quản lý để cấu hình ở Cài Đặt." />
-        ) : (
-          <div className="space-y-3">
-            <p className="text-xs font-bold text-slate-500 text-center">
-              {lineName ? `${lineName} — ` : ''}Chọn Tổ đang kiểm:
-            </p>
-            <div className="space-y-2">
-              {lineTeams.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setPickedTeamId(t.id)}
-                  className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl bg-amber-50/60 border border-amber-200 hover:bg-amber-100 active:scale-[0.99] transition text-left"
-                >
-                  <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
-                    <IconUsersGroup size={17} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-black text-slate-900 text-sm truncate">{t.name}</div>
-                    {t.path && <div className="text-[11px] text-slate-400 font-semibold truncate">{t.path}</div>}
-                  </div>
-                  <IconChevronRight size={16} className="text-amber-400 shrink-0" />
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+      <ScanShell>
+        <StateCard icon={IconAlertTriangle} tone="rose" title="Không tìm thấy Tổ" desc={defaultTeamError} />
       </ScanShell>
     );
   }
@@ -335,88 +401,169 @@ export default function PphTrackScanClient() {
     );
   }
 
-  if (info.nextAction === 'wait') {
+  if (info.nextAction === 'setup' || editingSetup) {
+    const input = 'w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#006838]';
+    const set = (key: keyof typeof EMPTY_SETUP) => (e: React.ChangeEvent<HTMLInputElement>) => setSetupForm((prev) => ({ ...prev, [key]: e.target.value }));
+    return (
+      <ScanShell team={info.team} pointLabel={info.pointLabel} slotBadgeLabel="07:00">
+        <div className="mb-4 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+          <IconClock size={14} />
+          <span className="flex-1">Nhập đầu ca</span>
+        </div>
+        <form onSubmit={handleSetupSubmit} className="space-y-3.5">
+          <Field label="Thời gian sản xuất (giờ) *" icon={IconClock}>
+            <input type="number" inputMode="decimal" min={0.5} max={24} step={0.5} value={setupForm.shiftHours} onChange={set('shiftHours')} placeholder="VD: 8" className={input} required />
+          </Field>
+          <Field label="Số lượng công nhân *" icon={IconUsers}>
+            <input type="number" inputMode="numeric" min={1} max={1000} value={setupForm.workerCount} onChange={set('workerCount')} placeholder="VD: 25" className={input} required />
+          </Field>
+          <Field label="Mã giày *" icon={IconShoe}>
+            <input value={setupForm.model} onChange={set('model')} maxLength={40} placeholder="VD: 139222" className={input} required />
+          </Field>
+          <Field label="Màu sắc *" icon={IconPalette}>
+            <input value={setupForm.color} onChange={set('color')} maxLength={40} placeholder="VD: BLK" className={input} required />
+          </Field>
+          <Field label="Size *" icon={IconRuler2}>
+            <input value={setupForm.size} onChange={set('size')} maxLength={40} placeholder="VD: 40" className={input} required />
+          </Field>
+          <Field label="Số lượng kế hoạch cả ca *" icon={IconChartBar}>
+            <input type="number" inputMode="numeric" min={1} value={setupForm.plannedQty} onChange={set('plannedQty')} placeholder="VD: 1000" className={input} required />
+          </Field>
+          <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-3 text-sm font-black text-emerald-700">
+            Mục tiêu sản lượng giờ: {setupTarget == null ? '—' : `${setupTarget} đôi`}
+          </div>
+          {reporterField}
+          {formError && <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">⚠️ {formError}</div>}
+          <button type="submit" disabled={submitting} className="w-full py-3.5 rounded-xl bg-[#006838] text-white text-sm font-black hover:opacity-90 disabled:opacity-50 transition">
+            {submitting ? 'Đang lưu...' : 'Lưu đầu ca'}
+          </button>
+          {editingSetup && (
+            <button type="button" onClick={() => setEditingSetup(false)} className="w-full py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600">
+              Huỷ
+            </button>
+          )}
+        </form>
+      </ScanShell>
+    );
+  }
+
+  if (info.nextAction === 'wait' && !pickedSlot) {
     return (
       <ScanShell team={info.team} pointLabel={info.pointLabel} slotBadgeLabel={info.nextSlot}>
         <StateCard icon={IconClock} tone="amber" title="Chưa tới giờ nhập" desc={`Khung tiếp theo lúc ${info.nextSlot}. Quay lại quét sau nhé.`} />
+        {backfillChips}
+        {editSetupButton}
       </ScanShell>
     );
   }
 
-  if (info.nextAction === 'done') {
+  if (info.nextAction === 'done' && !pickedSlot) {
     return (
       <ScanShell team={info.team} pointLabel={info.pointLabel}>
-        <StateCard icon={IconCircleCheck} tone="emerald" title="Đã cập nhật đủ hôm nay" desc="Cảm ơn bạn đã báo cáo đầy đủ các khung giờ hôm nay!" />
+        <StateCard
+          icon={IconCircleCheck}
+          tone="emerald"
+          title={backfillSlots.length ? 'Đã nhập khung giờ cuối' : 'Đã cập nhật đủ hôm nay'}
+          desc={backfillSlots.length ? 'Vẫn còn giờ trước chưa nhập, xem bên dưới.' : 'Cảm ơn bạn đã báo cáo đầy đủ các khung giờ hôm nay!'}
+        />
+        {backfillChips}
       </ScanShell>
     );
   }
 
-  const needsSize = point === 'khutaptrung' || point === 'dauvao' || point === 'qc';
-  const needsDefect = point === 'qc';
+  const isOutputForm = point === 'daura' || point === 'qc';
+
+  // Chỉ CẢNH BÁO, không chặn nộp: các trạm nhập độc lập nên Tập trung có thể nhập sau trong cùng giờ.
+  const hourQty = Number(singleQty) || 0;
+  const available = info.supply ? Math.max(0, info.supply.gap) : 0;
+  const defectEntering = rows.reduce((sum, x) => sum + (Number(x.qty) || 0), 0);
+  const qc = info.qcContext;
 
   return (
-    <ScanShell team={info.team} pointLabel={info.pointLabel} slotBadgeLabel={info.targetSlot ?? undefined}>
-      <div className="mb-4 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold">
+    <ScanShell team={info.team} pointLabel={info.pointLabel} slotBadgeLabel={activeSlot || undefined}>
+      <div className="mb-4 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
         <IconClock size={14} />
-        <span className="flex-1">Khung giờ {info.targetSlot}</span>
+        <span className="flex-1">Khung giờ {activeSlot}{pickedSlot ? ' (nhập bù)' : ' (giờ hiện tại)'}</span>
       </div>
 
+      {backfillChips}
+
+      {qc && (
+        <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-bold text-slate-700">
+          Hôm nay: Đầu ra {qc.dayOutput} đôi · Lỗi {qc.dayDefects} đôi
+        </div>
+      )}
+
+      {info.setup && (
+        <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-bold text-slate-700">
+          <p className="text-sm font-black text-emerald-700">Mục tiêu sản lượng giờ: {info.setup.perHourTarget} đôi</p>
+          <p>Mã {info.setup.model} · {info.setup.color} · Size {info.setup.size}</p>
+          <p>{info.setup.workerCount} công nhân · Kế hoạch {info.setup.plannedQty} đôi/{info.setup.shiftHours} giờ</p>
+          {info.supply && <p>Tập trung còn {available} đôi (đã nhận {info.supply.collected}, Đầu vào đã lấy {info.supply.input})</p>}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-3.5">
-        {point === 'daura' ? (
-          <Field label={`Số lượng (${info.targetSlot}) *`} icon={IconChartBar}>
-            <input
-              type="number"
-              inputMode="numeric"
-              min={1}
-              value={singleQty}
-              onChange={(e) => setSingleQty(e.target.value)}
-              placeholder="VD: 120"
-              className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500"
-              required
-              autoFocus
-            />
-          </Field>
-        ) : (
+        <Field label={`${isOutputForm ? 'Sản lượng Đầu ra' : 'Sản lượng'} giờ ${activeSlot} *`} icon={IconChartBar}>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            value={singleQty}
+            onChange={(e) => setSingleQty(e.target.value)}
+            placeholder="VD: 120"
+            className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#006838]"
+            required
+            autoFocus
+          />
+        </Field>
+        {point === 'dauvao' && info.supply && hourQty > available && (
+          <p role="status" className="text-xs font-bold text-rose-700">⚠ Vượt {hourQty - available} đôi so với Khu tập trung — kiểm tra lại</p>
+        )}
+        {isOutputForm && defectEntering > hourQty && singleQty.trim() !== '' && (
+          <p role="status" className="text-xs font-bold text-rose-700">⚠ Số lỗi ({defectEntering}) nhiều hơn Đầu ra giờ này — kiểm tra lại</p>
+        )}
+        {isOutputForm && (
           <>
             {rows.map((r, idx) => (
-              <div key={idx} className="relative space-y-3 p-3.5 rounded-xl bg-amber-50/50 border border-amber-200">
+              <div key={idx} className="relative space-y-3 p-3.5 rounded-xl bg-rose-50 border border-rose-200">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-amber-700 uppercase tracking-wide">Dòng #{idx + 1}</span>
-                  {rows.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => setRows((prev) => prev.filter((_, i) => i !== idx))}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-rose-500 hover:bg-rose-100"
-                    >
-                      <IconTrash size={15} />
-                    </button>
-                  )}
+                  <span className="text-xs font-black text-rose-700 uppercase tracking-wide">Dòng #{idx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => setRows((prev) => prev.filter((_, i) => i !== idx))}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-rose-500 hover:bg-rose-100"
+                  >
+                    <IconTrash size={15} />
+                  </button>
                 </div>
                 <Field label="Size *" icon={IconRuler2}>
                   <input
                     value={r.size}
                     onChange={(e) => setRows((prev) => prev.map((x, i) => (i === idx ? { ...x, size: e.target.value } : x)))}
                     placeholder="VD: 40"
-                    className="w-full px-3.5 py-3 bg-white border border-amber-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500"
+                    className="w-full px-3.5 py-3 bg-white border border-rose-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-rose-400"
                   />
                 </Field>
-                {needsDefect && (
-                  <Field label="Loại lỗi *" icon={IconBug}>
-                    <select
-                      value={r.defectType}
-                      onChange={(e) => setRows((prev) => prev.map((x, i) => (i === idx ? { ...x, defectType: e.target.value } : x)))}
-                      className="w-full px-3.5 py-3 bg-white border border-amber-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500"
-                    >
-                      <option value="">— Chọn loại lỗi —</option>
-                      {(info.defectTypes || []).map((d) => (
-                        <option key={d} value={d}>
-                          {d}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                )}
-                <Field label={needsDefect ? 'Số lượng lỗi *' : 'Số lượng *'} icon={IconChartBar}>
+                <div className="space-y-1.5">
+                  <span className="flex items-center gap-1.5 text-xs font-bold text-slate-600">
+                    <IconBug size={13} className="text-slate-400 shrink-0" /> Loại lỗi *
+                  </span>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {(info.defectTypes || []).map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        aria-pressed={r.defectType === d}
+                        onClick={() => setRows((prev) => prev.map((x, i) => (i === idx ? { ...x, defectType: d } : x)))}
+                        className={`min-h-[44px] rounded-lg border px-2 py-2 text-xs font-black ${r.defectType === d ? 'border-rose-600 bg-rose-600 text-white' : 'border-rose-200 bg-white text-slate-700'}`}
+                      >
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <Field label="Số lượng lỗi *" icon={IconChartBar}>
                   <input
                     type="number"
                     inputMode="numeric"
@@ -424,7 +571,7 @@ export default function PphTrackScanClient() {
                     value={r.qty}
                     onChange={(e) => setRows((prev) => prev.map((x, i) => (i === idx ? { ...x, qty: e.target.value } : x)))}
                     placeholder="VD: 20"
-                    className="w-full px-3.5 py-3 bg-white border border-amber-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500"
+                    className="w-full px-3.5 py-3 bg-white border border-rose-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-rose-400"
                   />
                 </Field>
               </div>
@@ -432,50 +579,25 @@ export default function PphTrackScanClient() {
             <button
               type="button"
               onClick={() => setRows((prev) => [...prev, { size: '', qty: '', defectType: '' }])}
-              className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl border-2 border-dashed border-amber-300 text-amber-700 text-xs font-bold hover:bg-amber-50"
+              className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl border-2 border-dashed border-rose-300 text-rose-700 text-xs font-bold hover:bg-rose-50"
             >
-              <IconPlus size={15} /> Thêm size khác
+              <IconPlus size={15} /> Thêm dòng lỗi
             </button>
           </>
         )}
 
-        {rememberedName && !editingName ? (
-          <div className="flex items-center gap-2.5 px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl">
-            <IconUserCheck size={16} className="text-amber-700 shrink-0" />
-            <span className="flex-1 text-sm font-semibold text-slate-700 truncate">
-              Báo cáo bởi <span className="font-black text-slate-900">{rememberedName}</span>
-            </span>
-            <button
-              type="button"
-              onClick={() => setEditingName(true)}
-              className="text-[11px] font-bold text-amber-700 hover:underline flex items-center gap-1 shrink-0"
-            >
-              <IconPencil size={12} /> Đổi tên
-            </button>
-          </div>
-        ) : (
-          <Field label="Tên người báo cáo *" icon={IconUsers}>
-            <input
-              type="text"
-              value={submittedBy}
-              onChange={(e) => setSubmittedBy(e.target.value)}
-              placeholder="Nhập họ tên của bạn"
-              className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-amber-500"
-              required
-              autoFocus={!!rememberedName}
-            />
-          </Field>
-        )}
+        {reporterField}
 
         {formError && <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">⚠️ {formError}</div>}
 
         <button
           type="submit"
           disabled={submitting}
-          className="w-full py-3.5 rounded-xl bg-amber-600 text-white text-sm font-black hover:opacity-90 disabled:opacity-50 transition"
+          className="w-full py-3.5 rounded-xl bg-[#006838] text-white text-sm font-black hover:opacity-90 disabled:opacity-50 transition"
         >
           {submitting ? 'Đang lưu...' : 'Xác Nhận Cập Nhật'}
         </button>
+        {editSetupButton}
       </form>
     </ScanShell>
   );
@@ -494,20 +616,21 @@ function ScanShell({
 }) {
   return (
     <div
-      className="min-h-screen bg-[#fdf8f0] flex items-start justify-center px-4 sm:px-6 pb-4 sm:pb-6"
+      className="min-h-screen bg-[#f4f7f5] flex items-start justify-center px-4 sm:px-6 pb-4 sm:pb-6"
       style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1.5rem)' }}
     >
       <button
         type="button"
         onClick={() => window.location.reload()}
         title="Tải lại trang"
-        className="fixed right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-amber-600 text-white shadow-lg shadow-amber-900/20 hover:opacity-90 active:scale-95 transition"
+        className="fixed right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-[#006838] text-white shadow-lg shadow-emerald-900/20 hover:opacity-90 active:scale-95 transition"
         style={{ top: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }}
       >
         <IconRefresh size={26} />
       </button>
       <div className="w-full max-w-sm">
-        <div className="flex items-center gap-2.5 mb-4 justify-center">
+        {/* pr-14 chừa chỗ cho nút tải lại nổi ở góc phải, không che tên trạm đang nhập. */}
+        <div className="flex items-center justify-center gap-2.5 mb-4 pr-14">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/images/tbs-logo.png" alt="TBS Group" className="h-7 w-auto object-contain" />
           <span className="text-xs font-black text-slate-700 uppercase tracking-wide">Theo Dõi Chuyền{pointLabel ? ` · ${pointLabel}` : ''}</span>
@@ -515,7 +638,7 @@ function ScanShell({
         <div className="bg-white rounded-3xl shadow-xl border border-slate-200/70 p-5 sm:p-6">
           {team && (
             <div className="flex items-center gap-3 pb-4 mb-4 border-b border-slate-100">
-              <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0">
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center flex-shrink-0">
                 <IconBuildingFactory2 size={18} />
               </div>
               <div className="min-w-0 flex-1">
@@ -526,7 +649,7 @@ function ScanShell({
               </div>
               {slotBadgeLabel && (
                 <div className="shrink-0 flex items-center gap-1 pl-2.5 pr-1.5 py-1.5 rounded-xl bg-slate-50 border border-slate-200">
-                  <IconClock size={13} className="text-amber-700" />
+                  <IconClock size={13} className="text-emerald-700" />
                   <span className="text-xs font-black text-slate-700">{slotBadgeLabel}</span>
                   <IconChevronRight size={13} className="text-slate-400" />
                 </div>

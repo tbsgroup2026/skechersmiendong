@@ -387,7 +387,7 @@ export default function PphDashboardLinesView({ onBack }: { onBack: () => void }
             <p className="mt-0.5 text-sm font-black text-slate-900">{qrLine.name}</p>
             <p className="text-[11px] font-semibold text-slate-400">{qrLine.areaName}</p>
             <p className="mt-2 text-[11px] text-slate-500 leading-relaxed">
-              Quét mã này vào sẽ hiện danh sách Tổ của Line — chọn đúng Tổ đang kiểm rồi mới nhập Size/Loại lỗi/Số lượng lỗi.
+              Quét mã này sẽ vào thẳng form Đầu ra / QC của Tổ 1 (Line không có Tổ 1 thì vào Tổ đầu tiên của Line).
             </p>
             <div className="mt-3 flex items-center justify-center">
               {qrDataUrl ? (

@@ -1464,25 +1464,87 @@ async function pphGetFactoryConfigs(env) {
 
 // ============================================================================
 // "THEO DÕI CHUYỀN" — module MỚI, hoàn toàn ĐỘC LẬP với PPH (không đụng pph_entries/
-// pph_team_models/pph_entry_models, không có bước "Cập nhật đầu ca" riêng) — 4 điểm quét QR cho
-// mỗi Tổ, công khai không đăng nhập, cùng 8 khung giờ + luật chặn giờ y hệt PPH (dùng lại
-// pphResolveStatus/pphOpenMinutesBySlot, chỉ truyền setupDone=true vì module này không có "setup"):
-//   • khutaptrung (Khu tập trung) — mỗi khung NHIỀU dòng size + số lượng.
-//   • dauvao      (Đầu vào)       — mỗi khung NHIỀU dòng size + số lượng (giống Khu tập trung).
-//   • daura       (Đầu ra)        — mỗi khung 1 số lượng duy nhất, không size.
-//   • qc          (QC)            — mỗi khung NHIỀU dòng size + loại lỗi (danh mục cố định) + số lượng lỗi.
+// pph_team_models/pph_entry_models) — các điểm quét QR cho mỗi Tổ, công khai không đăng nhập. Mỗi
+// trạm nhập đầu ca (pph_track_shift_setup), sau đó mỗi giờ nhập 1 số sản lượng (pphTrackResolveSlot):
+//   • khutaptrung (Khu tập trung), dauvao (Đầu vào) — chỉ sản lượng giờ.
+//   • daura + qc  (Đầu ra / QC, 2 loại QR cùng 1 form) — sản lượng giờ + các dòng lỗi (size + loại lỗi
+//     trong danh mục cố định + số lượng lỗi).
 // TV Line nào bật track_mode (xem pph_dashboard_lines) thì xem dashboard gộp từ dữ liệu
 // dauvao/daura/qc của module này — xem GET /api/pph-track/dashboard.
 // ============================================================================
 const PPH_TRACK_POINTS = {
   khutaptrung: "Khu tập trung",
   dauvao: "Đầu vào",
-  daura: "Đầu ra",
-  qc: "QC",
+  // Đầu ra = QC: cùng 1 form (sản lượng giờ + các dòng lỗi), 2 loại mã QR đã in đều mở form này.
+  daura: "Đầu ra / QC",
+  qc: "Đầu ra / QC",
 };
+// Mốc đầu tiên là nhập đầu ca của Đầu vào (pphResolveStatus bỏ qua mốc này), sau đó nhập mỗi giờ từ 8:30
+// từ 7:30 đến 16:30. Không có 12:30 vì trùng giờ nghỉ trưa, khớp bảng giấy và PPH_SLOTS.
+const PPH_TRACK_SLOTS = ["07:00", "07:30", ...PPH_SLOTS.slice(1)];
 // Danh mục loại lỗi QC — CỐ ĐỊNH (đề xuất ban đầu, CHƯA có màn Cài Đặt để admin tự sửa — nếu cần
 // đổi/thêm/bớt thì sửa thẳng mảng này rồi deploy lại).
 const PPH_TRACK_DEFECT_TYPES = ["Lỗi may", "Lỗi keo/dán", "Lỗi size", "Lỗi form", "Lỗi vệ sinh công nghiệp", "Khác"];
+
+// Đối soát Khu tập trung → Đầu vào, lũy kế trong ngày: Đầu vào lấy hàng từ Tập trung nên gap < 0 nghĩa
+// là Tập trung không đủ. Đầu vào chỉ nhập 1 số mỗi giờ nên so theo TỔNG.
+function pphTrackSupply(rows) {
+  const sum = (point) => rows.filter((r) => r.point === point).reduce((total, r) => total + Number(r.qty), 0);
+  const collected = sum("khutaptrung");
+  const input = sum("dauvao");
+  return { collected, input, gap: collected - input };
+}
+
+// Khung cần nhập = khung của giờ hiện tại (khung đã mở muộn nhất), không phải khung sớm nhất còn thiếu.
+// Khung bị bỏ sót trả về missingSlots để người nhập tự chọn nhập bù, không bị ép đi lần lượt.
+function pphTrackResolveSlot(filledSlots, openMinutesBySlot) {
+  const nowMin = pphNowMinutes();
+  const qSlots = PPH_TRACK_SLOTS.slice(1);
+  const isOpen = (s) => pphOpenMinutesFor(s, openMinutesBySlot) <= nowMin;
+  const open = qSlots.filter(isOpen);
+  const currentSlot = open.length ? open[open.length - 1] : null;
+  const missingSlots = open.filter((s) => !filledSlots.has(s));
+  const base = { currentSlot, missingSlots };
+  if (currentSlot && !filledSlots.has(currentSlot)) return { ...base, nextAction: "quantity", targetSlot: currentSlot };
+  const nextSlot = qSlots.find((s) => !isOpen(s));
+  if (nextSlot) return { ...base, nextAction: "wait", targetSlot: null, nextSlot };
+  return { ...base, nextAction: "done", targetSlot: null };
+}
+
+// Đầu ra và QC cùng 1 form nên dùng chung trạng thái "đã nhập khung này".
+function pphTrackFilledPoints(point) {
+  return point === "daura" || point === "qc" ? ["daura", "qc"] : [point];
+}
+async function pphTrackFilledSlots(env, teamId, date, point) {
+  const points = pphTrackFilledPoints(point);
+  const r = await env.DB.prepare(
+    `SELECT DISTINCT slot FROM pph_track_entries WHERE team_id = ? AND entry_date = ? AND point IN (${points.map(() => "?").join(",")})`
+  ).bind(teamId, date, ...points).all();
+  return new Set((r.results || []).map((x) => x.slot));
+}
+function pphTrackSetupFromRow(row) {
+  if (!row) return null;
+  const shiftHours = Number(row.shift_hours);
+  const plannedQty = Number(row.planned_qty);
+  return {
+    shiftHours,
+    workerCount: Number(row.worker_count),
+    plannedQty,
+    model: row.model,
+    color: row.color,
+    size: row.size,
+    perHourTarget: Math.round(plannedQty / shiftHours),
+  };
+}
+// QR Đầu ra và QR QC cùng 1 form nên dùng chung 1 đầu ca, lưu dưới point "daura".
+function pphTrackSetupPoint(point) {
+  return point === "qc" ? "daura" : point;
+}
+async function pphTrackGetSetup(env, teamId, date, point) {
+  const row = await env.DB.prepare("SELECT * FROM pph_track_shift_setup WHERE team_id = ? AND entry_date = ? AND point = ?")
+    .bind(teamId, date, pphTrackSetupPoint(point)).first();
+  return pphTrackSetupFromRow(row);
+}
 
 let __pphTrackSchemaMigratedOnce = false;
 async function pphTrackEnsureTable(env) {
@@ -1505,6 +1567,24 @@ async function pphTrackEnsureTable(env) {
   await env.DB.prepare(
     "CREATE INDEX IF NOT EXISTS idx_pph_track_entries_lookup ON pph_track_entries(team_id, entry_date, point, slot)"
   ).run().catch(() => {});
+  // Đầu ca: mỗi trạm (Tập trung, Đầu vào, Đầu ra/QC) của mỗi Tổ nhập riêng 1 dòng/ngày. PPH trên TV dùng
+  // số công nhân ở đầu ca của Đầu ra.
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS pph_track_shift_setup (
+      team_id TEXT NOT NULL,
+      entry_date TEXT NOT NULL,
+      point TEXT NOT NULL,
+      shift_hours REAL NOT NULL,
+      worker_count INTEGER NOT NULL,
+      planned_qty INTEGER NOT NULL,
+      model TEXT NOT NULL,
+      color TEXT NOT NULL,
+      size TEXT NOT NULL,
+      submitted_by TEXT NOT NULL,
+      submitted_at TEXT NOT NULL,
+      PRIMARY KEY (team_id, entry_date, point)
+    )
+  `).run().catch(() => {});
 }
 
 let __pphTrackPushSchemaMigratedOnce = false;
@@ -1665,15 +1745,8 @@ async function runPphTrackPushCheck(env) {
   const openMinutesBySlot = await pphOpenMinutesBySlot(env);
   for (const row of subs) {
     try {
-      let filledRows = [];
-      try {
-        const r = await env.DB.prepare(
-          "SELECT DISTINCT slot FROM pph_track_entries WHERE team_id = ? AND entry_date = ? AND point = ?"
-        ).bind(row.team_id, date, row.point).all();
-        filledRows = r.results || [];
-      } catch {}
-      const filledSlots = new Set(filledRows.map((x) => x.slot));
-      const resolved = pphResolveStatus(true, filledSlots, openMinutesBySlot, PPH_SLOTS);
+      const filledSlots = await pphTrackFilledSlots(env, row.team_id, date, row.point).catch(() => new Set());
+      const resolved = pphTrackResolveSlot(filledSlots, openMinutesBySlot);
       if (resolved.nextAction !== "quantity") continue; // "wait"/"done" — chưa tới giờ hoặc đã xong hết, không có gì để nhắc.
       const targetSlot = resolved.targetSlot;
       if (row.last_notified_slot === targetSlot) continue; // Khung này đã nhắc rồi — chờ sang khung kế mới nhắc tiếp.
@@ -1705,24 +1778,22 @@ async function runPphTrackPushCheck(env) {
 async function handlePphTrack(request, env, sub, searchParams, ctx) {
   await pphTrackEnsureTable(env);
 
-  // ---- Danh sách Tổ thuộc 1 Line — CÔNG KHAI — dùng cho mã QC DÙNG CHUNG theo Line (quét vào chọn
-  // đúng Tổ đang kiểm trước khi vào form QC, xem PphTrackScanClient.tsx). Khu tập trung/Đầu vào/Đầu
-  // ra KHÔNG dùng route này — vẫn giữ nguyên QR riêng từng Tổ như trước. ----
-  if (sub === "/line-teams" && request.method === "GET") {
+  // ---- Tổ mặc định khi link không kèm mã Tổ — CÔNG KHAI. Không bắt chọn Tổ: luôn vào Tổ 1. Link theo
+  // Line mà Line đó không có Tổ 1 (VD Line 2, hay Line của Gò chỉ có Chuyền) thì vào Tổ/Chuyền đầu tiên. ----
+  if (sub === "/default-team" && request.method === "GET") {
     const lineId = String(searchParams.get("lineId") || "").trim();
-    if (!lineId) return pphJson({ success: false, error: "Thiếu mã Line trong đường dẫn QR" }, 400);
-    const lines = await pphGetDashboardLines(env);
-    const line = lines.find((l) => l.id === lineId);
-    if (!line) return pphJson({ success: false, error: "Không tìm thấy Line này — mã QR có thể đã cũ" }, 404);
-    const teams = [];
-    for (const leafId of line.leafIds) {
-      const found = await pphFindNodeChain(env, leafId);
-      if (!found) continue;
-      const path = [found.factory ? found.factory.name : null, found.area ? found.area.name : null].filter(Boolean).join(" › ");
-      teams.push({ id: found.node.id, name: found.node.name, path });
+    const factories = await pphBuildTree(env);
+    let leaves = factories.flatMap((f) => pphCollectFactoryLeaves(f));
+    if (lineId) {
+      const line = (await pphGetDashboardLines(env)).find((l) => l.id === lineId);
+      if (!line) return pphJson({ success: false, error: "Không tìm thấy Line này — mã QR có thể đã cũ" }, 404);
+      leaves = leaves
+        .filter((l) => line.leafIds.includes(l.id))
+        .sort((a, b) => a.name.localeCompare(b.name, "vi", { numeric: true }));
     }
-    teams.sort((a, b) => a.name.localeCompare(b.name, "vi"));
-    return pphJson({ success: true, lineId, lineName: line.name, teams });
+    const team = leaves.find((l) => /^tổ\s*0*1$/i.test(String(l.name).trim())) || (lineId ? leaves[0] : null);
+    if (!team) return pphJson({ success: false, error: "Không tìm thấy Tổ 1 — liên hệ quản lý để kiểm tra Cài Đặt" }, 404);
+    return pphJson({ success: true, teamId: team.id, teamName: team.name });
   }
 
   // ---- Đăng ký nhận nhắc Web Push cho 1 (Tổ, điểm) — CÔNG KHAI, không đăng nhập. Đăng ký MỚI đè
@@ -1764,27 +1835,36 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
 
     const dateParam = searchParams.get("date");
     const date = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : pphTodayStr();
-    let rows = [];
-    try {
-      const r = await env.DB.prepare(
-        "SELECT slot, size, qty, defect_type, submitted_by, submitted_at FROM pph_track_entries WHERE team_id = ? AND entry_date = ? AND point = ? ORDER BY slot ASC"
-      ).bind(teamId, date, point).all();
-      rows = r.results || [];
-    } catch {}
-    const filledSlots = new Set(rows.map((r) => r.slot));
+    const r = await env.DB.prepare(
+      "SELECT point, slot, size, qty, defect_type FROM pph_track_entries WHERE team_id = ? AND entry_date = ? ORDER BY submitted_at ASC"
+    ).bind(teamId, date).all();
+    const allRows = r.results || [];
+    const pointNames = pphTrackFilledPoints(point);
+    const rows = allRows.filter((x) => pointNames.includes(x.point));
+    const filledSlots = new Set(rows.map((x) => x.slot));
     const openMinutesBySlot = await pphOpenMinutesBySlot(env);
-    // setupDone=true CỐ ĐỊNH — module này không có bước "Cập nhật đầu ca" riêng, luôn vào thẳng
-    // luật chặn giờ cho 8 khung số lượng (PPH_SLOTS.slice(1) bên trong pphResolveStatus).
-    const resolved = pphResolveStatus(true, filledSlots, openMinutesBySlot, PPH_SLOTS);
+    // Trạm nào cũng phải nhập đầu ca trước, sau đó mới vào khung giờ.
+    const setup = await pphTrackGetSetup(env, teamId, date, point);
+    const resolved = !setup
+      ? { nextAction: "setup", targetSlot: PPH_TRACK_SLOTS[0] }
+      : pphTrackResolveSlot(filledSlots, openMinutesBySlot);
     const bySlot = new Map();
-    for (const r of rows) {
-      const arr = bySlot.get(r.slot) || [];
-      arr.push({ size: r.size ?? null, qty: r.qty, defectType: r.defect_type ?? null });
-      bySlot.set(r.slot, arr);
+    for (const x of rows) {
+      const arr = bySlot.get(x.slot) || [];
+      arr.push({ size: x.size ?? null, qty: x.qty, defectType: x.defect_type ?? null });
+      bySlot.set(x.slot, arr);
     }
-    const entries = PPH_SLOTS.slice(1).map((s) => ({ slot: s, filled: bySlot.has(s), rows: bySlot.get(s) || [] }));
+    const entries = PPH_TRACK_SLOTS.slice(1).map((s) => ({ slot: s, filled: bySlot.has(s), rows: bySlot.get(s) || [] }));
+
+    // Số đối chiếu hiện ngay trên form: Đầu vào xem Tập trung còn bao nhiêu, QC xem lỗi so với Đầu ra.
+    const sumOf = (p) => allRows.filter((x) => x.point === p).reduce((total, x) => total + Number(x.qty), 0);
+    const supply = point === "dauvao" ? pphTrackSupply(allRows) : undefined;
+    const qcContext = pointNames.includes("qc") ? { dayOutput: sumOf("daura"), dayDefects: sumOf("qc") } : undefined;
 
     return pphJson({
+      supply,
+      qcContext,
+      setup,
       success: true,
       team: {
         id: found.node.id,
@@ -1797,9 +1877,45 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       pointLabel: PPH_TRACK_POINTS[point],
       date,
       entries,
-      defectTypes: point === "qc" ? PPH_TRACK_DEFECT_TYPES : undefined,
+      defectTypes: pointNames.includes("qc") ? PPH_TRACK_DEFECT_TYPES : undefined,
       ...resolved,
     });
+  }
+
+  // ---- Nhập đầu ca của 1 trạm (công khai). Nhập lại trong ngày sẽ ghi đè để sửa được khi gõ nhầm. ----
+  if (sub === "/setup" && request.method === "POST") {
+    try {
+      const body = await request.json();
+      const teamId = String(body.team || "").trim();
+      const point = String(body.point || "").trim();
+      if (!PPH_TRACK_POINTS[point]) return pphJson({ success: false, error: "Điểm quét không hợp lệ — mã QR có thể đã cũ" }, 400);
+      const submittedBy = String(body.submittedBy || "").trim().slice(0, 60);
+      const shiftHours = Number(body.shiftHours);
+      const workerCount = Number(body.workerCount);
+      const plannedQty = Number(body.plannedQty);
+      const model = String(body.model || "").trim().slice(0, 40);
+      const color = String(body.color || "").trim().slice(0, 40);
+      const size = String(body.size || "").trim().slice(0, 40);
+      if (!submittedBy) return pphJson({ success: false, error: "Vui lòng nhập tên người báo cáo" }, 400);
+      if (!Number.isFinite(shiftHours) || shiftHours <= 0 || shiftHours > 24) return pphJson({ success: false, error: "Thời gian sản xuất phải lớn hơn 0 và tối đa 24 giờ" }, 400);
+      if (!Number.isInteger(workerCount) || workerCount < 1 || workerCount > 1000) return pphJson({ success: false, error: "Số lượng công nhân không hợp lệ (1-1000)" }, 400);
+      if (!model) return pphJson({ success: false, error: "Vui lòng nhập mã giày" }, 400);
+      if (!color) return pphJson({ success: false, error: "Vui lòng nhập màu sắc" }, 400);
+      if (!size) return pphJson({ success: false, error: "Vui lòng nhập size" }, 400);
+      if (!Number.isInteger(plannedQty) || plannedQty < 1) return pphJson({ success: false, error: "Số lượng kế hoạch cả ca không hợp lệ" }, 400);
+      const found = await pphFindNodeChain(env, teamId);
+      if (!found) return pphJson({ success: false, error: "Không tìm thấy điểm quét này — mã QR có thể đã cũ" }, 404);
+      await env.DB.prepare(
+        `INSERT INTO pph_track_shift_setup (team_id, entry_date, point, shift_hours, worker_count, planned_qty, model, color, size, submitted_by, submitted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(team_id, entry_date, point) DO UPDATE SET shift_hours = excluded.shift_hours, worker_count = excluded.worker_count, planned_qty = excluded.planned_qty,
+           model = excluded.model, color = excluded.color, size = excluded.size, submitted_by = excluded.submitted_by, submitted_at = excluded.submitted_at`
+      ).bind(teamId, pphTodayStr(), pphTrackSetupPoint(point), shiftHours, workerCount, plannedQty, model, color, size, submittedBy, new Date().toISOString()).run();
+      await pphCacheInvalidate(env, "pph:track-dashboard");
+      return pphJson({ success: true, perHourTarget: Math.round(plannedQty / shiftHours) });
+    } catch (err) {
+      return pphJson({ success: false, error: err.message || "Không lưu được đầu ca" }, 500);
+    }
   }
 
   // ---- Nộp dữ liệu 1 khung giờ (công khai, không đăng nhập) ----
@@ -1816,68 +1932,61 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       if (!found) return pphJson({ success: false, error: "Không tìm thấy điểm quét này — mã QR có thể đã cũ" }, 404);
 
       const date = pphTodayStr();
-      let existingRows = [];
-      try {
-        const r = await env.DB.prepare(
-          "SELECT DISTINCT slot FROM pph_track_entries WHERE team_id = ? AND entry_date = ? AND point = ?"
-        ).bind(teamId, date, point).all();
-        existingRows = r.results || [];
-      } catch {}
-      const filledSlots = new Set(existingRows.map((r) => r.slot));
+      if (!(await pphTrackGetSetup(env, teamId, date, point))) {
+        return pphJson({ success: false, error: "Vui lòng nhập đầu ca trước" }, 409);
+      }
+      const filledSlots = await pphTrackFilledSlots(env, teamId, date, point);
       const openMinutesBySlot = await pphOpenMinutesBySlot(env);
-      const resolved = pphResolveStatus(true, filledSlots, openMinutesBySlot, PPH_SLOTS);
-
-      if (resolved.nextAction === "wait") {
-        return pphJson({ success: false, error: `Chưa tới giờ nhập — khung tiếp theo lúc ${resolved.nextSlot}` }, 409);
-      }
-      if (resolved.nextAction === "done") {
-        return pphJson({ success: false, error: "Đã cập nhật đủ các khung giờ hôm nay, cảm ơn bạn!" }, 409);
-      }
-      const slot = resolved.targetSlot;
+      const resolved = pphTrackResolveSlot(filledSlots, openMinutesBySlot);
 
       // Gửi lại do rớt mạng — khung gửi kèm đã có dữ liệu rồi thì coi như lần trước đã tới server.
       const expSlot = body.expectedSlot ? String(body.expectedSlot) : "";
       if (expSlot && filledSlots.has(expSlot)) {
         return pphJson({ success: false, code: "ALREADY_SAVED", alreadySaved: true, slot: expSlot, error: `Khung giờ ${expSlot} đã được ghi nhận` }, 409);
       }
-      if (expSlot && expSlot !== slot) {
-        return pphJson({ success: false, code: "SLOT_MISMATCH", error: `Số liệu của khung ${expSlot} không còn khớp khung đang nhập — vui lòng tải lại trang và nhập lại` }, 409);
+      // Có chọn khung thì nhận mọi khung đã mở mà chưa nhập (giờ hiện tại hoặc nhập bù).
+      if (expSlot && !resolved.missingSlots.includes(expSlot)) {
+        return pphJson({ success: false, code: "SLOT_MISMATCH", error: `Chưa tới giờ nhập khung ${expSlot} — vui lòng tải lại trang` }, 409);
       }
+      if (!expSlot && resolved.nextAction === "wait") {
+        return pphJson({ success: false, error: `Chưa tới giờ nhập — khung tiếp theo lúc ${resolved.nextSlot}` }, 409);
+      }
+      if (!expSlot && resolved.nextAction === "done") {
+        return pphJson({ success: false, error: "Đã cập nhật khung giờ cuối hôm nay, cảm ơn bạn!" }, 409);
+      }
+      const slot = expSlot || resolved.targetSlot;
 
       const rowsInput = Array.isArray(body.rows) ? body.rows : [];
-      if (rowsInput.length === 0) return pphJson({ success: false, error: "Vui lòng nhập ít nhất 1 dòng số lượng" }, 400);
-
-      // Khu tập trung/Đầu vào/QC bắt buộc Size; Đầu ra KHÔNG có Size (chỉ 1 số lượng). Riêng QC còn
-      // bắt buộc Loại lỗi (chọn từ danh mục cố định PPH_TRACK_DEFECT_TYPES).
-      const needsSize = point === "khutaptrung" || point === "dauvao" || point === "qc";
-      const needsDefect = point === "qc";
-      const rowsToInsert = [];
-      for (let i = 0; i < rowsInput.length; i++) {
-        const row = rowsInput[i] || {};
-        const qty = Number(row.qty);
-        if (!Number.isFinite(qty) || !Number.isInteger(qty) || qty <= 0) {
-          return pphJson({ success: false, error: `Dòng ${i + 1}: Số lượng không hợp lệ` }, 400);
-        }
-        let size = null;
-        if (needsSize) {
-          size = String(row.size || "").trim().slice(0, 20);
+      const isOutputForm = point === "daura" || point === "qc";
+      // Mỗi giờ chỉ nhập 1 số sản lượng. Cho phép 0 cho giờ dừng chuyền.
+      const hourQty = Number(body.qty);
+      if (body.qty === "" || body.qty == null || !Number.isInteger(hourQty) || hourQty < 0) {
+        return pphJson({ success: false, error: "Vui lòng nhập đúng sản lượng của giờ này" }, 400);
+      }
+      const rowsToInsert = [{ point: isOutputForm ? "daura" : point, size: null, qty: hourQty, defectType: null }];
+      // Riêng Đầu ra/QC có thêm dòng lỗi: size + loại lỗi + số lượng. Giờ không có lỗi thì không có dòng nào.
+      if (isOutputForm) {
+        for (let i = 0; i < rowsInput.length; i++) {
+          const row = rowsInput[i] || {};
+          const qty = Number(row.qty);
+          if (!Number.isInteger(qty) || qty <= 0) {
+            return pphJson({ success: false, error: `Dòng ${i + 1}: Số lượng không hợp lệ` }, 400);
+          }
+          const size = String(row.size || "").trim().slice(0, 20);
           if (!size) return pphJson({ success: false, error: `Dòng ${i + 1}: Vui lòng nhập Size` }, 400);
-        }
-        let defectType = null;
-        if (needsDefect) {
-          defectType = String(row.defectType || "").trim();
+          const defectType = String(row.defectType || "").trim();
           if (!PPH_TRACK_DEFECT_TYPES.includes(defectType)) {
             return pphJson({ success: false, error: `Dòng ${i + 1}: Vui lòng chọn Loại lỗi hợp lệ` }, 400);
           }
+          rowsToInsert.push({ point: "qc", size, qty, defectType });
         }
-        rowsToInsert.push({ size, qty, defectType });
       }
 
       const nowIso = new Date().toISOString();
       const stmts = rowsToInsert.map((row) =>
         env.DB.prepare(
           "INSERT INTO pph_track_entries (id, team_id, entry_date, point, slot, size, qty, defect_type, submitted_by, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        ).bind(pphNewId("pphtrk"), teamId, date, point, slot, row.size, row.qty, row.defectType, submittedBy, nowIso)
+        ).bind(pphNewId("pphtrk"), teamId, date, row.point, slot, row.size, row.qty, row.defectType, submittedBy, nowIso)
       );
       try {
         await env.DB.batch(stmts);
@@ -1905,29 +2014,70 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       const lines = await pphGetDashboardLines(env);
       const line = lines.find((l) => l.id === lineId);
       const teamIds = line ? line.leafIds : [];
-      const qSlots = PPH_SLOTS.slice(1);
+      const qSlots = PPH_TRACK_SLOTS.slice(1);
       const hourlyMap = new Map(qSlots.map((s) => [s, { slot: s, dauvaoQty: 0, dauraQty: 0 }]));
       const defectMap = new Map();
+      // PPH mỗi khung = Sản lượng giờ / (số lao động × 1 giờ) — tính trên Đầu ra và số công nhân ở đầu ca
+      // của Đầu ra, cộng các Tổ đã nhập Đầu ra khung đó.
+      const pphParts = new Map();
+      let supply = pphTrackSupply([]);
+      let outputQty = 0;
+      let defectQty = 0;
+      let shift = { workerCount: 0, plannedQty: 0, perHourTarget: 0 };
       if (teamIds.length > 0) {
         const placeholders = teamIds.map(() => "?").join(",");
         let rows = [];
+        let setups = [];
         try {
           const r = await env.DB.prepare(
-            `SELECT point, slot, qty, defect_type FROM pph_track_entries WHERE entry_date = ? AND team_id IN (${placeholders})`
+            `SELECT team_id, point, slot, size, qty, defect_type FROM pph_track_entries WHERE entry_date = ? AND team_id IN (${placeholders})`
           ).bind(date, ...teamIds).all();
           rows = r.results || [];
+          const s = await env.DB.prepare(
+            `SELECT * FROM pph_track_shift_setup WHERE entry_date = ? AND point = 'daura' AND team_id IN (${placeholders})`
+          ).bind(date, ...teamIds).all();
+          setups = s.results || [];
         } catch {}
+        supply = pphTrackSupply(rows);
+        const workersByTeam = new Map();
+        for (const row of setups) {
+          const parsed = pphTrackSetupFromRow(row);
+          workersByTeam.set(row.team_id, parsed.workerCount);
+          shift = {
+            workerCount: shift.workerCount + parsed.workerCount,
+            plannedQty: shift.plannedQty + parsed.plannedQty,
+            perHourTarget: shift.perHourTarget + parsed.perHourTarget,
+          };
+        }
+        for (const r of rows) {
+          if (r.point === "daura") outputQty += Number(r.qty);
+          else if (r.point === "qc") defectQty += Number(r.qty);
+        }
         for (const r of rows) {
           if (r.point === "dauvao" && hourlyMap.has(r.slot)) hourlyMap.get(r.slot).dauvaoQty += r.qty;
-          else if (r.point === "daura" && hourlyMap.has(r.slot)) hourlyMap.get(r.slot).dauraQty += r.qty;
-          else if (r.point === "qc" && r.defect_type) defectMap.set(r.defect_type, (defectMap.get(r.defect_type) || 0) + r.qty);
+          else if (r.point === "daura" && hourlyMap.has(r.slot)) {
+            hourlyMap.get(r.slot).dauraQty += r.qty;
+            hourlyMap.get(r.slot).hasOutput = true;
+            if (workersByTeam.has(r.team_id)) {
+              const part = pphParts.get(r.slot) || { qty: 0, workers: 0 };
+              part.qty += r.qty;
+              part.workers += workersByTeam.get(r.team_id);
+              pphParts.set(r.slot, part);
+            }
+          } else if (r.point === "qc" && r.defect_type) defectMap.set(r.defect_type, (defectMap.get(r.defect_type) || 0) + r.qty);
         }
+      }
+      for (const h of hourlyMap.values()) {
+        const part = pphParts.get(h.slot);
+        h.pph = part && part.workers > 0 ? Math.round((part.qty / part.workers) * 100) / 100 : null;
       }
       const topDefects = [...defectMap.entries()]
         .map(([defectType, qty]) => ({ defectType, qty }))
         .sort((a, b) => b.qty - a.qty || a.defectType.localeCompare(b.defectType))
         .slice(0, 5);
-      return { success: true, data: { hourly: [...hourlyMap.values()], topDefects } };
+      // QC kiểm lỗi của Đầu ra nên tỷ lệ lỗi tính trên Đầu ra. Số lỗi lưu riêng, không trừ vào sản lượng.
+      const quality = { outputQty, defectQty, defectRatePct: outputQty > 0 ? Math.round((defectQty / outputQty) * 10000) / 100 : null };
+      return { success: true, data: { hourly: [...hourlyMap.values()], topDefects, supply, quality, shift } };
     }, ctx);
   }
 
@@ -4014,11 +4164,12 @@ export default {
         ].includes(p)) ||
         // "Theo dõi chuyền" (module MỚI, độc lập PPH) — quét QR 4 điểm (Khu tập trung/Đầu vào/Đầu
         // ra/QC) + TV dashboard gộp theo Line, cũng công khai không đăng nhập giống PPH ở trên.
-        // line-teams: danh sách Tổ cho mã QC dùng chung theo Line. push-subscribe: đăng ký nhắc Web
+        // default-team: Tổ mặc định (Tổ 1) khi link không kèm mã Tổ. push-subscribe: đăng ký nhắc Web
         // Push ngay trên máy đang quét, không cần biết tài khoản/đăng nhập.
         (p === "/api/pph-track/scan" && m === "POST") ||
+        (p === "/api/pph-track/setup" && m === "POST") ||
         (p === "/api/pph-track/push-subscribe" && m === "POST") ||
-        (m === "GET" && ["/api/pph-track/scan-info", "/api/pph-track/dashboard", "/api/pph-track/line-teams"].includes(p));
+        (m === "GET" && ["/api/pph-track/scan-info", "/api/pph-track/dashboard", "/api/pph-track/default-team"].includes(p));
       const isAdminOnly =
         p.startsWith("/api/admin/") ||
         p === "/api/users/sync-diff" ||

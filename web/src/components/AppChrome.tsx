@@ -10,7 +10,7 @@ import MobileBottomNav from './MobileBottomNav';
 // trang khác, đồng thời bỏ luôn khoảng đệm pb-16 dành chỗ cho thanh đó (không thì để lại khoảng
 // trắng thừa dưới cùng màn hình). Trang đặt phòng họp qua QR dán tại phòng (/book-room) cũng vậy.
 function isStandaloneRoute(pathname: string | null): boolean {
-  return !!pathname && (pathname.startsWith('/pph-scan') || pathname.startsWith('/book-room'));
+  return !!pathname && (pathname.startsWith('/pph-scan') || pathname.startsWith('/pph-track') || pathname.startsWith('/book-room'));
 }
 
 export default function AppChrome({ children }: { children: React.ReactNode }) {

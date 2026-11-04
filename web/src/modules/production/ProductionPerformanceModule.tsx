@@ -2197,82 +2197,145 @@ function sortLeavesTeamAsc(leaves: PphLeaf[]): PphLeaf[] {
 // track_mode (xem DashLine.trackMode, PphViewClient.tsx). Tự fetch/poll RIÊNG từ
 // /api/pph-track/dashboard (không đụng gì /api/pph/dashboard của PPH) — chỉ cần `lineId`.
 // ============================================================================
-type TrackHourly = { slot: string; dauvaoQty: number; dauraQty: number };
+type TrackHourly = { slot: string; dauvaoQty: number; dauraQty: number; hasOutput?: boolean; pph?: number | null };
 type TrackTopDefect = { defectType: string; qty: number };
-type TrackDashboardData = { hourly: TrackHourly[]; topDefects: TrackTopDefect[] };
+type TrackSupply = { collected: number; input: number; gap: number };
+type TrackQuality = { outputQty: number; defectQty: number; defectRatePct: number | null };
+type TrackShift = { workerCount: number; plannedQty: number; perHourTarget: number };
+type TrackDashboardData = { hourly: TrackHourly[]; topDefects: TrackTopDefect[]; supply?: TrackSupply; quality?: TrackQuality; shift?: TrackShift };
 
-// Biểu đồ Đầu vào (cột) chồng đường Đầu ra (line) theo giờ — dựng lại kiểu HourlyChart ở trên
-// (cùng ngôn ngữ hình ảnh, trục trái/phải, kẻ mốc mờ) nhưng 2 chuỗi số liệu THỰC TẾ riêng theo
-// giờ (không cộng dồn/luỹ kế như HourlyChart — mỗi khung giờ là đúng số lượng khung đó).
-function TrackHourlyChart({ hourly, light, tv }: { hourly: TrackHourly[]; light?: boolean; tv?: boolean }) {
-  const t = light ? TONE_LIGHT : TONE;
-  if (!hourly.length) return <div className={`py-8 text-center text-xs ${light ? 'text-gray-400' : 'text-slate-500'}`}>Chưa có dữ liệu.</div>;
-  const barH = 180;
-  const N = hourly.length;
-  const AXIS_DIVS = 6;
-  const rawMax = Math.max(1, ...hourly.map((d) => Math.max(d.dauvaoQty, d.dauraQty)));
-  const niceMax = niceAxisMax(rawMax, AXIS_DIVS);
-  const leftTicks = Array.from({ length: AXIS_DIVS + 1 }, (_, i) => Math.round((niceMax / AXIS_DIVS) * i));
-  const barPx = (v: number) => (v <= 0 ? 0 : Math.max(3, Math.round((v / niceMax) * barH)));
-  const dauraPts = hourly.map((d, i) => `${((i + 0.5) / N) * 100},${100 - Math.min(1, d.dauraQty / niceMax) * 100}`).join(' ');
-  const axisW = tv ? 44 : 34;
-  const tickCls = tv ? 'text-sm' : 'text-[9px]';
+// Khối trên cùng: TT, ĐV, ĐR lũy kế trong ngày, ô ĐR to hơn để nhấn mạnh chỉ số hoàn thành. Ô ĐV kèm kết
+// quả đối soát với TT (Đầu vào lấy hàng từ Tập trung), luôn có chữ chứ không chỉ dựa vào màu.
+function TrackStatTiles({ supply, outputQty, light, tv }: { supply?: TrackSupply; outputQty: number; light?: boolean; tv?: boolean }) {
+  // Cùng kiểu thẻ số với PairCard: khung vuông khi lên TV, nhãn chữ hoa nhỏ, số căn giữa.
+  const box = `flex min-w-0 flex-col justify-center border px-3 py-1.5 text-center ${tv ? '' : 'rounded-xl'} ${light ? 'border-gray-200 bg-gray-50' : 'border-cyan-500/20 bg-cyan-500/5'}`;
+  const label = `font-bold uppercase leading-tight tracking-wide ${tv ? 'text-base' : 'text-[10px]'} ${light ? 'text-gray-600' : 'text-slate-400'}`;
+  const value = `font-black leading-tight tabular-nums ${tv ? 'text-5xl' : 'text-2xl'} ${light ? 'text-tbs-dark' : 'text-white'}`;
+  const gap = supply?.gap ?? 0;
+  const hasSupply = !!supply && (supply.collected > 0 || supply.input > 0);
   return (
-    <div>
-      <div className={`mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-bold ${tv ? 'text-xs' : 'text-[10px]'}`}>
-        <span className={`flex items-center gap-1 ${light ? 'text-gray-500' : 'text-slate-300'}`}>
-          <span className="h-2 w-2.5 rounded-sm" style={{ backgroundColor: t.ok.bar }} /> Đầu vào
-        </span>
-        <span className="flex items-center gap-1 text-amber-500">
-          <svg width="14" height="8"><line x1="0" y1="4" x2="14" y2="4" stroke="#f59e0b" strokeWidth={2} strokeLinecap="round" /></svg> Đầu ra
-        </span>
+    <div className={`grid grid-cols-[1fr_1fr_1.6fr] items-stretch ${tv ? 'gap-1' : 'gap-1.5'}`}>
+      <div className={box}>
+        <div className={label}>TT · Tập trung</div>
+        <div className={value}>{fmtInt(supply?.collected ?? 0)}</div>
+      </div>
+      <div className={box}>
+        <div className={label}>ĐV · Đầu vào</div>
+        <div className={value}>{fmtInt(supply?.input ?? 0)}</div>
+        {hasSupply && (
+          <div className={`font-black ${tv ? 'text-base' : 'text-[10px]'} ${gap < 0 ? 'text-rose-600' : light ? 'text-emerald-700' : 'text-emerald-300'}`}>
+            {gap < 0 ? `⚠ Tập trung thiếu ${fmtInt(-gap)}` : `Tập trung đủ · còn ${fmtInt(gap)}`}
+          </div>
+        )}
+      </div>
+      <div className={box}>
+        <div className={label}>ĐR · Đầu ra</div>
+        <div className={`font-black leading-none tabular-nums ${tv ? 'text-8xl' : 'text-4xl'} ${light ? 'text-tbs-dark' : 'text-white'}`}>{fmtInt(outputQty)}</div>
+      </div>
+    </div>
+  );
+}
+
+// Biểu đồ đường 1 chỉ số theo giờ. Mỗi chỉ số 1 biểu đồ, 1 trục. Giờ chưa có số thì bỏ trống, không vẽ về
+// 0 để khỏi trông như sụt giảm. Giá trị để ở hàng dưới trục giờ vì TV không rê chuột được.
+function TrackLineChart({
+  title,
+  note,
+  slots,
+  values,
+  color,
+  target,
+  format,
+  light,
+  tv,
+}: {
+  title: string;
+  note?: string;
+  slots: string[];
+  values: (number | null)[];
+  color: string;
+  target?: number;
+  format: (v: number) => string;
+  light?: boolean;
+  tv?: boolean;
+}) {
+  const h = tv ? 150 : 110;
+  const divisions = 4;
+  const axisMax = niceAxisMax(Math.max(0, target ?? 0, ...values.map((v) => v ?? 0)), divisions);
+  const ticks = Array.from({ length: divisions + 1 }, (_, i) => (axisMax / divisions) * i);
+  const x = (i: number) => ((i + 0.5) / slots.length) * 100;
+  const y = (v: number) => Math.min(1, v / axisMax) * 100;
+  const axisW = tv ? 52 : 34;
+  const tickCls = `${tv ? 'text-sm' : 'text-[9px]'} font-semibold ${light ? 'text-gray-400' : 'text-slate-500'}`;
+  const segments = values.slice(1).flatMap((v, idx) => {
+    const prev = values[idx];
+    return v != null && prev != null ? [{ x1: x(idx), y1: 100 - y(prev), x2: x(idx + 1), y2: 100 - y(v) }] : [];
+  });
+  return (
+    <div className={`min-w-0 overflow-hidden border p-2.5 ${tv ? '' : 'rounded-xl'} ${light ? 'border-gray-100 bg-gray-50' : 'border-cyan-500/15 bg-[#0a1a2f]/60'}`}>
+      <div className={`mb-1 flex items-center justify-between gap-3 font-bold ${tv ? 'text-sm' : 'text-[11px]'}`}>
+        <span className={light ? 'text-tbs-dark' : 'text-cyan-100'}>{title}</span>
+        {note && <span className={light ? 'text-amber-600' : 'text-amber-300'}>{note}</span>}
       </div>
       <div className="flex items-stretch gap-1.5">
-        <div className="flex shrink-0 flex-col justify-between text-right" style={{ height: barH, width: axisW }}>
-          {leftTicks.slice().reverse().map((v) => (
-            <span key={v} className={`${tickCls} font-semibold leading-none ${light ? 'text-gray-400' : 'text-slate-500'}`}>
-              {fmtInt(v)}
-            </span>
+        <div className="flex shrink-0 flex-col justify-between text-right" style={{ height: h, width: axisW }}>
+          {ticks.slice().reverse().map((v) => (
+            <span key={v} className={`${tickCls} leading-none`}>{format(v)}</span>
           ))}
         </div>
-        <div className="relative min-w-0 flex-1" style={{ height: barH }}>
-          {leftTicks.map((v) => (
-            <div key={v} className={`absolute left-0 right-0 border-t ${light ? 'border-gray-100' : 'border-white/10'}`} style={{ bottom: `${(v / niceMax) * 100}%` }} />
+        <div className="relative min-w-0 flex-1" style={{ height: h }}>
+          {ticks.map((v) => (
+            <div key={v} className={`absolute left-0 right-0 border-t ${light ? 'border-gray-100' : 'border-white/10'}`} style={{ bottom: `${(v / axisMax) * 100}%` }} />
           ))}
-          <div className="relative flex h-full items-end gap-0.5">
-            {hourly.map((d, i) => {
-              const px = barPx(d.dauvaoQty);
-              const inside = px >= 26;
-              return (
-                <div key={i} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end">
-                  {!inside && (
-                    <span className={`relative z-10 mb-0.5 text-center font-black leading-none ${tv ? 'text-base' : 'text-[11px]'} ${light ? 'text-tbs-dark' : 'text-slate-100'}`}>{fmtInt(d.dauvaoQty)}</span>
-                  )}
-                  <div className="flex w-[58%] max-w-[40px] justify-center rounded-t pt-1" style={{ height: px, backgroundColor: t.ok.bar }}>
-                    {inside && (
-                      <span className={`relative z-10 font-black leading-none ${tv ? 'text-base' : 'text-[11px]'} ${light ? 'text-white' : 'text-[#0a1a2f]'}`}>{fmtInt(d.dauvaoQty)}</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          {target != null && target > 0 && (
+            <div className={`absolute left-0 right-0 border-t-2 border-dashed ${light ? 'border-slate-400' : 'border-slate-300'}`} style={{ bottom: `${y(target)}%` }} />
+          )}
           <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
-            <polyline fill="none" stroke="#f59e0b" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" points={dauraPts} />
+            {segments.map((s, i) => (
+              <line key={i} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={color} strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+            ))}
           </svg>
+          {values.map((v, i) =>
+            v == null ? null : (
+              <span
+                key={i}
+                data-track-point
+                className={`pointer-events-none absolute h-2.5 w-2.5 -translate-x-1/2 translate-y-1/2 rounded-full border-2 ${light ? 'border-white' : 'border-[#0a1a2f]'}`}
+                style={{ left: `${x(i)}%`, bottom: `${y(v)}%`, backgroundColor: color }}
+              />
+            ),
+          )}
         </div>
       </div>
-      <div className="mt-1 flex gap-1.5">
+      <div className="mt-0.5 flex gap-1.5">
         <div className="shrink-0" style={{ width: axisW }} />
-        <div className="flex min-w-0 flex-1 gap-0.5">
-          {hourly.map((d, i) => (
-            <span key={i} className={`min-w-0 flex-1 overflow-hidden text-center font-semibold whitespace-nowrap ${tickCls} ${light ? 'text-gray-400' : 'text-slate-400'}`}>
-              {d.slot.slice(0, 5)}
+        <div className="flex min-w-0 flex-1">
+          {slots.map((s) => (
+            <span key={s} className={`min-w-0 flex-1 text-center ${tickCls}`}>{s}</span>
+          ))}
+        </div>
+      </div>
+      <div className="flex gap-1.5">
+        <div className="shrink-0" style={{ width: axisW }} />
+        <div className="flex min-w-0 flex-1">
+          {values.map((v, i) => (
+            <span key={i} className={`min-w-0 flex-1 text-center font-black tabular-nums ${tv ? 'text-lg' : 'text-[11px]'} ${light ? 'text-tbs-dark' : 'text-slate-100'}`}>
+              {v == null ? '–' : format(v)}
             </span>
           ))}
         </div>
       </div>
     </div>
+  );
+}
+
+// QC kiểm lỗi của Đầu ra: tỷ lệ lỗi = số lỗi QC / sản lượng Đầu ra trong ngày.
+function TrackQualityStat({ quality, light, tv }: { quality?: TrackQuality; light?: boolean; tv?: boolean }) {
+  if (!quality) return null;
+  return (
+    <span className={`font-black tabular-nums ${tv ? 'text-lg' : 'text-xs'} ${light ? 'text-gray-600' : 'text-slate-300'}`}>
+      Tỷ lệ lỗi trên Đầu ra: {quality.defectRatePct == null ? (quality.defectQty > 0 ? 'chưa có Đầu ra' : '–') : `${quality.defectRatePct.toLocaleString('vi-VN')}%`} ({fmtInt(quality.defectQty)} / {fmtInt(quality.outputQty)} đôi)
+    </span>
   );
 }
 
@@ -2289,7 +2352,7 @@ function TrackTopDefectsPanel({ items, light, tv }: { items: TrackTopDefect[]; l
       {items.map((d, i) => (
         <div
           key={d.defectType}
-          className={`flex items-center gap-2.5 rounded-lg px-2.5 ${tv ? 'py-2' : 'py-1.5'} ${light ? 'bg-gray-50' : 'bg-white/5'}`}
+          className={`flex items-center gap-2.5 border px-2.5 py-1.5 ${tv ? '' : 'rounded-lg'} ${light ? 'border-gray-100 bg-gray-50' : 'border-cyan-500/15 bg-white/5'}`}
         >
           <span
             className={`flex shrink-0 items-center justify-center rounded-full font-black ${tv ? 'h-7 w-7 text-sm' : 'h-5 w-5 text-[10px]'}`}
@@ -2314,6 +2377,11 @@ function TrackTopDefectsPanel({ items, light, tv }: { items: TrackTopDefect[]; l
   );
 }
 
+// Tài liệu yêu cầu: dữ liệu màn hình theo dõi tự làm mới 30 phút một lần.
+const TRACK_REFRESH_MS = 30 * 60 * 1000;
+
+// Bố cục 1 màn hình, từ trên xuống: TT/ĐV/ĐR → biểu đồ SL → biểu đồ PPH → Top 5 lỗi. Hiện xem theo ngày;
+// xem theo tuần thuộc giai đoạn 2.
 export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: string; light?: boolean; tv?: boolean }) {
   const [data, setData] = useState<TrackDashboardData | null>(null);
   useEffect(() => {
@@ -2327,32 +2395,49 @@ export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: 
         .catch(() => {});
     }
     load(true);
-    const t = setInterval(() => load(false), POLL_MS);
+    const t = setInterval(() => load(true), TRACK_REFRESH_MS);
     return () => {
       cancelled = true;
       clearInterval(t);
     };
   }, [lineId]);
 
+  const hourly = data?.hourly || [];
+  const slots = hourly.map((d) => d.slot);
+  const t = light ? TONE_LIGHT : TONE;
+  const target = data?.shift?.perHourTarget ?? 0;
+  const fmtPph = (v: number) => Number(v.toFixed(2)).toLocaleString('vi-VN');
+
+  // Màu và khung theo đúng LineBoard: sản lượng màu t.ok.bar, PPH màu cam, mục tiêu nét đứt, MT/giờ ở góc.
   return (
-    <div className={`rounded-2xl p-4 ${light ? 'border border-gray-200 bg-white' : 'border border-white/10 bg-white/5'}`}>
-      {/* Cấp TV (màn rộng) — 2 cột NẰM CẠNH NHAU thay vì xếp chồng dọc: vừa đỡ trống phía dưới màn
-          hình, vừa cho cột Top 5 lỗi hẹp lại tự nhiên (khớp luôn phần sửa TrackTopDefectsPanel ở
-          trên — thanh mini bề ngang cố định, không còn phóng dài hết cả hàng). Trang thường (không
-          phải TV) vẫn giữ xếp chồng dọc như cũ, gọn trong khung hẹp của trang. */}
-      <div className={tv ? 'grid grid-cols-[1.5fr_1fr] gap-6' : 'space-y-4'}>
-        <div>
-          <h3 className={`mb-2 font-black uppercase tracking-wide ${tv ? 'text-xl' : 'text-sm'} ${light ? 'text-tbs-dark' : 'text-cyan-100'}`}>
-            Đầu vào / Đầu ra theo giờ
-          </h3>
-          <TrackHourlyChart hourly={data?.hourly || []} light={light} tv={tv} />
+    <div className={`space-y-1.5 border p-1.5 ${tv ? '' : 'rounded-2xl'} ${light ? 'border-gray-200 bg-white' : 'border-cyan-500/20 bg-[#0d2136]/80'}`}>
+      <TrackStatTiles supply={data?.supply} outputQty={data?.quality?.outputQty ?? 0} light={light} tv={tv} />
+      <TrackLineChart
+        title="Sản lượng theo giờ (Đầu ra, đôi)"
+        note={target > 0 ? `MT/giờ ${fmtInt(target)}` : undefined}
+        slots={slots}
+        values={hourly.map((d) => (d.hasOutput ? d.dauraQty : null))}
+        color={t.ok.bar}
+        target={target}
+        format={fmtInt}
+        light={light}
+        tv={tv}
+      />
+      <TrackLineChart
+        title="Hiệu suất PPH theo giờ (sản lượng giờ / số lao động)"
+        slots={slots}
+        values={hourly.map((d) => d.pph ?? null)}
+        color="#f59e0b"
+        format={fmtPph}
+        light={light}
+        tv={tv}
+      />
+      <div>
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-x-4">
+          <SectionLabel light={light}>Top 5 lỗi hôm nay</SectionLabel>
+          <TrackQualityStat quality={data?.quality} light={light} tv={tv} />
         </div>
-        <div>
-          <h3 className={`mb-2 font-black uppercase tracking-wide ${tv ? 'text-xl' : 'text-sm'} ${light ? 'text-tbs-dark' : 'text-cyan-100'}`}>
-            Top 5 Lỗi QC Hôm Nay
-          </h3>
-          <TrackTopDefectsPanel items={data?.topDefects || []} light={light} tv={tv} />
-        </div>
+        <TrackTopDefectsPanel items={data?.topDefects || []} light={light} tv={tv} />
       </div>
     </div>
   );
