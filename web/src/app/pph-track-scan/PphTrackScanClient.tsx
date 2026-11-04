@@ -19,16 +19,31 @@ import {
   IconBug,
   IconShoe,
   IconPalette,
+  IconGauge,
 } from '@tabler/icons-react';
+import { actualPph, laborHours, meetsPlan } from '@/modules/production/pphCalc';
 
 // Trang quét QR của module MỚI "Theo dõi chuyền" — ĐỘC LẬP hoàn toàn với PPH (/pph-scan), không
-// đăng nhập. Mỗi trạm nhập đầu ca, sau đó mỗi giờ nhập 1 số sản lượng:
+// đăng nhập. Mỗi trạm nhập đầu ca, sau đó mỗi giờ nhập sản lượng:
 //   khutaptrung (Khu tập trung) / dauvao (Đầu vào) — chỉ sản lượng giờ
-//   daura + qc (Đầu ra / QC, cùng 1 form) — sản lượng giờ + các dòng size + loại lỗi + số lượng lỗi
+//   daura + qc (Đầu ra / QC, cùng 1 form) — đầu ra đạt chất lượng, số lao động, giờ làm việc thực tế và
+//   các dòng size + loại lỗi + số lượng lỗi
 // Xem handlePphTrack() bên _worker.js.
 
 type TrackRow = { size: string | null; qty: number; defectType: string | null };
 type TrackEntry = { slot: string; filled: boolean; rows: TrackRow[] };
+// Bảng theo giờ do server tính sẵn. Các trường giờ công và PPH chỉ có ở trạm Đầu ra / QC.
+type HourRow = {
+  slot: string;
+  qty: number | null;
+  cumulativeQty: number | null;
+  workerCount?: number | null;
+  workHours?: number | null;
+  laborHours?: number | null;
+  planPph?: number | null;
+  actualPph?: number | null;
+  met?: boolean | null;
+};
 type TrackInfo = {
   success: boolean;
   error?: string;
@@ -37,10 +52,11 @@ type TrackInfo = {
   pointLabel?: string;
   date?: string;
   entries?: TrackEntry[];
+  hourly?: HourRow[];
   defectTypes?: string[];
   supply?: { collected: number; input: number; gap: number };
   qcContext?: { dayOutput: number; dayDefects: number };
-  setup?: { shiftHours: number; workerCount: number; plannedQty: number; model: string; color: string; size: string; perHourTarget: number } | null;
+  setup?: { shiftHours: number; workerCount: number; plannedQty: number; model: string; color: string; size: string; planPph: number | null; perHourTarget: number } | null;
   nextAction?: 'setup' | 'quantity' | 'wait' | 'done';
   targetSlot?: string | null;
   nextSlot?: string;
@@ -98,7 +114,16 @@ async function registerTrackPush(teamId: string, point: string, submittedBy: str
 }
 
 type FormRow = { size: string; qty: string; defectType: string };
-const EMPTY_SETUP = { shiftHours: '', workerCount: '', model: '', color: '', size: '', plannedQty: '' };
+const EMPTY_SETUP = { shiftHours: '', workerCount: '', model: '', color: '', size: '', plannedQty: '', planPph: '' };
+
+const fmtNumber = (value: number) => Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
+
+// Số lao động tự điền cho giờ mới: số của giờ nhập gần nhất, chưa có thì lấy số đầu ca.
+function defaultWorkers(info: TrackInfo | null): string {
+  const latest = (info?.hourly || []).filter((h) => h.workerCount != null).pop();
+  const workers = latest?.workerCount ?? info?.setup?.workerCount;
+  return workers != null ? String(workers) : '';
+}
 
 export default function PphTrackScanClient() {
   const searchParams = useSearchParams();
@@ -145,6 +170,12 @@ export default function PphTrackScanClient() {
   const [editingSetup, setEditingSetup] = useState(false);
   // Khung giờ chọn để nhập bù; rỗng = khung của giờ hiện tại do server trả về.
   const [pickedSlot, setPickedSlot] = useState('');
+  // Đầu ra / QC: số lao động và giờ làm việc thực tế của giờ đang nhập, điền sẵn để chỉ cần gõ sản lượng.
+  const [workerInput, setWorkerInput] = useState('');
+  const [hoursInput, setHoursInput] = useState('1');
+  // Khung giờ đang sửa lại số đã nộp; rỗng = đang nhập mới.
+  const [editingSlot, setEditingSlot] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ slot: string } | null>(null);
@@ -172,8 +203,16 @@ export default function PphTrackScanClient() {
       setSingleQty('');
       setEditingSetup(false);
       setPickedSlot('');
+      setEditingSlot('');
+      setConfirmDelete(false);
+      setWorkerInput(defaultWorkers(res));
+      setHoursInput('1');
       const s = res?.setup;
-      setSetupForm(s ? { shiftHours: String(s.shiftHours), workerCount: String(s.workerCount), model: s.model, color: s.color, size: s.size, plannedQty: String(s.plannedQty) } : EMPTY_SETUP);
+      setSetupForm(
+        s
+          ? { shiftHours: String(s.shiftHours), workerCount: String(s.workerCount), model: s.model, color: s.color, size: s.size, plannedQty: String(s.plannedQty), planPph: s.planPph != null ? String(s.planPph) : '' }
+          : EMPTY_SETUP,
+      );
     } catch {
       if (!opts?.silent) setInfo({ success: false, error: 'Không kết nối được tới hệ thống' });
     } finally {
@@ -192,9 +231,9 @@ export default function PphTrackScanClient() {
   useEffect(() => {
     if (!success) return;
     void registerTrackPush(teamId, point, submittedBy.trim() || rememberedName);
+    // Tải xong số mới rồi mới rời màn "Đã ghi nhận", để form không hiện lại số cũ trong tích tắc.
     const t = setTimeout(() => {
-      setSuccess(null);
-      load({ silent: true });
+      load({ silent: true }).finally(() => setSuccess(null));
     }, 1800);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -212,6 +251,19 @@ export default function PphTrackScanClient() {
     if (singleQty.trim() === '' || !Number.isInteger(hourQty) || hourQty < 0) {
       setFormError('Vui lòng nhập đúng sản lượng của giờ này');
       return;
+    }
+    const isOutput = point === 'daura' || point === 'qc';
+    if (isOutput) {
+      const workers = Number(workerInput);
+      const hours = Number(hoursInput);
+      if (!Number.isInteger(workers) || workers < 1 || workers > 1000) {
+        setFormError('Vui lòng nhập đúng Số lao động');
+        return;
+      }
+      if (hoursInput.trim() === '' || !Number.isFinite(hours) || hours < 0 || hours > 24) {
+        setFormError('Vui lòng nhập đúng Giờ làm việc thực tế');
+        return;
+      }
     }
     const payloadRows: { size: string; qty: number; defectType: string }[] = [];
     for (let i = 0; i < rows.length; i++) {
@@ -235,10 +287,19 @@ export default function PphTrackScanClient() {
     setSubmitting(true);
     setFormError(null);
     try {
+      const hourBody = {
+        team: teamId,
+        point,
+        submittedBy: name,
+        rows: payloadRows,
+        qty: hourQty,
+        workerCount: isOutput ? Number(workerInput) : undefined,
+        workHours: isOutput ? Number(hoursInput) : undefined,
+      };
       const res = await fetch('/api/pph-track/scan', {
-        method: 'POST',
+        method: editingSlot ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ team: teamId, point, submittedBy: name, expectedSlot: pickedSlot || info.targetSlot, rows: payloadRows, qty: hourQty }),
+        body: JSON.stringify(editingSlot ? { ...hourBody, slot: editingSlot } : { ...hourBody, expectedSlot: pickedSlot || info.targetSlot }),
       }).then((r) => r.json());
       if (!res.success) {
         setFormError(res.error || 'Không lưu được, vui lòng thử lại');
@@ -280,6 +341,7 @@ export default function PphTrackScanClient() {
           model: setupForm.model,
           color: setupForm.color,
           size: setupForm.size,
+          planPph: setupForm.planPph,
         }),
       }).then((r) => r.json());
       if (!res.success) {
@@ -291,6 +353,71 @@ export default function PphTrackScanClient() {
       } catch {}
       setRememberedName(name);
       setEditingName(false);
+      await load({ silent: true });
+    } catch {
+      setFormError('Không kết nối được tới hệ thống');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // Mở lại số đã nộp của 1 giờ để sửa. Lũy kế và PPH tự tính lại ở server sau khi lưu.
+  function startEdit(slot: string) {
+    const hour = (info?.hourly || []).find((h) => h.slot === slot);
+    if (!hour || hour.qty == null) return;
+    const entry = (info?.entries || []).find((e) => e.slot === slot);
+    setEditingSlot(slot);
+    setPickedSlot('');
+    setConfirmDelete(false);
+    setFormError(null);
+    setSingleQty(String(hour.qty));
+    setWorkerInput(hour.workerCount != null ? String(hour.workerCount) : defaultWorkers(info));
+    setHoursInput(hour.workHours != null ? String(hour.workHours) : '1');
+    setRows(
+      (entry?.rows || [])
+        .filter((row) => row.defectType)
+        .map((row) => ({ size: row.size || '', qty: String(row.qty), defectType: row.defectType || '' })),
+    );
+    window.scrollTo({ top: 0 });
+  }
+
+  function resetHourForm() {
+    setEditingSlot('');
+    setConfirmDelete(false);
+    setFormError(null);
+    setSingleQty('');
+    setRows([]);
+    setWorkerInput(defaultWorkers(info));
+    setHoursInput('1');
+  }
+
+  function pickBackfillSlot(slot: string) {
+    resetHourForm();
+    setPickedSlot((prev) => (prev === slot ? '' : slot));
+  }
+
+  // Xoá số liệu bắt đăng nhập, giống xoá khung giờ của /pph-scan. Ai không đăng nhập vẫn sửa số được.
+  async function handleDeleteHour() {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      const query = `team=${encodeURIComponent(teamId)}&point=${encodeURIComponent(point)}&slot=${encodeURIComponent(editingSlot)}`;
+      const response = await fetch(`/api/pph-track/scan?${query}`, { method: 'DELETE' });
+      if (response.status === 401) {
+        setConfirmDelete(false);
+        setFormError('Xoá số liệu cần đăng nhập tài khoản. Bạn vẫn có thể sửa số ở trên rồi bấm Lưu.');
+        return;
+      }
+      const res = await response.json();
+      if (!res.success) {
+        setConfirmDelete(false);
+        setFormError(res.error || 'Không xoá được, vui lòng thử lại');
+        return;
+      }
       await load({ silent: true });
     } catch {
       setFormError('Không kết nối được tới hệ thống');
@@ -335,7 +462,10 @@ export default function PphTrackScanClient() {
       </button>
     ) : null;
 
-  const activeSlot = pickedSlot || info?.targetSlot || '';
+  const activeSlot = editingSlot || pickedSlot || info?.targetSlot || '';
+  const hourlyTable = info?.hourly ? (
+    <HourlyTable hours={info.hourly} isOutput={point === 'daura' || point === 'qc'} currentSlot={info.currentSlot} activeSlot={editingSlot} onEdit={startEdit} />
+  ) : null;
   // Giờ đã qua mà chưa nhập, bấm để nhập bù. Khung giờ hiện tại đã là mặc định nên không cần nút riêng.
   const backfillSlots = (info?.missingSlots || []).filter((s) => s !== info?.currentSlot);
   const backfillChips =
@@ -348,7 +478,7 @@ export default function PphTrackScanClient() {
               key={s}
               type="button"
               aria-pressed={pickedSlot === s}
-              onClick={() => setPickedSlot((prev) => (prev === s ? '' : s))}
+              onClick={() => pickBackfillSlot(s)}
               className={`min-h-[44px] rounded-lg border px-3 py-2 text-sm font-black ${pickedSlot === s ? 'border-[#006838] bg-[#006838] text-white' : 'border-slate-200 bg-white text-slate-700'}`}
             >
               {s}
@@ -396,7 +526,7 @@ export default function PphTrackScanClient() {
     return (
       <ScanShell team={info.team} pointLabel={info.pointLabel}>
         <StateCard icon={IconCircleCheck} tone="emerald" title="Đã ghi nhận!" desc={`Cập nhật khung giờ ${success.slot} thành công. Cảm ơn bạn!`} />
-        <p className="text-center text-[11px] text-slate-400 font-semibold -mt-2">Đang chuyển sang khung tiếp theo...</p>
+        <p className="text-center text-[11px] text-slate-400 font-semibold -mt-2">Đang tải lại số liệu...</p>
       </ScanShell>
     );
   }
@@ -432,6 +562,11 @@ export default function PphTrackScanClient() {
           <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-3 text-sm font-black text-emerald-700">
             Mục tiêu sản lượng giờ: {setupTarget == null ? '—' : `${setupTarget} đôi`}
           </div>
+          {(point === 'daura' || point === 'qc') && (
+            <Field label="PPH kế hoạch hôm nay (đôi/giờ công) *" icon={IconGauge}>
+              <input type="number" inputMode="decimal" min={0.01} step="any" value={setupForm.planPph} onChange={set('planPph')} placeholder="Nhập mục tiêu của ngày" className={input} required />
+            </Field>
+          )}
           {reporterField}
           {formError && <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">⚠️ {formError}</div>}
           <button type="submit" disabled={submitting} className="w-full py-3.5 rounded-xl bg-[#006838] text-white text-sm font-black hover:opacity-90 disabled:opacity-50 transition">
@@ -447,17 +582,18 @@ export default function PphTrackScanClient() {
     );
   }
 
-  if (info.nextAction === 'wait' && !pickedSlot) {
+  if (info.nextAction === 'wait' && !pickedSlot && !editingSlot) {
     return (
       <ScanShell team={info.team} pointLabel={info.pointLabel} slotBadgeLabel={info.nextSlot}>
         <StateCard icon={IconClock} tone="amber" title="Chưa tới giờ nhập" desc={`Khung tiếp theo lúc ${info.nextSlot}. Quay lại quét sau nhé.`} />
         {backfillChips}
         {editSetupButton}
+        {hourlyTable}
       </ScanShell>
     );
   }
 
-  if (info.nextAction === 'done' && !pickedSlot) {
+  if (info.nextAction === 'done' && !pickedSlot && !editingSlot) {
     return (
       <ScanShell team={info.team} pointLabel={info.pointLabel}>
         <StateCard
@@ -467,6 +603,8 @@ export default function PphTrackScanClient() {
           desc={backfillSlots.length ? 'Vẫn còn giờ trước chưa nhập, xem bên dưới.' : 'Cảm ơn bạn đã báo cáo đầy đủ các khung giờ hôm nay!'}
         />
         {backfillChips}
+        {editSetupButton}
+        {hourlyTable}
       </ScanShell>
     );
   }
@@ -478,15 +616,23 @@ export default function PphTrackScanClient() {
   const available = info.supply ? Math.max(0, info.supply.gap) : 0;
   const defectEntering = rows.reduce((sum, x) => sum + (Number(x.qty) || 0), 0);
   const qc = info.qcContext;
+  // Xem trước bằng đúng công thức của server (pphCalc), số chính thức vẫn do server tính khi lưu.
+  const workersValue = workerInput.trim() === '' ? null : Number(workerInput);
+  const hoursValue = hoursInput.trim() === '' ? null : Number(hoursInput);
+  const previewLabor = laborHours(workersValue, hoursValue);
+  const previewPph = singleQty.trim() === '' ? null : actualPph(hourQty, workersValue, hoursValue);
+  const planPph = info.setup?.planPph ?? null;
+  const previewMet = meetsPlan(previewPph, planPph);
+  const inputClass = 'w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#006838]';
 
   return (
     <ScanShell team={info.team} pointLabel={info.pointLabel} slotBadgeLabel={activeSlot || undefined}>
       <div className="mb-4 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
         <IconClock size={14} />
-        <span className="flex-1">Khung giờ {activeSlot}{pickedSlot ? ' (nhập bù)' : ' (giờ hiện tại)'}</span>
+        <span className="flex-1">Khung giờ {activeSlot}{editingSlot ? ' (đang sửa)' : pickedSlot ? ' (nhập bù)' : ' (giờ hiện tại)'}</span>
       </div>
 
-      {backfillChips}
+      {!editingSlot && backfillChips}
 
       {qc && (
         <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-bold text-slate-700">
@@ -499,12 +645,13 @@ export default function PphTrackScanClient() {
           <p className="text-sm font-black text-emerald-700">Mục tiêu sản lượng giờ: {info.setup.perHourTarget} đôi</p>
           <p>Mã {info.setup.model} · {info.setup.color} · Size {info.setup.size}</p>
           <p>{info.setup.workerCount} công nhân · Kế hoạch {info.setup.plannedQty} đôi/{info.setup.shiftHours} giờ</p>
+          {planPph != null && <p>PPH kế hoạch: {fmtNumber(planPph)} đôi/giờ công</p>}
           {info.supply && <p>Tập trung còn {available} đôi (đã nhận {info.supply.collected}, Đầu vào đã lấy {info.supply.input})</p>}
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-3.5">
-        <Field label={`${isOutputForm ? 'Sản lượng Đầu ra' : 'Sản lượng'} giờ ${activeSlot} *`} icon={IconChartBar}>
+        <Field label={`${isOutputForm ? 'Đầu ra đạt chất lượng' : 'Sản lượng'} giờ ${activeSlot} (đôi) *`} icon={IconChartBar}>
           <input
             type="number"
             inputMode="numeric"
@@ -512,11 +659,41 @@ export default function PphTrackScanClient() {
             value={singleQty}
             onChange={(e) => setSingleQty(e.target.value)}
             placeholder="VD: 120"
-            className="w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#006838]"
+            className={inputClass}
             required
             autoFocus
           />
         </Field>
+        {isOutputForm && (
+          <>
+            <p className="-mt-2 text-[11px] font-semibold text-slate-500">Chỉ tính đôi đạt, hàng lỗi ghi riêng ở dòng lỗi bên dưới.</p>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Số lao động *" icon={IconUsers}>
+                <input type="number" inputMode="numeric" min={1} max={1000} value={workerInput} onChange={(e) => setWorkerInput(e.target.value)} className={inputClass} required />
+              </Field>
+              <Field label="Giờ làm việc thực tế *" icon={IconClock}>
+                <input type="number" inputMode="decimal" min={0} max={24} step="any" value={hoursInput} onChange={(e) => setHoursInput(e.target.value)} className={inputClass} required />
+              </Field>
+            </div>
+            <p className="-mt-2 text-[11px] font-semibold text-slate-500">Đã điền sẵn. Chỉ sửa khi có nghỉ, dừng chuyền hoặc thay đổi người.</p>
+            <dl className="grid grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-center">
+              <div>
+                <dt className="text-[10px] font-bold text-slate-500">Tổng giờ công</dt>
+                <dd className="text-sm font-black tabular-nums text-slate-900">{previewLabor != null ? fmtNumber(previewLabor) : '–'}</dd>
+              </div>
+              <div>
+                <dt className="text-[10px] font-bold text-slate-500">PPH kế hoạch</dt>
+                <dd className="text-sm font-black tabular-nums text-slate-900">{planPph != null ? fmtNumber(planPph) : '–'}</dd>
+              </div>
+              <div>
+                <dt className="text-[10px] font-bold text-slate-500">PPH thực hiện</dt>
+                <dd className={`text-sm font-black tabular-nums ${previewMet === false ? 'text-rose-700' : previewMet ? 'text-emerald-700' : 'text-slate-900'}`}>
+                  {previewPph != null ? `${previewMet === false ? '▼ ' : previewMet ? '▲ ' : ''}${fmtNumber(previewPph)}` : '–'}
+                </dd>
+              </div>
+            </dl>
+          </>
+        )}
         {point === 'dauvao' && info.supply && hourQty > available && (
           <p role="status" className="text-xs font-bold text-rose-700">⚠ Vượt {hourQty - available} đôi so với Khu tập trung — kiểm tra lại</p>
         )}
@@ -595,11 +772,119 @@ export default function PphTrackScanClient() {
           disabled={submitting}
           className="w-full py-3.5 rounded-xl bg-[#006838] text-white text-sm font-black hover:opacity-90 disabled:opacity-50 transition"
         >
-          {submitting ? 'Đang lưu...' : 'Xác Nhận Cập Nhật'}
+          {submitting ? 'Đang lưu...' : editingSlot ? `Lưu số sửa giờ ${editingSlot}` : 'Xác Nhận Cập Nhật'}
         </button>
-        {editSetupButton}
+        {editingSlot ? (
+          <>
+            <button type="button" onClick={resetHourForm} className="w-full py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">
+              Huỷ sửa
+            </button>
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={handleDeleteHour}
+              className={`w-full py-2.5 rounded-xl border text-xs font-bold disabled:opacity-50 ${confirmDelete ? 'border-rose-600 bg-rose-600 text-white' : 'border-rose-200 text-rose-700 hover:bg-rose-50'}`}
+            >
+              {confirmDelete ? `Bấm lần nữa để xoá số liệu giờ ${editingSlot}` : `Xoá số liệu giờ ${editingSlot}`}
+            </button>
+          </>
+        ) : (
+          editSetupButton
+        )}
       </form>
+      {hourlyTable}
     </ScanShell>
+  );
+}
+
+// Bảng số liệu theo giờ, cả số nhập lẫn số tự tính đều do server trả về. Đầu ra / QC có đủ giờ công và PPH,
+// hai trạm còn lại chỉ có sản lượng và lũy kế.
+function HourlyTable({
+  hours,
+  isOutput,
+  currentSlot,
+  activeSlot,
+  onEdit,
+}: {
+  hours: HourRow[];
+  isOutput: boolean;
+  currentSlot?: string | null;
+  activeSlot: string;
+  onEdit: (slot: string) => void;
+}) {
+  const label = 'sticky left-0 z-10 min-w-[116px] border-b border-slate-100 bg-white py-1.5 pr-2 text-left text-[11px] font-bold leading-tight text-slate-600';
+  const cell = 'min-w-[54px] border-b border-slate-100 px-1 py-1.5 text-center text-xs tabular-nums';
+  const show = (value: number | null | undefined) => (value == null ? '–' : fmtNumber(value));
+  const inputRows: { name: string; value: (hour: HourRow) => number | null | undefined; strong?: boolean }[] = isOutput
+    ? [
+        { name: 'Số lao động', value: (h) => h.workerCount },
+        { name: 'Giờ làm việc thực tế', value: (h) => h.workHours },
+        { name: 'Đầu ra đạt chất lượng', value: (h) => h.qty, strong: true },
+        { name: 'Tổng giờ công', value: (h) => h.laborHours },
+        { name: 'PPH kế hoạch', value: (h) => h.planPph },
+      ]
+    : [{ name: 'Sản lượng', value: (h) => h.qty, strong: true }];
+  return (
+    <section className="mt-5 border-t border-slate-100 pt-4">
+      <h3 className="mb-2 text-xs font-black text-slate-900">Bảng theo giờ</h3>
+      <div className="overflow-x-auto">
+        <table className="min-w-full border-collapse">
+          <thead>
+            <tr>
+              <th scope="col" className={label}>Chỉ tiêu</th>
+              {hours.map((h) => (
+                <th key={h.slot} scope="col" className={`${cell} font-black ${h.slot === activeSlot ? 'bg-emerald-50 text-emerald-700' : h.slot === currentSlot ? 'text-emerald-700' : 'text-slate-700'}`}>
+                  {h.slot}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {inputRows.map((row) => (
+              <tr key={row.name}>
+                <th scope="row" className={label}>{row.name}</th>
+                {hours.map((h) => (
+                  <td key={h.slot} className={`${cell} ${row.strong ? 'font-black text-slate-900' : 'font-semibold text-slate-700'}`}>{show(row.value(h))}</td>
+                ))}
+              </tr>
+            ))}
+            {isOutput && (
+              <tr>
+                <th scope="row" className={label}>PPH thực hiện</th>
+                {hours.map((h) => (
+                  <td key={h.slot} className={`${cell} font-black ${h.met === false ? 'text-rose-700' : h.met ? 'text-emerald-700' : 'text-slate-700'}`}>
+                    {h.actualPph == null ? '–' : `${h.met === false ? '▼ ' : h.met ? '▲ ' : ''}${fmtNumber(h.actualPph)}`}
+                  </td>
+                ))}
+              </tr>
+            )}
+            <tr>
+              <th scope="row" className={label}>Sản lượng lũy kế</th>
+              {hours.map((h) => (
+                <td key={h.slot} className={`${cell} font-black text-slate-900`}>{show(h.cumulativeQty)}</td>
+              ))}
+            </tr>
+            <tr>
+              <th scope="row" className={`${label} border-b-0`}>Sửa số</th>
+              {hours.map((h) => (
+                <td key={h.slot} className="px-1 py-1 text-center">
+                  {h.qty != null && (
+                    <button
+                      type="button"
+                      aria-label={`Sửa số liệu giờ ${h.slot}`}
+                      onClick={() => onEdit(h.slot)}
+                      className="min-h-[36px] w-full rounded-lg border border-slate-200 bg-white text-[11px] font-black text-emerald-700 hover:bg-emerald-50"
+                    >
+                      Sửa
+                    </button>
+                  )}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

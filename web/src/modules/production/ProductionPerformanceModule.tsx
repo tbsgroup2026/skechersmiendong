@@ -20,6 +20,7 @@ import {
   IconTrendingDown,
 } from '@tabler/icons-react';
 import PphSettingsView from './PphSettingsView';
+import { actualPph } from './pphCalc';
 
 // ============================================================================
 // Trang "Hiệu suất Nhà máy" — MÀN HÌNH LỚN (TV xưởng): nền tối + neon.
@@ -2205,11 +2206,21 @@ function sortLeavesTeamAsc(leaves: PphLeaf[]): PphLeaf[] {
 // track_mode (xem DashLine.trackMode, PphViewClient.tsx). Tự fetch/poll RIÊNG từ
 // /api/pph-track/dashboard (không đụng gì /api/pph/dashboard của PPH) — chỉ cần `lineId`.
 // ============================================================================
-type TrackHourly = { slot: string; dauvaoQty: number; dauraQty: number; hasOutput?: boolean; pph?: number | null };
+type TrackHourly = {
+  slot: string;
+  qty: number | null;
+  cumulativeQty: number | null;
+  workerCount: number | null;
+  workHours: number | null;
+  laborHours: number | null;
+  planPph: number | null;
+  actualPph: number | null;
+  met: boolean | null;
+};
 type TrackTopDefect = { defectType: string; qty: number };
 type TrackSupply = { collected: number; input: number; gap: number };
-type TrackQuality = { outputQty: number; defectQty: number; defectRatePct: number | null };
-type TrackShift = { workerCount: number; plannedQty: number; perHourTarget: number; targetSoFar?: number; pphTarget?: number | null };
+type TrackQuality = { outputQty: number; defectQty: number };
+type TrackShift = { workerCount: number; activeWorkers: number; plannedQty: number; perHourTarget: number; targetSoFar: number };
 type TrackDashboardData = { hourly: TrackHourly[]; topDefects: TrackTopDefect[]; supply?: TrackSupply; quality?: TrackQuality; shift?: TrackShift };
 
 const TRACK_TILE_TONES = {
@@ -2287,62 +2298,82 @@ function TrackStatTiles({ supply, outputQty, shift, tv }: { supply?: TrackSupply
           </div>
         )}
       </TrackStatTile>
-      <TrackStatTile icon={IconUsersGroup} tone="green" label="Người lao động" value={fmtInt(shift?.workerCount ?? 0)} tv={tv}>
-        <div className={`font-bold ${tv ? 'text-base' : 'text-[10px]'} text-tbs-dark`}>Đang làm việc</div>
+      <TrackStatTile icon={IconUsersGroup} tone="green" label="Người lao động" value={fmtInt(shift?.activeWorkers ?? 0)} tv={tv}>
+        <div className={`font-bold leading-tight ${tv ? 'text-base' : 'text-[10px]'} text-tbs-dark`}>
+          Đang làm việc
+          <br />/ Tổng {fmtInt(shift?.workerCount ?? 0)} người
+        </div>
       </TrackStatTile>
       <TrackStatTile icon={IconPackage} tone="solid" label="ĐR - Đầu ra" value={fmtInt(outputQty)} big tv={tv} />
     </div>
   );
 }
 
-// Biểu đồ đường 1 chỉ số theo giờ. Mỗi chỉ số 1 biểu đồ, 1 trục. Giờ chưa có số thì bỏ trống, không vẽ về
-// 0 để khỏi trông như sụt giảm. Giá trị để ở hàng dưới trục giờ vì TV không rê chuột được.
+type TrackSeries = {
+  label: string;
+  // Nhãn của hàng số dưới trục giờ, chỉ cần khi biểu đồ có nhiều đường.
+  rowLabel?: string;
+  color: string;
+  marker: 'circle' | 'square';
+  values: (number | null)[];
+  // Đạt / chưa đạt từng giờ, hiện bằng ký hiệu kèm màu ở hàng số.
+  status?: (boolean | null)[];
+};
+
+// Biểu đồ đường theo giờ, 1 trục. Giờ chưa có số thì bỏ trống, không vẽ về 0 để khỏi trông như sụt giảm.
+// Giá trị để ở hàng dưới trục giờ vì TV không rê chuột được; có chuột hoặc chạm thì hiện thêm tooltip.
 function TrackLineChart({
   title,
-  actualLabel,
+  yLabel,
+  series,
   targetLabel,
-  slots,
-  values,
-  color,
   target,
+  slots,
   format,
+  tooltip,
   light,
   tv,
 }: {
   title: string;
-  actualLabel: string;
+  yLabel?: string;
+  series: TrackSeries[];
   targetLabel?: string;
-  slots: string[];
-  values: (number | null)[];
-  color: string;
   target?: number;
+  slots: string[];
   format: (v: number) => string;
+  tooltip: (index: number) => { name: string; value: string }[];
   light?: boolean;
   tv?: boolean;
 }) {
+  const [hover, setHover] = useState<number | null>(null);
   const h = tv ? 130 : 110;
   const divisions = 4;
-  const axisMax = niceAxisMax(Math.max(0, target ?? 0, ...values.map((v) => v ?? 0)), divisions);
+  const allValues = series.flatMap((s) => s.values).map((v) => v ?? 0);
+  const axisMax = niceAxisMax(Math.max(0, target ?? 0, ...allValues), divisions);
   const ticks = Array.from({ length: divisions + 1 }, (_, i) => (axisMax / divisions) * i);
   const x = (i: number) => ((i + 0.5) / slots.length) * 100;
   const y = (v: number) => Math.min(1, v / axisMax) * 100;
   const axisW = tv ? 52 : 34;
   const tickCls = `${tv ? 'text-sm' : 'text-[9px]'} font-semibold ${light ? 'text-gray-500' : 'text-slate-500'}`;
-  const segments = values.slice(1).flatMap((v, idx) => {
-    const prev = values[idx];
-    return v != null && prev != null ? [{ x1: x(idx), y1: 100 - y(prev), x2: x(idx + 1), y2: 100 - y(v) }] : [];
-  });
+  const segments = (values: (number | null)[]) =>
+    values.slice(1).flatMap((v, idx) => {
+      const prev = values[idx];
+      return v != null && prev != null ? [{ x1: x(idx), y1: 100 - y(prev), x2: x(idx + 1), y2: 100 - y(v) }] : [];
+    });
   return (
     <div className={`min-w-0 overflow-hidden rounded-2xl border p-3 ${light ? 'border-gray-200 bg-white' : 'border-cyan-500/15 bg-[#0a1a2f]/60'}`}>
       <div className="mb-1 flex flex-wrap items-center justify-between gap-x-4">
         <h3 className={`flex items-center gap-2 font-black uppercase ${tv ? 'text-lg' : 'text-xs'} ${light ? 'text-tbs-dark' : 'text-cyan-100'}`}>
-          <IconChartBar size={tv ? 24 : 14} style={{ color }} aria-hidden />
+          <IconChartBar size={tv ? 24 : 14} style={{ color: series[series.length - 1]?.color }} aria-hidden />
           {title}
         </h3>
-        <div className={`flex items-center gap-4 font-bold ${tv ? 'text-sm' : 'text-[10px]'} ${light ? 'text-gray-700' : 'text-slate-300'}`}>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} /> {actualLabel}
-          </span>
+        <div className={`flex flex-wrap items-center gap-x-4 font-bold ${tv ? 'text-sm' : 'text-[10px]'} ${light ? 'text-gray-700' : 'text-slate-300'}`}>
+          {yLabel && <span className={light ? 'text-gray-500' : 'text-slate-400'}>{yLabel}</span>}
+          {series.map((s) => (
+            <span key={s.label} className="flex items-center gap-1.5">
+              <span className={`h-2.5 w-2.5 ${s.marker === 'circle' ? 'rounded-full' : 'rounded-[2px]'}`} style={{ backgroundColor: s.color }} /> {s.label}
+            </span>
+          ))}
           {targetLabel && (
             <span className="flex items-center gap-1.5">
               <span className={`w-6 border-t-2 border-dashed ${light ? 'border-slate-400' : 'border-slate-300'}`} /> {targetLabel}
@@ -2364,40 +2395,86 @@ function TrackLineChart({
             <div className={`absolute left-0 right-0 border-t-2 border-dashed ${light ? 'border-slate-400' : 'border-slate-300'}`} style={{ bottom: `${y(target)}%` }} />
           )}
           <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
-            {segments.map((s, i) => (
-              <line key={i} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={color} strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-            ))}
+            {series.map((s) =>
+              segments(s.values).map((seg, i) => (
+                <line key={`${s.label}-${i}`} x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} stroke={s.color} strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+              )),
+            )}
           </svg>
-          {values.map((v, i) =>
-            v == null ? null : (
-              <span
-                key={i}
-                data-track-point
-                className={`pointer-events-none absolute h-2.5 w-2.5 -translate-x-1/2 translate-y-1/2 rounded-full border-2 ${light ? 'border-white' : 'border-[#0a1a2f]'}`}
-                style={{ left: `${x(i)}%`, bottom: `${y(v)}%`, backgroundColor: color }}
-              />
+          {series.map((s) =>
+            s.values.map((v, i) =>
+              v == null ? null : (
+                <span
+                  key={`${s.label}-${i}`}
+                  data-track-point={s.label}
+                  className={`pointer-events-none absolute h-3 w-3 -translate-x-1/2 translate-y-1/2 border-2 ${s.marker === 'circle' ? 'rounded-full' : 'rounded-[2px]'} ${light ? 'border-white' : 'border-[#0a1a2f]'}`}
+                  style={{ left: `${x(i)}%`, bottom: `${y(v)}%`, backgroundColor: s.color }}
+                />
+              ),
             ),
+          )}
+          <div className="absolute inset-0 flex" onMouseLeave={() => setHover(null)}>
+            {slots.map((slot, i) => (
+              <button
+                key={slot}
+                type="button"
+                aria-label={[slot, ...tooltip(i).map((line) => `${line.name}: ${line.value}`)].join(', ')}
+                className="h-full min-w-0 flex-1 focus:outline-none"
+                onMouseEnter={() => setHover(i)}
+                onFocus={() => setHover(i)}
+                onBlur={() => setHover(null)}
+                onClick={() => setHover(i)}
+              />
+            ))}
+          </div>
+          {hover != null && (
+            <>
+              <div className="pointer-events-none absolute bottom-0 top-0 w-px bg-slate-400" style={{ left: `${x(hover)}%` }} />
+              <div
+                data-track-tooltip
+                className={`pointer-events-none absolute top-0 z-20 whitespace-nowrap rounded-lg bg-tbs-dark px-3 py-1.5 text-white shadow-lg ${tv ? 'text-sm' : 'text-[10px]'}`}
+                style={x(hover) > 60 ? { right: `calc(${100 - x(hover)}% + 8px)` } : { left: `calc(${x(hover)}% + 8px)` }}
+              >
+                <div className="font-black">{slots[hover]}</div>
+                {tooltip(hover).map((line) => (
+                  <div key={line.name} className="font-semibold">
+                    {line.name}: <span className="font-black tabular-nums">{line.value}</span>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       </div>
       <div className="mt-0.5 flex gap-1.5">
-        <div className="shrink-0" style={{ width: axisW }} />
+        <div className={`shrink-0 text-right ${tickCls}`} style={{ width: axisW }}>Giờ</div>
         <div className="flex min-w-0 flex-1">
           {slots.map((s) => (
             <span key={s} className={`min-w-0 flex-1 text-center ${tickCls}`}>{s}</span>
           ))}
         </div>
       </div>
-      <div className="flex gap-1.5">
-        <div className="shrink-0" style={{ width: axisW }} />
-        <div className="flex min-w-0 flex-1">
-          {values.map((v, i) => (
-            <span key={i} className={`min-w-0 flex-1 text-center font-black tabular-nums ${tv ? 'text-lg' : 'text-[11px]'} ${light ? 'text-tbs-dark' : 'text-slate-100'}`}>
-              {v == null ? '–' : format(v)}
-            </span>
-          ))}
+      {series.map((s) => (
+        <div key={s.label} className="flex gap-1.5">
+          <div className={`shrink-0 text-right font-black ${tv ? 'text-sm' : 'text-[9px]'} ${light ? 'text-gray-500' : 'text-slate-400'}`} style={{ width: axisW }}>
+            {s.rowLabel}
+          </div>
+          <div className="flex min-w-0 flex-1">
+            {s.values.map((v, i) => {
+              const met = s.status?.[i];
+              return (
+                <span
+                  key={i}
+                  data-track-status={met === false ? 'chua-dat' : met ? 'dat' : undefined}
+                  className={`min-w-0 flex-1 text-center font-black tabular-nums ${tv ? 'text-lg' : 'text-[11px]'} ${met === false ? 'text-rose-600' : met ? 'text-emerald-700' : light ? 'text-tbs-dark' : 'text-slate-100'}`}
+                >
+                  {v == null ? '–' : `${met === false ? '▼ ' : met ? '▲ ' : ''}${format(v)}`}
+                </span>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      ))}
     </div>
   );
 }
@@ -2441,11 +2518,9 @@ function TrackTopDefectsPanel({ items, light, tv }: { items: TrackTopDefect[]; l
   );
 }
 
-// Tài liệu yêu cầu: dữ liệu màn hình theo dõi tự làm mới 30 phút một lần.
-const TRACK_REFRESH_MS = 30 * 60 * 1000;
-
-// Bố cục 1 màn hình, từ trên xuống: các ô chỉ số → biểu đồ SL → biểu đồ PPH → Top 5 lỗi. Hiện xem theo
-// ngày; xem theo tuần thuộc giai đoạn 2.
+// Bố cục 1 màn hình, từ trên xuống: các ô chỉ số → biểu đồ SL → biểu đồ PPH → Top 5 lỗi. Mọi số do server
+// tính (xem pphTrackOutputHourly bên _worker.js), giao diện chỉ hiển thị. Hiện xem theo ngày; xem theo tuần
+// thuộc giai đoạn 2.
 export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: string; light?: boolean; tv?: boolean }) {
   const [data, setData] = useState<TrackDashboardData | null>(null);
   useEffect(() => {
@@ -2459,7 +2534,8 @@ export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: 
         .catch(() => {});
     }
     load(true);
-    const t = setInterval(() => load(true), TRACK_REFRESH_MS);
+    // Mỗi lần nhập, sửa, xoá đều xoá cache ở server, nên TV cập nhật số mới trong tối đa 1 chu kỳ này.
+    const t = setInterval(() => load(false), POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(t);
@@ -2469,33 +2545,45 @@ export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: 
   const hourly = data?.hourly || [];
   const slots = hourly.map((d) => d.slot);
   const target = data?.shift?.perHourTarget ?? 0;
-  const pphTarget = data?.shift?.pphTarget ?? undefined;
   const fmtPph = (v: number) => Number(v.toFixed(2)).toLocaleString('vi-VN');
+  const notEntered = 'Chưa nhập';
 
   return (
     <div className="space-y-2">
       <TrackStatTiles supply={data?.supply} outputQty={data?.quality?.outputQty ?? 0} shift={data?.shift} tv={tv} />
       <TrackLineChart
         title={`Sản lượng theo giờ — Đầu ra (đôi)${target > 0 ? ` · Mục tiêu ${fmtInt(target)}/giờ (nét đứt)` : ''}`}
-        actualLabel="Thực tế"
+        series={[{ label: 'Thực tế', color: '#16a34a', marker: 'circle', values: hourly.map((d) => d.qty) }]}
         targetLabel={target > 0 ? `Mục tiêu ${fmtInt(target)}/giờ` : undefined}
-        slots={slots}
-        values={hourly.map((d) => (d.hasOutput ? d.dauraQty : null))}
-        color="#16a34a"
         target={target}
+        slots={slots}
         format={fmtInt}
+        tooltip={(i) => [
+          { name: 'Đầu ra đạt chất lượng', value: hourly[i].qty == null ? notEntered : `${fmtInt(hourly[i].qty as number)} đôi` },
+          { name: 'Sản lượng lũy kế', value: hourly[i].cumulativeQty == null ? notEntered : `${fmtInt(hourly[i].cumulativeQty as number)} đôi` },
+          ...(target > 0 ? [{ name: 'Mục tiêu', value: `${fmtInt(target)} đôi/giờ` }] : []),
+        ]}
         light={light}
         tv={tv}
       />
       <TrackLineChart
-        title="Hiệu suất PPH theo giờ (sản lượng giờ / số lao động)"
-        actualLabel="PPH thực tế"
-        targetLabel={pphTarget ? `PPH mục tiêu (${fmtPph(pphTarget)})` : undefined}
+        title="Hiệu suất PPH theo giờ – Kế hoạch vs Thực hiện"
+        yLabel="PPH (đôi/giờ công)"
+        series={[
+          { label: 'PPH kế hoạch (PLAN)', rowLabel: 'KH', color: '#d97706', marker: 'square', values: hourly.map((d) => d.planPph) },
+          { label: 'PPH thực hiện (ACTUAL)', rowLabel: 'TH', color: '#2563eb', marker: 'circle', values: hourly.map((d) => d.actualPph), status: hourly.map((d) => d.met) },
+        ]}
         slots={slots}
-        values={hourly.map((d) => d.pph ?? null)}
-        color="#2563eb"
-        target={pphTarget}
         format={fmtPph}
+        tooltip={(i) => {
+          const hour = hourly[i];
+          return [
+            { name: 'PPH kế hoạch', value: hour.planPph == null ? 'Chưa nhập' : fmtPph(hour.planPph) },
+            { name: 'PPH thực hiện', value: hour.actualPph == null ? notEntered : fmtPph(hour.actualPph) },
+            ...(hour.laborHours != null ? [{ name: 'Tổng giờ công', value: fmtPph(hour.laborHours) }] : []),
+            ...(hour.met != null ? [{ name: 'Kết quả', value: hour.met ? '▲ Đạt' : '▼ Chưa đạt' }] : []),
+          ];
+        }}
         light={light}
         tv={tv}
       />
@@ -3006,17 +3094,19 @@ function TeamPanel({
   // modelImageUrl/pphStandard ở _worker.js) — biến `model` ở đây CHỈ còn dùng để hiển thị.
   const model = pphDisplayModel(leaf.setup?.model ?? null, leaf.setup?.color ?? null);
   const plannedQtyDay = leaf.setup?.plannedQty ?? null;
-  // PPH (sản lượng/người/giờ) suy từ Mục tiêu/giờ chia Lao động — hệ thống chưa lưu SAM (thời
-  // gian định mức riêng theo mã hàng) nên đây là giá trị GẦN ĐÚNG, không phải công thức PPH chuẩn
-  // ngành may; đủ dùng để so % đạt so với mục tiêu (tỉ lệ actual/target không đổi dù công thức nào).
-  // GIỮ NGUYÊN dùng cho PPH TH/% PPH — 2 ô đó vẫn phải bám đúng kế hoạch thật công nhân nhập, KHÔNG
-  // đổi theo PPH chuẩn IE (xem displayTargetPph riêng bên dưới, chỉ dùng cho Ô HIỂN THỊ "PPH").
+  // PPH mục tiêu suy từ Mục tiêu/giờ chia Lao động, chỉ dùng khi chưa có PPH chuẩn IE (xem bên dưới).
   const targetPphPerWorker = workerCount ? leaf.perHourTarget / workerCount : null;
-  const actualPphPerWorker = targetPphPerWorker != null && r.pct != null ? (targetPphPerWorker * r.pct) / 100 : null;
+  // PPH TH theo công thức chung (pphCalc): sản lượng đạt chất lượng / (lao động × giờ làm việc). Module
+  // này chưa lưu giờ làm việc từng khung nên mỗi khung đã nhập tính 1 giờ. SLTH ở đây có gồm hàng lỗi (xem
+  // % Quality) nên phải trừ số lỗi. Ô % PPH vẫn là % so với chỉ tiêu (r.pct), không phải PPH.
+  const actualPphPerWorker = actualPph(
+    leaf.cumulativeActual - (leaf.cumulativeErrors ?? 0),
+    workerCount,
+    leaf.slots.filter((s) => s.filled).length,
+  );
   // Ô "PPH" hiển thị — ƯU TIÊN PPH chuẩn IE theo mã giày (leaf.pphStandard, server đã tra sẵn đúng
   // Xưởng/Nhà máy) nếu có, rớt về số tự tính (targetPphPerWorker) khi chưa khai Model/mã lạ/Xưởng
-  // ngoài phạm vi file IE — CHỈ đổi con số HIỆN RA ở đây, không đụng gì tới targetPphPerWorker/
-  // actualPphPerWorker phía trên (PPH TH/% PPH vẫn tính từ kế hoạch thật như cũ).
+  // ngoài phạm vi file IE — CHỈ đổi con số HIỆN RA ở đây.
   const displayTargetPph = leaf.pphStandard ?? targetPphPerWorker;
 
   // Cấp Line (light) — phong cách "bảng biểu truyền thống" theo ảnh mẫu: KHÔNG dùng Panel dùng
