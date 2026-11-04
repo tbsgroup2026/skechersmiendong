@@ -2134,9 +2134,40 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       const point = String(searchParams.get("point") || "").trim();
       const slot = String(searchParams.get("slot") || "").trim();
       if (!teamId || !slot || !PPH_TRACK_POINTS[point]) return pphJson({ success: false, error: "Thiếu team/point/slot" }, 400);
+      const dateParam = searchParams.get("date");
+      if (dateParam && !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) return pphJson({ success: false, error: "Ngày không hợp lệ" }, 400);
       const points = pphTrackFilledPoints(point);
       await env.DB.prepare(`DELETE FROM pph_track_entries WHERE team_id = ? AND entry_date = ? AND slot = ? AND point IN (${points.map(() => "?").join(",")})`)
-        .bind(teamId, pphTodayStr(), slot, ...points).run();
+        .bind(teamId, dateParam || pphTodayStr(), slot, ...points).run();
+      await pphCacheInvalidate(env, "pph:track-dashboard");
+      return pphJson({ success: true });
+    } catch (err) {
+      return pphJson({ success: false, error: err.message || "Không xoá được" }, 500);
+    }
+  }
+
+  // ---- Màn quản trị dữ liệu (Cài Đặt) — BẮT ĐĂNG NHẬP, không nằm trong danh sách công khai. ----
+  if (sub === "/admin-data" && request.method === "GET") {
+    const date = String(searchParams.get("date") || pphTodayStr());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return pphJson({ success: false, error: "Ngày không hợp lệ" }, 400);
+    const factories = await pphBuildTree(env);
+    const teamNames = Object.fromEntries(factories.flatMap((f) => pphCollectFactoryLeaves(f)).map((l) => [l.id, `${l.areaName} › ${l.name}`]));
+    const entries = await env.DB.prepare(
+      "SELECT team_id, point, slot, size, qty, defect_type, worker_count, work_hours, submitted_by, submitted_at FROM pph_track_entries WHERE entry_date = ? ORDER BY team_id, slot, point"
+    ).bind(date).all();
+    const setups = await env.DB.prepare(
+      "SELECT team_id, point, shift_hours, worker_count, planned_qty, model, color, size, plan_pph, submitted_by, submitted_at FROM pph_track_shift_setup WHERE entry_date = ? ORDER BY team_id, point"
+    ).bind(date).all();
+    return pphJson({ success: true, date, teamNames, entries: entries.results || [], setups: setups.results || [] });
+  }
+  if (sub === "/setup" && request.method === "DELETE") {
+    try {
+      const teamId = String(searchParams.get("team") || "").trim();
+      const point = String(searchParams.get("point") || "").trim();
+      const date = String(searchParams.get("date") || "");
+      if (!teamId || !PPH_TRACK_POINTS[point] || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return pphJson({ success: false, error: "Thiếu team/point/date" }, 400);
+      await env.DB.prepare("DELETE FROM pph_track_shift_setup WHERE team_id = ? AND entry_date = ? AND point = ?")
+        .bind(teamId, date, pphTrackSetupPoint(point)).run();
       await pphCacheInvalidate(env, "pph:track-dashboard");
       return pphJson({ success: true });
     } catch (err) {

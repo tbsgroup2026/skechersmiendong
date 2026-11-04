@@ -40,6 +40,7 @@ const PPH_TRACK_POINT_LABEL: Record<string, string> = {
 };
 import PphTvMediaSlotsView from './PphTvMediaSlotsView';
 import PphGeneralQrView from './PphGeneralQrView';
+import PphTrackDataView from './PphTrackDataView';
 
 type PphTeam = { id: string; name: string; imageUrl?: string | null; paused?: boolean };
 type PphLine = { id: string; name: string; imageUrl?: string | null; paused?: boolean; teams: PphTeam[] };
@@ -63,7 +64,7 @@ export default function PphSettingsView({ onClose }: { onClose: () => void }) {
   //   'factory' = cấu hình hiển thị nhà máy (Target PPH %, tiêu đề, tên GĐĐH/QLCL/TH)
   //   'time'    = ràng buộc thời gian
   //   'causes'  = nhóm nguyên nhân hụt chỉ tiêu (5M1E)
-  const [subView, setSubView] = useState<'tree' | 'lines' | 'factory' | 'time' | 'causes' | 'shoeModels' | 'pphTargets' | 'tvMedia' | 'generalQr'>('tree');
+  const [subView, setSubView] = useState<'tree' | 'lines' | 'factory' | 'time' | 'causes' | 'shoeModels' | 'pphTargets' | 'tvMedia' | 'generalQr' | 'trackData'>('tree');
   // CHẾ ĐỘ DEMO — bật thì dashboard Hiệu suất tự sinh số liệu MINH HOẠ (không ghi CSDL) để trình
   // bày giao diện cho sếp. Lưu ở localStorage, dashboard tự đọc.
   const [demoOn, setDemoOn] = useState(false);
@@ -481,6 +482,9 @@ export default function PphSettingsView({ onClose }: { onClose: () => void }) {
   if (subView === 'generalQr') {
     return <PphGeneralQrView onBack={() => setSubView('tree')} />;
   }
+  if (subView === 'trackData') {
+    return <PphTrackDataView onBack={() => setSubView('tree')} />;
+  }
 
   return (
     <div className="space-y-5 my-auto">
@@ -528,6 +532,7 @@ export default function PphSettingsView({ onClose }: { onClose: () => void }) {
               <option value="pphTargets">PPH Chuẩn theo Mã Giày (IE)</option>
               <option value="tvMedia">Chiếu ảnh/video theo khung giờ (TV)</option>
               <option value="generalQr">Mã QR Chung (tự chọn vị trí khi quét)</option>
+              <option value="trackData">Dữ liệu Theo dõi chuyền (kiểm tra, xoá)</option>
             </select>
           </label>
           <button
