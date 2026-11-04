@@ -28,6 +28,16 @@ import PphDashboardLinesView from './PphDashboardLinesView';
 import PphFactoryConfigView from './PphFactoryConfigView';
 import PphShoeModelsView from './PphShoeModelsView';
 import PphShoePphTargetsView from './PphShoePphTargetsView';
+
+// Module MỚI "Theo dõi chuyền" — 4 điểm quét QR riêng mỗi Tổ (độc lập PPH), khớp PPH_TRACK_POINTS
+// bên _worker.js. Chỉ dùng để tạo URL + nhãn hiện trong popup QR bên dưới.
+const PPH_TRACK_POINT_IDS = ['khutaptrung', 'dauvao', 'daura', 'qc'] as const;
+const PPH_TRACK_POINT_LABEL: Record<string, string> = {
+  khutaptrung: 'Khu tập trung',
+  dauvao: 'Đầu vào',
+  daura: 'Đầu ra',
+  qc: 'QC',
+};
 import PphTvMediaSlotsView from './PphTvMediaSlotsView';
 import PphGeneralQrView from './PphGeneralQrView';
 
@@ -78,6 +88,9 @@ export default function PphSettingsView({ onClose }: { onClose: () => void }) {
   // Ảnh THỰC SỰ tải về khi bấm "Tải ảnh" — đã ghép sẵn đường dẫn + tên vào ảnh, khác với qrImageUrl
   // (chỉ là mã QR trần, dùng để hiển thị xem trước trong popup).
   const [qrDownloadUrl, setQrDownloadUrl] = useState<string | null>(null);
+  // Mã QR của module MỚI "Theo dõi chuyền" (Khu tập trung/Đầu vào/Đầu ra/QC) — độc lập PPH, hiện
+  // thêm bên dưới mã PPH chính trong CÙNG popup (không mở modal riêng) — xem PPH_TRACK_POINTS.
+  const [trackQrUrls, setTrackQrUrls] = useState<Record<string, string> | null>(null);
 
   const [addingFor, setAddingFor] = useState<{ type: OrgType; parentId: string | null } | null>(null);
   const [addName, setAddName] = useState('');
@@ -169,6 +182,7 @@ export default function PphSettingsView({ onClose }: { onClose: () => void }) {
     if (!qrTeam) {
       setQrImageUrl(null);
       setQrDownloadUrl(null);
+      setTrackQrUrls(null);
       return;
     }
     setQrDownloadUrl(null);
@@ -188,6 +202,19 @@ export default function PphSettingsView({ onClose }: { onClose: () => void }) {
         }
       })
       .catch(() => setQrImageUrl(null));
+
+    // 4 mã QR "Theo dõi chuyền" (module mới, độc lập PPH) cho CÙNG Tổ này — mỗi điểm 1 mã riêng.
+    setTrackQrUrls(null);
+    (async () => {
+      const out: Record<string, string> = {};
+      for (const p of PPH_TRACK_POINT_IDS) {
+        const trackUrl = `${window.location.origin}/pph-track-scan?team=${encodeURIComponent(qrTeam.id)}&point=${p}`;
+        try {
+          out[p] = await QRCode.toDataURL(trackUrl, { width: 300, margin: 2 });
+        } catch {}
+      }
+      setTrackQrUrls(out);
+    })();
   }, [qrTeam]);
 
   function openAddForm(type: OrgType, parentId: string | null) {
@@ -716,6 +743,34 @@ export default function PphSettingsView({ onClose }: { onClose: () => void }) {
                   <IconDownload size={16} /> Tải ảnh
                 </a>
               )}
+            </div>
+
+            {/* 4 mã QR "Theo dõi chuyền" (module mới, độc lập PPH ở trên) — Khu tập trung/Đầu vào/
+                Đầu ra/QC, mỗi điểm 1 mã riêng cho cùng Tổ này. */}
+            <div className="pt-3 mt-1 border-t border-slate-100 text-left">
+              <p className="text-[11px] font-extrabold uppercase tracking-wide text-amber-700 mb-2 text-center">Theo dõi chuyền (thử nghiệm)</p>
+              <div className="grid grid-cols-2 gap-2">
+                {PPH_TRACK_POINT_IDS.map((p) => (
+                  <div key={p} className="rounded-xl border border-amber-200 bg-amber-50 p-2 flex flex-col items-center gap-1">
+                    {trackQrUrls?.[p] ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={trackQrUrls[p]} alt={`QR ${PPH_TRACK_POINT_LABEL[p]}`} className="w-full aspect-square rounded-lg" />
+                    ) : (
+                      <div className="w-full aspect-square rounded-lg bg-white flex items-center justify-center text-[10px] text-slate-400">...</div>
+                    )}
+                    <span className="text-[11px] font-bold text-amber-800">{PPH_TRACK_POINT_LABEL[p]}</span>
+                    {trackQrUrls?.[p] && (
+                      <a
+                        href={trackQrUrls[p]}
+                        download={`QR-${qrTeam.name.replace(/\s+/g, '-')}-${PPH_TRACK_POINT_LABEL[p].replace(/\s+/g, '-')}.png`}
+                        className="text-[10px] font-bold text-amber-700 underline"
+                      >
+                        Tải ảnh
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>

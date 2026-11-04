@@ -1235,6 +1235,11 @@ async function pphBoardEnsureTable(env) {
       sort_order INTEGER NOT NULL DEFAULT 0
     )
   `).run().catch(() => {});
+  // "track_mode" (THỬ NGHIỆM) — Line nào bật cờ này thì TV (/pph-view?lineId=...) đổi hẳn sang
+  // dashboard "Theo dõi chuyền" mới (đường xu hướng Đầu vào/Đầu ra + Top 5 lỗi QC, xem
+  // TrackLineBoard ở ProductionPerformanceModule.tsx) THAY CHO bảng "Chi tiết các Tổ" cũ — tắt lại
+  // (bỏ chọn ở Cài Đặt) là quay về y hệt bảng cũ ngay, không mất gì.
+  await env.DB.prepare("ALTER TABLE pph_dashboard_lines ADD COLUMN track_mode INTEGER NOT NULL DEFAULT 0").run().catch(() => {});
   // 1 điểm quét (leaf) thuộc TỐI ĐA 1 line — leaf_id là khoá chính.
   await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS pph_line_members (
@@ -1424,7 +1429,7 @@ async function pphGetDashboardLines(env) {
   await pphBoardEnsureTable(env);
   let lineRows = [], memberRows = [];
   try {
-    const r = await env.DB.prepare("SELECT id, area_id, name, sort_order FROM pph_dashboard_lines ORDER BY sort_order ASC, name ASC").all();
+    const r = await env.DB.prepare("SELECT id, area_id, name, sort_order, track_mode FROM pph_dashboard_lines ORDER BY sort_order ASC, name ASC").all();
     lineRows = r.results || [];
   } catch {}
   try {
@@ -1437,7 +1442,7 @@ async function pphGetDashboardLines(env) {
     arr.push(m.leaf_id);
     byLine.set(m.line_id, arr);
   }
-  return lineRows.map((l) => ({ id: l.id, areaId: l.area_id, name: l.name, sortOrder: l.sort_order, leafIds: byLine.get(l.id) || [] }));
+  return lineRows.map((l) => ({ id: l.id, areaId: l.area_id, name: l.name, sortOrder: l.sort_order, trackMode: !!l.track_mode, leafIds: byLine.get(l.id) || [] }));
 }
 
 async function pphGetFactoryConfigs(env) {
@@ -1457,8 +1462,244 @@ async function pphGetFactoryConfigs(env) {
   }));
 }
 
+// ============================================================================
+// "THEO DÕI CHUYỀN" — module MỚI, hoàn toàn ĐỘC LẬP với PPH (không đụng pph_entries/
+// pph_team_models/pph_entry_models, không có bước "Cập nhật đầu ca" riêng) — 4 điểm quét QR cho
+// mỗi Tổ, công khai không đăng nhập, cùng 8 khung giờ + luật chặn giờ y hệt PPH (dùng lại
+// pphResolveStatus/pphOpenMinutesBySlot, chỉ truyền setupDone=true vì module này không có "setup"):
+//   • khutaptrung (Khu tập trung) — mỗi khung NHIỀU dòng size + số lượng.
+//   • dauvao      (Đầu vào)       — mỗi khung NHIỀU dòng size + số lượng (giống Khu tập trung).
+//   • daura       (Đầu ra)        — mỗi khung 1 số lượng duy nhất, không size.
+//   • qc          (QC)            — mỗi khung NHIỀU dòng size + loại lỗi (danh mục cố định) + số lượng lỗi.
+// TV Line nào bật track_mode (xem pph_dashboard_lines) thì xem dashboard gộp từ dữ liệu
+// dauvao/daura/qc của module này — xem GET /api/pph-track/dashboard.
+// ============================================================================
+const PPH_TRACK_POINTS = {
+  khutaptrung: "Khu tập trung",
+  dauvao: "Đầu vào",
+  daura: "Đầu ra",
+  qc: "QC",
+};
+// Danh mục loại lỗi QC — CỐ ĐỊNH (đề xuất ban đầu, CHƯA có màn Cài Đặt để admin tự sửa — nếu cần
+// đổi/thêm/bớt thì sửa thẳng mảng này rồi deploy lại).
+const PPH_TRACK_DEFECT_TYPES = ["Lỗi may", "Lỗi keo/dán", "Lỗi size", "Lỗi form", "Lỗi vệ sinh công nghiệp", "Khác"];
+
+let __pphTrackSchemaMigratedOnce = false;
+async function pphTrackEnsureTable(env) {
+  if (__pphTrackSchemaMigratedOnce) return;
+  __pphTrackSchemaMigratedOnce = true;
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS pph_track_entries (
+      id TEXT PRIMARY KEY,
+      team_id TEXT NOT NULL,
+      entry_date TEXT NOT NULL,
+      point TEXT NOT NULL,
+      slot TEXT NOT NULL,
+      size TEXT,
+      qty INTEGER NOT NULL,
+      defect_type TEXT,
+      submitted_by TEXT,
+      submitted_at TEXT NOT NULL
+    )
+  `).run().catch(() => {});
+  await env.DB.prepare(
+    "CREATE INDEX IF NOT EXISTS idx_pph_track_entries_lookup ON pph_track_entries(team_id, entry_date, point, slot)"
+  ).run().catch(() => {});
+}
+
+async function handlePphTrack(request, env, sub, searchParams, ctx) {
+  await pphTrackEnsureTable(env);
+
+  // ---- Thông tin để vào form quét — CÔNG KHAI, không đăng nhập (giống /api/pph/scan-info) ----
+  if (sub === "/scan-info" && request.method === "GET") {
+    const teamId = searchParams.get("team");
+    const point = searchParams.get("point");
+    if (!teamId) return pphJson({ success: false, error: "Thiếu mã điểm quét trong đường dẫn QR" }, 400);
+    if (!PPH_TRACK_POINTS[point]) return pphJson({ success: false, error: "Điểm quét không hợp lệ — mã QR có thể đã cũ" }, 400);
+    const found = await pphFindNodeChain(env, teamId);
+    if (!found) return pphJson({ success: false, error: "Không tìm thấy điểm quét này — mã QR có thể đã cũ" }, 404);
+
+    const dateParam = searchParams.get("date");
+    const date = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : pphTodayStr();
+    let rows = [];
+    try {
+      const r = await env.DB.prepare(
+        "SELECT slot, size, qty, defect_type, submitted_by, submitted_at FROM pph_track_entries WHERE team_id = ? AND entry_date = ? AND point = ? ORDER BY slot ASC"
+      ).bind(teamId, date, point).all();
+      rows = r.results || [];
+    } catch {}
+    const filledSlots = new Set(rows.map((r) => r.slot));
+    const openMinutesBySlot = await pphOpenMinutesBySlot(env);
+    // setupDone=true CỐ ĐỊNH — module này không có bước "Cập nhật đầu ca" riêng, luôn vào thẳng
+    // luật chặn giờ cho 8 khung số lượng (PPH_SLOTS.slice(1) bên trong pphResolveStatus).
+    const resolved = pphResolveStatus(true, filledSlots, openMinutesBySlot, PPH_SLOTS);
+    const bySlot = new Map();
+    for (const r of rows) {
+      const arr = bySlot.get(r.slot) || [];
+      arr.push({ size: r.size ?? null, qty: r.qty, defectType: r.defect_type ?? null });
+      bySlot.set(r.slot, arr);
+    }
+    const entries = PPH_SLOTS.slice(1).map((s) => ({ slot: s, filled: bySlot.has(s), rows: bySlot.get(s) || [] }));
+
+    return pphJson({
+      success: true,
+      team: {
+        id: found.node.id,
+        name: found.node.name,
+        lineName: found.line ? found.line.name : "",
+        areaName: found.area ? found.area.name : "",
+        factoryName: found.factory ? found.factory.name : "",
+      },
+      point,
+      pointLabel: PPH_TRACK_POINTS[point],
+      date,
+      entries,
+      defectTypes: point === "qc" ? PPH_TRACK_DEFECT_TYPES : undefined,
+      ...resolved,
+    });
+  }
+
+  // ---- Nộp dữ liệu 1 khung giờ (công khai, không đăng nhập) ----
+  if (sub === "/scan" && request.method === "POST") {
+    try {
+      const body = await request.json();
+      const teamId = String(body.team || "").trim();
+      const point = String(body.point || "").trim();
+      const submittedBy = String(body.submittedBy || "").trim();
+      if (!teamId) return pphJson({ success: false, error: "Thiếu mã điểm quét" }, 400);
+      if (!PPH_TRACK_POINTS[point]) return pphJson({ success: false, error: "Điểm quét không hợp lệ — mã QR có thể đã cũ" }, 400);
+      if (!submittedBy) return pphJson({ success: false, error: "Vui lòng nhập tên người báo cáo" }, 400);
+      const found = await pphFindNodeChain(env, teamId);
+      if (!found) return pphJson({ success: false, error: "Không tìm thấy điểm quét này — mã QR có thể đã cũ" }, 404);
+
+      const date = pphTodayStr();
+      let existingRows = [];
+      try {
+        const r = await env.DB.prepare(
+          "SELECT DISTINCT slot FROM pph_track_entries WHERE team_id = ? AND entry_date = ? AND point = ?"
+        ).bind(teamId, date, point).all();
+        existingRows = r.results || [];
+      } catch {}
+      const filledSlots = new Set(existingRows.map((r) => r.slot));
+      const openMinutesBySlot = await pphOpenMinutesBySlot(env);
+      const resolved = pphResolveStatus(true, filledSlots, openMinutesBySlot, PPH_SLOTS);
+
+      if (resolved.nextAction === "wait") {
+        return pphJson({ success: false, error: `Chưa tới giờ nhập — khung tiếp theo lúc ${resolved.nextSlot}` }, 409);
+      }
+      if (resolved.nextAction === "done") {
+        return pphJson({ success: false, error: "Đã cập nhật đủ các khung giờ hôm nay, cảm ơn bạn!" }, 409);
+      }
+      const slot = resolved.targetSlot;
+
+      // Gửi lại do rớt mạng — khung gửi kèm đã có dữ liệu rồi thì coi như lần trước đã tới server.
+      const expSlot = body.expectedSlot ? String(body.expectedSlot) : "";
+      if (expSlot && filledSlots.has(expSlot)) {
+        return pphJson({ success: false, code: "ALREADY_SAVED", alreadySaved: true, slot: expSlot, error: `Khung giờ ${expSlot} đã được ghi nhận` }, 409);
+      }
+      if (expSlot && expSlot !== slot) {
+        return pphJson({ success: false, code: "SLOT_MISMATCH", error: `Số liệu của khung ${expSlot} không còn khớp khung đang nhập — vui lòng tải lại trang và nhập lại` }, 409);
+      }
+
+      const rowsInput = Array.isArray(body.rows) ? body.rows : [];
+      if (rowsInput.length === 0) return pphJson({ success: false, error: "Vui lòng nhập ít nhất 1 dòng số lượng" }, 400);
+
+      // Khu tập trung/Đầu vào/QC bắt buộc Size; Đầu ra KHÔNG có Size (chỉ 1 số lượng). Riêng QC còn
+      // bắt buộc Loại lỗi (chọn từ danh mục cố định PPH_TRACK_DEFECT_TYPES).
+      const needsSize = point === "khutaptrung" || point === "dauvao" || point === "qc";
+      const needsDefect = point === "qc";
+      const rowsToInsert = [];
+      for (let i = 0; i < rowsInput.length; i++) {
+        const row = rowsInput[i] || {};
+        const qty = Number(row.qty);
+        if (!Number.isFinite(qty) || !Number.isInteger(qty) || qty <= 0) {
+          return pphJson({ success: false, error: `Dòng ${i + 1}: Số lượng không hợp lệ` }, 400);
+        }
+        let size = null;
+        if (needsSize) {
+          size = String(row.size || "").trim().slice(0, 20);
+          if (!size) return pphJson({ success: false, error: `Dòng ${i + 1}: Vui lòng nhập Size` }, 400);
+        }
+        let defectType = null;
+        if (needsDefect) {
+          defectType = String(row.defectType || "").trim();
+          if (!PPH_TRACK_DEFECT_TYPES.includes(defectType)) {
+            return pphJson({ success: false, error: `Dòng ${i + 1}: Vui lòng chọn Loại lỗi hợp lệ` }, 400);
+          }
+        }
+        rowsToInsert.push({ size, qty, defectType });
+      }
+
+      const nowIso = new Date().toISOString();
+      const stmts = rowsToInsert.map((row) =>
+        env.DB.prepare(
+          "INSERT INTO pph_track_entries (id, team_id, entry_date, point, slot, size, qty, defect_type, submitted_by, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).bind(pphNewId("pphtrk"), teamId, date, point, slot, row.size, row.qty, row.defectType, submittedBy, nowIso)
+      );
+      try {
+        await env.DB.batch(stmts);
+      } catch {
+        return pphJson({ success: false, error: "Đã có người nộp khung giờ này rồi" }, 409);
+      }
+
+      // Cache RIÊNG của module này ("pph:track-dashboard") — KHÔNG đụng "pph:dashboard" của PPH.
+      await pphCacheInvalidate(env, "pph:track-dashboard");
+      return pphJson({ success: true, slot, team: { name: found.node.name, lineName: found.line ? found.line.name : "" } });
+    } catch (err) {
+      return pphJson({ success: false, error: err.message || "Không lưu được dữ liệu" }, 500);
+    }
+  }
+
+  // ---- Dashboard TV gộp theo Line (Đầu vào/Đầu ra theo giờ + Top 5 lỗi QC cả ngày) — CÔNG KHAI ----
+  if (sub === "/dashboard" && request.method === "GET") {
+    const lineId = String(searchParams.get("lineId") || "").trim();
+    if (!lineId) return pphJson({ success: false, error: "Thiếu lineId" }, 400);
+    const forceRefresh = searchParams.get("fresh") === "1";
+    const today = pphTodayStr();
+    const requestedDate = searchParams.get("date");
+    const date = requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) && requestedDate <= today ? requestedDate : today;
+    return pphCachedJson(env, `pph:track-dashboard:${lineId}:${date}`, forceRefresh, async () => {
+      const lines = await pphGetDashboardLines(env);
+      const line = lines.find((l) => l.id === lineId);
+      const teamIds = line ? line.leafIds : [];
+      const qSlots = PPH_SLOTS.slice(1);
+      const hourlyMap = new Map(qSlots.map((s) => [s, { slot: s, dauvaoQty: 0, dauraQty: 0 }]));
+      const defectMap = new Map();
+      if (teamIds.length > 0) {
+        const placeholders = teamIds.map(() => "?").join(",");
+        let rows = [];
+        try {
+          const r = await env.DB.prepare(
+            `SELECT point, slot, qty, defect_type FROM pph_track_entries WHERE entry_date = ? AND team_id IN (${placeholders})`
+          ).bind(date, ...teamIds).all();
+          rows = r.results || [];
+        } catch {}
+        for (const r of rows) {
+          if (r.point === "dauvao" && hourlyMap.has(r.slot)) hourlyMap.get(r.slot).dauvaoQty += r.qty;
+          else if (r.point === "daura" && hourlyMap.has(r.slot)) hourlyMap.get(r.slot).dauraQty += r.qty;
+          else if (r.point === "qc" && r.defect_type) defectMap.set(r.defect_type, (defectMap.get(r.defect_type) || 0) + r.qty);
+        }
+      }
+      const topDefects = [...defectMap.entries()]
+        .map(([defectType, qty]) => ({ defectType, qty }))
+        .sort((a, b) => b.qty - a.qty || a.defectType.localeCompare(b.defectType))
+        .slice(0, 5);
+      return { success: true, data: { hourly: [...hourlyMap.values()], topDefects } };
+    }, ctx);
+  }
+
+  return pphJson({ success: false, error: "Không tìm thấy" }, 404);
+}
+
 async function handlePph(request, env, pathname, searchParams, ctx) {
   const sub = pathname.slice("/api/pph".length) || "/";
+  // "Theo dõi chuyền" — module MỚI, ĐỘC LẬP hoàn toàn với PPH (4 điểm quét Khu tập trung/Đầu vào/
+  // Đầu ra/QC, không đăng nhập, không có "Cập nhật đầu ca" riêng) — route riêng /api/pph-track/...
+  // (khớp "/api/pph" ở dispatch chính nên vẫn vào được handlePph này, sub bắt đầu bằng "-track/").
+  // Tách hẳn khỏi mọi logic PPH bên dưới — xem handlePphTrack().
+  if (sub.startsWith("-track/")) {
+    return await handlePphTrack(request, env, sub.slice(6), searchParams, ctx);
+  }
   await pphEnsureTable(env);
   await pphCauseEnsureTable(env);
   await pphBoardEnsureTable(env);
@@ -1625,10 +1866,11 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
         const reuseId = typeof l.id === "string" && existingIds.has(l.id) ? l.id : null;
         const lid = reuseId || pphNewId("pphline");
         keepIds.add(lid);
+        const trackMode = l.trackMode ? 1 : 0;
         stmts.push(
           reuseId
-            ? env.DB.prepare("UPDATE pph_dashboard_lines SET area_id = ?, name = ?, sort_order = ? WHERE id = ?").bind(String(l.areaId).trim(), String(l.name).trim(), so++, lid)
-            : env.DB.prepare("INSERT INTO pph_dashboard_lines (id, area_id, name, sort_order) VALUES (?, ?, ?, ?)").bind(lid, String(l.areaId).trim(), String(l.name).trim(), so++)
+            ? env.DB.prepare("UPDATE pph_dashboard_lines SET area_id = ?, name = ?, sort_order = ?, track_mode = ? WHERE id = ?").bind(String(l.areaId).trim(), String(l.name).trim(), so++, trackMode, lid)
+            : env.DB.prepare("INSERT INTO pph_dashboard_lines (id, area_id, name, sort_order, track_mode) VALUES (?, ?, ?, ?, ?)").bind(lid, String(l.areaId).trim(), String(l.name).trim(), so++, trackMode)
         );
         for (const leafId of (Array.isArray(l.leafIds) ? l.leafIds : [])) {
           const lf = String(leafId || "").trim();
@@ -3526,7 +3768,11 @@ export default {
           "/api/pph/scan-info", "/api/pph/scan-tree", "/api/pph/slot-windows", "/api/pph/shortfall-causes",
           "/api/pph/shoe-models", "/api/pph/shoe-pph-targets", "/api/pph/dashboard", "/api/pph/dashboard-lines",
           "/api/pph/tree", "/api/pph/factory-config", "/api/pph/tv-media-slots", "/api/pph/tv-version",
-        ].includes(p));
+        ].includes(p)) ||
+        // "Theo dõi chuyền" (module MỚI, độc lập PPH) — quét QR 4 điểm (Khu tập trung/Đầu vào/Đầu
+        // ra/QC) + TV dashboard gộp theo Line, cũng công khai không đăng nhập giống PPH ở trên.
+        (p === "/api/pph-track/scan" && m === "POST") ||
+        (m === "GET" && ["/api/pph-track/scan-info", "/api/pph-track/dashboard"].includes(p));
       const isAdminOnly =
         p.startsWith("/api/admin/") ||
         p === "/api/users/sync-diff" ||

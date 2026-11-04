@@ -23,7 +23,10 @@ type AreaGroup = { areaId: string; areaName: string; factoryName: string; leaves
 // `id` = mã THẬT của Line bên CSDL (undefined = Line vừa thêm ở màn này, chưa lưu lần nào) — PHẢI
 // giữ lại xuyên suốt từ lúc tải tới lúc lưu, gửi kèm khi lưu để server UPDATE giữ nguyên ID thay vì
 // cấp ID mới cho Line đã có, tránh làm vỡ link TV đã lưu trước đó (xem PUT /api/pph/dashboard-lines).
-type EditLine = { key: string; id?: string; areaId: string; name: string; leafIds: string[] };
+// trackMode — THỬ NGHIỆM: bật thì TV của Line này đổi hẳn sang dashboard "Theo dõi chuyền" (đường
+// xu hướng Đầu vào/Đầu ra + Top 5 lỗi QC) thay cho bảng "Chi tiết các Tổ" cũ — tắt lại là quay về
+// ngay, không mất gì (xem TrackLineBoard ở ProductionPerformanceModule.tsx).
+type EditLine = { key: string; id?: string; areaId: string; name: string; leafIds: string[]; trackMode: boolean };
 
 let __seq = 0;
 const newKey = () => `ln${Date.now().toString(36)}_${(__seq++).toString(36)}`;
@@ -81,12 +84,13 @@ export default function PphDashboardLinesView({ onBack }: { onBack: () => void }
         setLines(
           (lineRes.lines || [])
             .filter((l: { areaId: string }) => validAreaIds.has(l.areaId))
-            .map((l: { id: string; areaId: string; name: string; leafIds: string[] }) => ({
+            .map((l: { id: string; areaId: string; name: string; leafIds: string[]; trackMode?: boolean }) => ({
               key: newKey(),
               id: l.id,
               areaId: l.areaId,
               name: l.name,
               leafIds: (l.leafIds || []).filter((id) => validLeafIds.has(id)),
+              trackMode: !!l.trackMode,
             })),
         );
       } else {
@@ -115,11 +119,15 @@ export default function PphDashboardLinesView({ onBack }: { onBack: () => void }
 
   function addLine(areaId: string, count: number) {
     touch();
-    setLines((prev) => [...prev, { key: newKey(), areaId, name: `Line ${count + 1}`, leafIds: [] }]);
+    setLines((prev) => [...prev, { key: newKey(), areaId, name: `Line ${count + 1}`, leafIds: [], trackMode: false }]);
   }
   function updName(key: string, name: string) {
     touch();
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, name } : l)));
+  }
+  function toggleTrackMode(key: string) {
+    touch();
+    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, trackMode: !l.trackMode } : l)));
   }
   function delLine(key: string) {
     touch();
@@ -160,7 +168,7 @@ export default function PphDashboardLinesView({ onBack }: { onBack: () => void }
   }
 
   async function handleSave() {
-    const cleaned = lines.map((l) => ({ id: l.id, areaId: l.areaId, name: l.name.trim(), leafIds: l.leafIds }));
+    const cleaned = lines.map((l) => ({ id: l.id, areaId: l.areaId, name: l.name.trim(), leafIds: l.leafIds, trackMode: l.trackMode }));
     for (const l of cleaned) {
       if (!l.name) {
         setSaveError('Có Line chưa đặt tên');
@@ -253,6 +261,10 @@ export default function PphDashboardLinesView({ onBack }: { onBack: () => void }
                             <IconTrash size={14} />
                           </button>
                         </div>
+                        <label className="mt-1.5 flex items-center gap-1.5 text-[11px] font-bold text-amber-700 cursor-pointer w-fit">
+                          <input type="checkbox" checked={ln.trackMode} onChange={() => toggleTrackMode(ln.key)} className="accent-amber-600" />
+                          Dùng dashboard &quot;Theo dõi chuyền&quot; trên TV (thử nghiệm)
+                        </label>
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
                           {ln.leafIds.length === 0 ? (
                             <span className="text-[11px] italic text-slate-400">Chưa có tổ nào — chọn từ &quot;Chưa gán&quot; bên dưới.</span>

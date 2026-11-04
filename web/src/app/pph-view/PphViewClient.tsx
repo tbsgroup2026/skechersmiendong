@@ -14,6 +14,7 @@ import { useSearchParams } from 'next/navigation';
 import { IconVolume, IconVolumeOff, IconMaximize, IconMinimize } from '@tabler/icons-react';
 import {
   LineBoard,
+  TrackLineBoard,
   todayVNStr,
   POLL_MS,
   FS_DESIGN_W,
@@ -261,12 +262,12 @@ export default function PphViewClient() {
       const byId = new Map((factory?.leaves ?? []).map((l) => [l.id, l]));
       const leaves = dashLine.leafIds.map((id) => byId.get(id)).filter((x): x is PphLeaf => !!x);
       const areaName = leaves[0]?.areaName ?? dashLine.name;
-      return { factory, leaves, areaName, lineName: dashLine.name };
+      return { factory, leaves, areaName, lineName: dashLine.name, trackMode: !!dashLine.trackMode };
     }
     // Fallback: mã là 1 leaf đơn lẻ.
     const found = factories.flatMap((f) => f.leaves.map((l) => ({ f, l }))).find(({ l }) => l.id === lineId);
     if (found) {
-      return { factory: found.f, leaves: [found.l], areaName: found.l.areaName ?? found.l.name, lineName: found.l.name };
+      return { factory: found.f, leaves: [found.l], areaName: found.l.areaName ?? found.l.name, lineName: found.l.name, trackMode: false };
     }
     return null;
   }, [lines, factories, lineId]);
@@ -362,15 +363,19 @@ export default function PphViewClient() {
           </div>
         </div>
         <div className="space-y-2 p-3">
-          <LineBoard
-            sel={{ areaName: resolved.areaName, name: resolved.lineName, leafIds: resolved.leaves.map((l) => l.id) }}
-            leaves={resolved.leaves}
-            targetPph={targetPph}
-            light
-            tv
-            alertOverdue
-            audioUnlocked={audioUnlocked}
-          />
+          {resolved.trackMode ? (
+            <TrackLineBoard lineId={lineId} light tv />
+          ) : (
+            <LineBoard
+              sel={{ areaName: resolved.areaName, name: resolved.lineName, leafIds: resolved.leaves.map((l) => l.id) }}
+              leaves={resolved.leaves}
+              targetPph={targetPph}
+              light
+              tv
+              alertOverdue
+              audioUnlocked={audioUnlocked}
+            />
+          )}
         </div>
       </div>
     </div>

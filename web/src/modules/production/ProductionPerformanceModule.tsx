@@ -89,7 +89,10 @@ export type PphLeaf = {
   }>;
 };
 export type PphFactory = { id: string; name: string; leaves: PphLeaf[] };
-export type DashLine = { id: string; areaId: string; name: string; sortOrder: number; leafIds: string[] };
+// trackMode — THỬ NGHIỆM: Line bật cờ này thì TV (/pph-view?lineId=...) đổi hẳn sang dashboard
+// "Theo dõi chuyền" (TrackLineBoard, dữ liệu từ module MỚI /api/pph-track/..., độc lập PPH) thay
+// cho LineBoard (bảng "Chi tiết các Tổ") — xem PphViewClient.tsx.
+export type DashLine = { id: string; areaId: string; name: string; sortOrder: number; leafIds: string[]; trackMode?: boolean };
 // 1 "Line" đã chọn để xem trang riêng — nhận diện bằng tên Xưởng + tên Line + danh sách điểm quét.
 export type LineSel = { areaName: string; name: string; leafIds: string[] };
 export type FactoryConfig = {
@@ -2187,6 +2190,172 @@ function sortLeavesTeamAsc(leaves: PphLeaf[]): PphLeaf[] {
     if (nb != null) return 1;
     return 0;
   });
+}
+
+// ============================================================================
+// "THEO DÕI CHUYỀN" (module MỚI, độc lập PPH) — dashboard TV thay thế LineBoard khi Line bật
+// track_mode (xem DashLine.trackMode, PphViewClient.tsx). Tự fetch/poll RIÊNG từ
+// /api/pph-track/dashboard (không đụng gì /api/pph/dashboard của PPH) — chỉ cần `lineId`.
+// ============================================================================
+type TrackHourly = { slot: string; dauvaoQty: number; dauraQty: number };
+type TrackTopDefect = { defectType: string; qty: number };
+type TrackDashboardData = { hourly: TrackHourly[]; topDefects: TrackTopDefect[] };
+
+// Biểu đồ Đầu vào (cột) chồng đường Đầu ra (line) theo giờ — dựng lại kiểu HourlyChart ở trên
+// (cùng ngôn ngữ hình ảnh, trục trái/phải, kẻ mốc mờ) nhưng 2 chuỗi số liệu THỰC TẾ riêng theo
+// giờ (không cộng dồn/luỹ kế như HourlyChart — mỗi khung giờ là đúng số lượng khung đó).
+function TrackHourlyChart({ hourly, light, tv }: { hourly: TrackHourly[]; light?: boolean; tv?: boolean }) {
+  const t = light ? TONE_LIGHT : TONE;
+  if (!hourly.length) return <div className={`py-8 text-center text-xs ${light ? 'text-gray-400' : 'text-slate-500'}`}>Chưa có dữ liệu.</div>;
+  const barH = 180;
+  const N = hourly.length;
+  const AXIS_DIVS = 6;
+  const rawMax = Math.max(1, ...hourly.map((d) => Math.max(d.dauvaoQty, d.dauraQty)));
+  const niceMax = niceAxisMax(rawMax, AXIS_DIVS);
+  const leftTicks = Array.from({ length: AXIS_DIVS + 1 }, (_, i) => Math.round((niceMax / AXIS_DIVS) * i));
+  const barPx = (v: number) => (v <= 0 ? 0 : Math.max(3, Math.round((v / niceMax) * barH)));
+  const dauraPts = hourly.map((d, i) => `${((i + 0.5) / N) * 100},${100 - Math.min(1, d.dauraQty / niceMax) * 100}`).join(' ');
+  const axisW = tv ? 44 : 34;
+  const tickCls = tv ? 'text-sm' : 'text-[9px]';
+  return (
+    <div>
+      <div className={`mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-bold ${tv ? 'text-xs' : 'text-[10px]'}`}>
+        <span className={`flex items-center gap-1 ${light ? 'text-gray-500' : 'text-slate-300'}`}>
+          <span className="h-2 w-2.5 rounded-sm" style={{ backgroundColor: t.ok.bar }} /> Đầu vào
+        </span>
+        <span className="flex items-center gap-1 text-amber-500">
+          <svg width="14" height="8"><line x1="0" y1="4" x2="14" y2="4" stroke="#f59e0b" strokeWidth={2} strokeLinecap="round" /></svg> Đầu ra
+        </span>
+      </div>
+      <div className="flex items-stretch gap-1.5">
+        <div className="flex shrink-0 flex-col justify-between text-right" style={{ height: barH, width: axisW }}>
+          {leftTicks.slice().reverse().map((v) => (
+            <span key={v} className={`${tickCls} font-semibold leading-none ${light ? 'text-gray-400' : 'text-slate-500'}`}>
+              {fmtInt(v)}
+            </span>
+          ))}
+        </div>
+        <div className="relative min-w-0 flex-1" style={{ height: barH }}>
+          {leftTicks.map((v) => (
+            <div key={v} className={`absolute left-0 right-0 border-t ${light ? 'border-gray-100' : 'border-white/10'}`} style={{ bottom: `${(v / niceMax) * 100}%` }} />
+          ))}
+          <div className="relative flex h-full items-end gap-0.5">
+            {hourly.map((d, i) => {
+              const px = barPx(d.dauvaoQty);
+              const inside = px >= 26;
+              return (
+                <div key={i} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end">
+                  {!inside && (
+                    <span className={`relative z-10 mb-0.5 text-center font-black leading-none ${tv ? 'text-base' : 'text-[11px]'} ${light ? 'text-tbs-dark' : 'text-slate-100'}`}>{fmtInt(d.dauvaoQty)}</span>
+                  )}
+                  <div className="flex w-[58%] max-w-[40px] justify-center rounded-t pt-1" style={{ height: px, backgroundColor: t.ok.bar }}>
+                    {inside && (
+                      <span className={`relative z-10 font-black leading-none ${tv ? 'text-base' : 'text-[11px]'} ${light ? 'text-white' : 'text-[#0a1a2f]'}`}>{fmtInt(d.dauvaoQty)}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <polyline fill="none" stroke="#f59e0b" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" points={dauraPts} />
+          </svg>
+        </div>
+      </div>
+      <div className="mt-1 flex gap-1.5">
+        <div className="shrink-0" style={{ width: axisW }} />
+        <div className="flex min-w-0 flex-1 gap-0.5">
+          {hourly.map((d, i) => (
+            <span key={i} className={`min-w-0 flex-1 overflow-hidden text-center font-semibold whitespace-nowrap ${tickCls} ${light ? 'text-gray-400' : 'text-slate-400'}`}>
+              {d.slot.slice(0, 5)}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Top 5 lỗi QC cả ngày — danh sách xếp hạng GỌN: huy hiệu thứ hạng + tên lỗi + thanh mini CỐ ĐỊNH
+// bề ngang (không còn phóng theo tỉ lệ hết cả hàng) + số lỗi TO làm điểm nhấn chính — tránh kiểu
+// cột dài/phóng to hết cả hàng như bản cũ (người dùng phản ánh khó đọc trên TV vì "to và dài").
+function TrackTopDefectsPanel({ items, light, tv }: { items: TrackTopDefect[]; light?: boolean; tv?: boolean }) {
+  if (!items.length) {
+    return <div className={`py-6 text-center text-xs ${light ? 'text-gray-400' : 'text-slate-500'}`}>Chưa có lỗi QC nào hôm nay.</div>;
+  }
+  const max = Math.max(1, ...items.map((d) => d.qty));
+  return (
+    <div className="space-y-1.5">
+      {items.map((d, i) => (
+        <div
+          key={d.defectType}
+          className={`flex items-center gap-2.5 rounded-lg px-2.5 ${tv ? 'py-2' : 'py-1.5'} ${light ? 'bg-gray-50' : 'bg-white/5'}`}
+        >
+          <span
+            className={`flex shrink-0 items-center justify-center rounded-full font-black ${tv ? 'h-7 w-7 text-sm' : 'h-5 w-5 text-[10px]'}`}
+            style={{ backgroundColor: LOI_COLORS[i % LOI_COLORS.length], color: '#0a1a2f' }}
+          >
+            {i + 1}
+          </span>
+          <span className={`min-w-0 flex-1 truncate font-bold ${tv ? 'text-base' : 'text-xs'} ${light ? 'text-gray-700' : 'text-slate-200'}`}>
+            {d.defectType}
+          </span>
+          {/* Thanh mini — bề ngang CỐ ĐỊNH (không phóng theo max như bản cũ), chỉ để so sánh nhanh
+              tương đối giữa các lỗi, KHÔNG phải điểm nhấn chính (số lỗi bên phải mới là trọng tâm). */}
+          <div className={`h-1.5 shrink-0 overflow-hidden rounded-full ${tv ? 'w-20' : 'w-12'} ${light ? 'bg-gray-200' : 'bg-white/10'}`}>
+            <div className="h-full rounded-full" style={{ width: `${(d.qty / max) * 100}%`, backgroundColor: LOI_COLORS[i % LOI_COLORS.length] }} />
+          </div>
+          <span className={`shrink-0 text-right font-black tabular-nums ${tv ? 'w-12 text-2xl' : 'w-8 text-base'} ${light ? 'text-tbs-dark' : 'text-white'}`}>
+            {fmtInt(d.qty)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: string; light?: boolean; tv?: boolean }) {
+  const [data, setData] = useState<TrackDashboardData | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    function load(fresh: boolean) {
+      fetch(`/api/pph-track/dashboard?lineId=${encodeURIComponent(lineId)}&date=${todayVNStr()}${fresh ? '&fresh=1' : ''}`)
+        .then((r) => r.json())
+        .then((res) => {
+          if (!cancelled && res?.success && res.data) setData(res.data);
+        })
+        .catch(() => {});
+    }
+    load(true);
+    const t = setInterval(() => load(false), POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [lineId]);
+
+  return (
+    <div className={`rounded-2xl p-4 ${light ? 'border border-gray-200 bg-white' : 'border border-white/10 bg-white/5'}`}>
+      {/* Cấp TV (màn rộng) — 2 cột NẰM CẠNH NHAU thay vì xếp chồng dọc: vừa đỡ trống phía dưới màn
+          hình, vừa cho cột Top 5 lỗi hẹp lại tự nhiên (khớp luôn phần sửa TrackTopDefectsPanel ở
+          trên — thanh mini bề ngang cố định, không còn phóng dài hết cả hàng). Trang thường (không
+          phải TV) vẫn giữ xếp chồng dọc như cũ, gọn trong khung hẹp của trang. */}
+      <div className={tv ? 'grid grid-cols-[1.5fr_1fr] gap-6' : 'space-y-4'}>
+        <div>
+          <h3 className={`mb-2 font-black uppercase tracking-wide ${tv ? 'text-xl' : 'text-sm'} ${light ? 'text-tbs-dark' : 'text-cyan-100'}`}>
+            Đầu vào / Đầu ra theo giờ
+          </h3>
+          <TrackHourlyChart hourly={data?.hourly || []} light={light} tv={tv} />
+        </div>
+        <div>
+          <h3 className={`mb-2 font-black uppercase tracking-wide ${tv ? 'text-xl' : 'text-sm'} ${light ? 'text-tbs-dark' : 'text-cyan-100'}`}>
+            Top 5 Lỗi QC Hôm Nay
+          </h3>
+          <TrackTopDefectsPanel items={data?.topDefects || []} light={light} tv={tv} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function LineBoard({
