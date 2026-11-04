@@ -10,6 +10,14 @@ import {
   IconMinimize,
   IconDeviceTv,
   IconRotateClockwise2,
+  IconNeedleThread,
+  IconSettingsFilled,
+  IconChartArrowsVertical,
+  IconChartBar,
+  IconUsersGroup,
+  IconPackage,
+  IconTrendingUp,
+  IconTrendingDown,
 } from '@tabler/icons-react';
 import PphSettingsView from './PphSettingsView';
 
@@ -2201,37 +2209,88 @@ type TrackHourly = { slot: string; dauvaoQty: number; dauraQty: number; hasOutpu
 type TrackTopDefect = { defectType: string; qty: number };
 type TrackSupply = { collected: number; input: number; gap: number };
 type TrackQuality = { outputQty: number; defectQty: number; defectRatePct: number | null };
-type TrackShift = { workerCount: number; plannedQty: number; perHourTarget: number };
+type TrackShift = { workerCount: number; plannedQty: number; perHourTarget: number; targetSoFar?: number; pphTarget?: number | null };
 type TrackDashboardData = { hourly: TrackHourly[]; topDefects: TrackTopDefect[]; supply?: TrackSupply; quality?: TrackQuality; shift?: TrackShift };
 
-// Khối trên cùng: TT, ĐV, ĐR lũy kế trong ngày, ô ĐR to hơn để nhấn mạnh chỉ số hoàn thành. Ô ĐV kèm kết
-// quả đối soát với TT (Đầu vào lấy hàng từ Tập trung), luôn có chữ chứ không chỉ dựa vào màu.
-function TrackStatTiles({ supply, outputQty, light, tv }: { supply?: TrackSupply; outputQty: number; light?: boolean; tv?: boolean }) {
-  // Cùng kiểu thẻ số với PairCard: khung vuông khi lên TV, nhãn chữ hoa nhỏ, số căn giữa.
-  const box = `flex min-w-0 flex-col justify-center border px-3 py-1.5 text-center ${tv ? '' : 'rounded-xl'} ${light ? 'border-gray-200 bg-gray-50' : 'border-cyan-500/20 bg-cyan-500/5'}`;
-  const label = `font-bold uppercase leading-tight tracking-wide ${tv ? 'text-base' : 'text-[10px]'} ${light ? 'text-gray-600' : 'text-slate-400'}`;
-  const value = `font-black leading-tight tabular-nums ${tv ? 'text-5xl' : 'text-2xl'} ${light ? 'text-tbs-dark' : 'text-white'}`;
+const TRACK_TILE_TONES = {
+  green: { box: 'border-emerald-200 bg-emerald-50', icon: 'text-emerald-600', label: 'text-tbs-dark', value: 'text-tbs-dark' },
+  blue: { box: 'border-blue-200 bg-blue-50', icon: 'text-blue-600', label: 'text-tbs-dark', value: 'text-tbs-dark' },
+  violet: { box: 'border-violet-200 bg-violet-50', icon: 'text-violet-500', label: 'text-tbs-dark', value: 'text-tbs-dark' },
+  solid: { box: 'border-[#006838] bg-[#006838]', icon: 'text-white', label: 'text-white', value: 'text-white' },
+};
+
+function TrackStatTile({
+  icon: Icon,
+  tone,
+  label,
+  value,
+  big,
+  children,
+  tv,
+}: {
+  icon: typeof IconSettingsFilled;
+  tone: keyof typeof TRACK_TILE_TONES;
+  label: string;
+  value: React.ReactNode;
+  big?: boolean;
+  children?: React.ReactNode;
+  tv?: boolean;
+}) {
+  const t = TRACK_TILE_TONES[tone];
+  return (
+    <div className={`flex min-w-0 items-center gap-4 rounded-2xl border px-5 py-3 ${t.box}`}>
+      <Icon size={tv ? (big ? 72 : 64) : 32} className={`shrink-0 ${t.icon}`} aria-hidden />
+      <div className="min-w-0 flex-1">
+        <div className={`font-black uppercase leading-tight tracking-wide ${tv ? 'text-lg' : 'text-[10px]'} ${t.label}`}>{label}</div>
+        <div className={`font-black leading-tight tabular-nums ${big ? (tv ? 'text-right text-7xl' : 'text-right text-3xl') : tv ? 'text-5xl' : 'text-2xl'} ${t.value}`}>{value}</div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Khối trên cùng theo mẫu: TT, ĐV, Lũy kế, Người lao động, ĐR (ô đặc, to nhất). Trạng thái luôn có chữ kèm
+// theo, không chỉ dựa vào màu, để nhìn từ xa trên TV vẫn đọc được.
+function TrackStatTiles({ supply, outputQty, shift, tv }: { supply?: TrackSupply; outputQty: number; shift?: TrackShift; tv?: boolean }) {
   const gap = supply?.gap ?? 0;
   const hasSupply = !!supply && (supply.collected > 0 || supply.input > 0);
+  const note = `font-black ${tv ? 'text-base' : 'text-[10px]'}`;
+  // So lũy kế Đầu ra với mục tiêu tính tới giờ hiện tại, để biết đang vượt hay chậm tiến độ.
+  const targetSoFar = shift?.targetSoFar ?? 0;
+  const deltaPct = targetSoFar > 0 ? Math.round((outputQty / targetSoFar - 1) * 100) : null;
   return (
-    <div className={`grid grid-cols-[1fr_1fr_1.6fr] items-stretch ${tv ? 'gap-1' : 'gap-1.5'}`}>
-      <div className={box}>
-        <div className={label}>TT · Tập trung</div>
-        <div className={value}>{fmtInt(supply?.collected ?? 0)}</div>
-      </div>
-      <div className={box}>
-        <div className={label}>ĐV · Đầu vào</div>
-        <div className={value}>{fmtInt(supply?.input ?? 0)}</div>
+    <div className="grid grid-cols-[1.05fr_1.15fr_1.15fr_1.05fr_1.35fr] items-stretch gap-2">
+      <TrackStatTile icon={IconNeedleThread} tone="green" label="TT - Tập trung" value={fmtInt(supply?.collected ?? 0)} tv={tv} />
+      <TrackStatTile icon={IconSettingsFilled} tone="blue" label="ĐV - Đầu vào" value={fmtInt(supply?.input ?? 0)} tv={tv}>
         {hasSupply && (
-          <div className={`font-black ${tv ? 'text-base' : 'text-[10px]'} ${gap < 0 ? 'text-rose-600' : light ? 'text-emerald-700' : 'text-emerald-300'}`}>
+          <div className={`${note} ${gap < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
             {gap < 0 ? `⚠ Tập trung thiếu ${fmtInt(-gap)}` : `Tập trung đủ · còn ${fmtInt(gap)}`}
           </div>
         )}
-      </div>
-      <div className={box}>
-        <div className={label}>ĐR · Đầu ra</div>
-        <div className={`font-black leading-none tabular-nums ${tv ? 'text-8xl' : 'text-4xl'} ${light ? 'text-tbs-dark' : 'text-white'}`}>{fmtInt(outputQty)}</div>
-      </div>
+      </TrackStatTile>
+      <TrackStatTile
+        icon={IconChartArrowsVertical}
+        tone="violet"
+        label="Lũy kế trong ngày"
+        value={
+          <>
+            {fmtInt(outputQty)} <span className={tv ? 'text-3xl' : 'text-sm'}>đôi</span>
+          </>
+        }
+        tv={tv}
+      >
+        {deltaPct != null && (
+          <div className={`flex items-center gap-1 ${note} ${deltaPct < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+            {deltaPct < 0 ? <IconTrendingDown size={tv ? 20 : 12} aria-hidden /> : <IconTrendingUp size={tv ? 20 : 12} aria-hidden />}
+            {deltaPct > 0 ? '+' : ''}
+            {deltaPct}% so với mục tiêu
+          </div>
+        )}
+      </TrackStatTile>
+      <TrackStatTile icon={IconUsersGroup} tone="green" label="Người lao động" value={fmtInt(shift?.workerCount ?? 0)} tv={tv}>
+        <div className={`font-bold ${tv ? 'text-base' : 'text-[10px]'} text-tbs-dark`}>Đang làm việc</div>
+      </TrackStatTile>
+      <TrackStatTile icon={IconPackage} tone="solid" label="ĐR - Đầu ra" value={fmtInt(outputQty)} big tv={tv} />
     </div>
   );
 }
@@ -2240,7 +2299,8 @@ function TrackStatTiles({ supply, outputQty, light, tv }: { supply?: TrackSupply
 // 0 để khỏi trông như sụt giảm. Giá trị để ở hàng dưới trục giờ vì TV không rê chuột được.
 function TrackLineChart({
   title,
-  note,
+  actualLabel,
+  targetLabel,
   slots,
   values,
   color,
@@ -2250,7 +2310,8 @@ function TrackLineChart({
   tv,
 }: {
   title: string;
-  note?: string;
+  actualLabel: string;
+  targetLabel?: string;
   slots: string[];
   values: (number | null)[];
   color: string;
@@ -2259,23 +2320,35 @@ function TrackLineChart({
   light?: boolean;
   tv?: boolean;
 }) {
-  const h = tv ? 150 : 110;
+  const h = tv ? 130 : 110;
   const divisions = 4;
   const axisMax = niceAxisMax(Math.max(0, target ?? 0, ...values.map((v) => v ?? 0)), divisions);
   const ticks = Array.from({ length: divisions + 1 }, (_, i) => (axisMax / divisions) * i);
   const x = (i: number) => ((i + 0.5) / slots.length) * 100;
   const y = (v: number) => Math.min(1, v / axisMax) * 100;
   const axisW = tv ? 52 : 34;
-  const tickCls = `${tv ? 'text-sm' : 'text-[9px]'} font-semibold ${light ? 'text-gray-400' : 'text-slate-500'}`;
+  const tickCls = `${tv ? 'text-sm' : 'text-[9px]'} font-semibold ${light ? 'text-gray-500' : 'text-slate-500'}`;
   const segments = values.slice(1).flatMap((v, idx) => {
     const prev = values[idx];
     return v != null && prev != null ? [{ x1: x(idx), y1: 100 - y(prev), x2: x(idx + 1), y2: 100 - y(v) }] : [];
   });
   return (
-    <div className={`min-w-0 overflow-hidden border p-2.5 ${tv ? '' : 'rounded-xl'} ${light ? 'border-gray-100 bg-gray-50' : 'border-cyan-500/15 bg-[#0a1a2f]/60'}`}>
-      <div className={`mb-1 flex items-center justify-between gap-3 font-bold ${tv ? 'text-sm' : 'text-[11px]'}`}>
-        <span className={light ? 'text-tbs-dark' : 'text-cyan-100'}>{title}</span>
-        {note && <span className={light ? 'text-amber-600' : 'text-amber-300'}>{note}</span>}
+    <div className={`min-w-0 overflow-hidden rounded-2xl border p-3 ${light ? 'border-gray-200 bg-white' : 'border-cyan-500/15 bg-[#0a1a2f]/60'}`}>
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-x-4">
+        <h3 className={`flex items-center gap-2 font-black uppercase ${tv ? 'text-lg' : 'text-xs'} ${light ? 'text-tbs-dark' : 'text-cyan-100'}`}>
+          <IconChartBar size={tv ? 24 : 14} style={{ color }} aria-hidden />
+          {title}
+        </h3>
+        <div className={`flex items-center gap-4 font-bold ${tv ? 'text-sm' : 'text-[10px]'} ${light ? 'text-gray-700' : 'text-slate-300'}`}>
+          <span className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} /> {actualLabel}
+          </span>
+          {targetLabel && (
+            <span className="flex items-center gap-1.5">
+              <span className={`w-6 border-t-2 border-dashed ${light ? 'border-slate-400' : 'border-slate-300'}`} /> {targetLabel}
+            </span>
+          )}
+        </div>
       </div>
       <div className="flex items-stretch gap-1.5">
         <div className="flex shrink-0 flex-col justify-between text-right" style={{ height: h, width: axisW }}>
@@ -2329,16 +2402,6 @@ function TrackLineChart({
   );
 }
 
-// QC kiểm lỗi của Đầu ra: tỷ lệ lỗi = số lỗi QC / sản lượng Đầu ra trong ngày.
-function TrackQualityStat({ quality, light, tv }: { quality?: TrackQuality; light?: boolean; tv?: boolean }) {
-  if (!quality) return null;
-  return (
-    <span className={`font-black tabular-nums ${tv ? 'text-lg' : 'text-xs'} ${light ? 'text-gray-600' : 'text-slate-300'}`}>
-      Tỷ lệ lỗi trên Đầu ra: {quality.defectRatePct == null ? (quality.defectQty > 0 ? 'chưa có Đầu ra' : '–') : `${quality.defectRatePct.toLocaleString('vi-VN')}%`} ({fmtInt(quality.defectQty)} / {fmtInt(quality.outputQty)} đôi)
-    </span>
-  );
-}
-
 // Top 5 lỗi QC cả ngày — danh sách xếp hạng GỌN: huy hiệu thứ hạng + tên lỗi + thanh mini CỐ ĐỊNH
 // bề ngang (không còn phóng theo tỉ lệ hết cả hàng) + số lỗi TO làm điểm nhấn chính — tránh kiểu
 // cột dài/phóng to hết cả hàng như bản cũ (người dùng phản ánh khó đọc trên TV vì "to và dài").
@@ -2352,7 +2415,7 @@ function TrackTopDefectsPanel({ items, light, tv }: { items: TrackTopDefect[]; l
       {items.map((d, i) => (
         <div
           key={d.defectType}
-          className={`flex items-center gap-2.5 border px-2.5 py-1.5 ${tv ? '' : 'rounded-lg'} ${light ? 'border-gray-100 bg-gray-50' : 'border-cyan-500/15 bg-white/5'}`}
+          className={`flex items-center gap-2.5 rounded-lg border px-2.5 py-1.5 ${light ? 'border-gray-100 bg-gray-50' : 'border-cyan-500/15 bg-white/5'}`}
         >
           <span
             className={`flex shrink-0 items-center justify-center rounded-full font-black ${tv ? 'h-7 w-7 text-sm' : 'h-5 w-5 text-[10px]'}`}
@@ -2360,14 +2423,15 @@ function TrackTopDefectsPanel({ items, light, tv }: { items: TrackTopDefect[]; l
           >
             {i + 1}
           </span>
-          <span className={`min-w-0 flex-1 truncate font-bold ${tv ? 'text-base' : 'text-xs'} ${light ? 'text-gray-700' : 'text-slate-200'}`}>
+          <span className={`w-1/5 min-w-0 truncate font-bold ${tv ? 'text-lg' : 'text-xs'} ${light ? 'text-gray-700' : 'text-slate-200'}`}>
             {d.defectType}
           </span>
           {/* Thanh mini — bề ngang CỐ ĐỊNH (không phóng theo max như bản cũ), chỉ để so sánh nhanh
               tương đối giữa các lỗi, KHÔNG phải điểm nhấn chính (số lỗi bên phải mới là trọng tâm). */}
-          <div className={`h-1.5 shrink-0 overflow-hidden rounded-full ${tv ? 'w-20' : 'w-12'} ${light ? 'bg-gray-200' : 'bg-white/10'}`}>
+          <div className={`h-1.5 shrink-0 overflow-hidden rounded-full ${tv ? 'w-40' : 'w-12'} ${light ? 'bg-gray-200' : 'bg-white/10'}`}>
             <div className="h-full rounded-full" style={{ width: `${(d.qty / max) * 100}%`, backgroundColor: LOI_COLORS[i % LOI_COLORS.length] }} />
           </div>
+          <span className="flex-1" />
           <span className={`shrink-0 text-right font-black tabular-nums ${tv ? 'w-12 text-2xl' : 'w-8 text-base'} ${light ? 'text-tbs-dark' : 'text-white'}`}>
             {fmtInt(d.qty)}
           </span>
@@ -2380,8 +2444,8 @@ function TrackTopDefectsPanel({ items, light, tv }: { items: TrackTopDefect[]; l
 // Tài liệu yêu cầu: dữ liệu màn hình theo dõi tự làm mới 30 phút một lần.
 const TRACK_REFRESH_MS = 30 * 60 * 1000;
 
-// Bố cục 1 màn hình, từ trên xuống: TT/ĐV/ĐR → biểu đồ SL → biểu đồ PPH → Top 5 lỗi. Hiện xem theo ngày;
-// xem theo tuần thuộc giai đoạn 2.
+// Bố cục 1 màn hình, từ trên xuống: các ô chỉ số → biểu đồ SL → biểu đồ PPH → Top 5 lỗi. Hiện xem theo
+// ngày; xem theo tuần thuộc giai đoạn 2.
 export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: string; light?: boolean; tv?: boolean }) {
   const [data, setData] = useState<TrackDashboardData | null>(null);
   useEffect(() => {
@@ -2404,20 +2468,20 @@ export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: 
 
   const hourly = data?.hourly || [];
   const slots = hourly.map((d) => d.slot);
-  const t = light ? TONE_LIGHT : TONE;
   const target = data?.shift?.perHourTarget ?? 0;
+  const pphTarget = data?.shift?.pphTarget ?? undefined;
   const fmtPph = (v: number) => Number(v.toFixed(2)).toLocaleString('vi-VN');
 
-  // Màu và khung theo đúng LineBoard: sản lượng màu t.ok.bar, PPH màu cam, mục tiêu nét đứt, MT/giờ ở góc.
   return (
-    <div className={`space-y-1.5 border p-1.5 ${tv ? '' : 'rounded-2xl'} ${light ? 'border-gray-200 bg-white' : 'border-cyan-500/20 bg-[#0d2136]/80'}`}>
-      <TrackStatTiles supply={data?.supply} outputQty={data?.quality?.outputQty ?? 0} light={light} tv={tv} />
+    <div className="space-y-2">
+      <TrackStatTiles supply={data?.supply} outputQty={data?.quality?.outputQty ?? 0} shift={data?.shift} tv={tv} />
       <TrackLineChart
-        title="Sản lượng theo giờ (Đầu ra, đôi)"
-        note={target > 0 ? `MT/giờ ${fmtInt(target)}` : undefined}
+        title={`Sản lượng theo giờ — Đầu ra (đôi)${target > 0 ? ` · Mục tiêu ${fmtInt(target)}/giờ (nét đứt)` : ''}`}
+        actualLabel="Thực tế"
+        targetLabel={target > 0 ? `Mục tiêu ${fmtInt(target)}/giờ` : undefined}
         slots={slots}
         values={hourly.map((d) => (d.hasOutput ? d.dauraQty : null))}
-        color={t.ok.bar}
+        color="#16a34a"
         target={target}
         format={fmtInt}
         light={light}
@@ -2425,18 +2489,21 @@ export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: 
       />
       <TrackLineChart
         title="Hiệu suất PPH theo giờ (sản lượng giờ / số lao động)"
+        actualLabel="PPH thực tế"
+        targetLabel={pphTarget ? `PPH mục tiêu (${fmtPph(pphTarget)})` : undefined}
         slots={slots}
         values={hourly.map((d) => d.pph ?? null)}
-        color="#f59e0b"
+        color="#2563eb"
+        target={pphTarget}
         format={fmtPph}
         light={light}
         tv={tv}
       />
-      <div>
-        <div className="mb-1 flex flex-wrap items-center justify-between gap-x-4">
-          <SectionLabel light={light}>Top 5 lỗi hôm nay</SectionLabel>
-          <TrackQualityStat quality={data?.quality} light={light} tv={tv} />
-        </div>
+      <div className={`rounded-2xl border p-3 ${light ? 'border-gray-200 bg-white' : 'border-cyan-500/15 bg-[#0a1a2f]/60'}`}>
+        <h3 className={`mb-2 flex items-center gap-2 font-black uppercase ${tv ? 'text-lg' : 'text-xs'} ${light ? 'text-tbs-dark' : 'text-cyan-100'}`}>
+          <IconUsersGroup size={tv ? 28 : 14} className="text-emerald-600" aria-hidden />
+          Top 5 lỗi hôm nay
+        </h3>
         <TrackTopDefectsPanel items={data?.topDefects || []} light={light} tv={tv} />
       </div>
     </div>

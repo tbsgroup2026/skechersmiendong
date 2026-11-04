@@ -2023,7 +2023,7 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       let supply = pphTrackSupply([]);
       let outputQty = 0;
       let defectQty = 0;
-      let shift = { workerCount: 0, plannedQty: 0, perHourTarget: 0 };
+      let shift = { workerCount: 0, plannedQty: 0, perHourTarget: 0, targetSoFar: 0, pphTarget: null };
       if (teamIds.length > 0) {
         const placeholders = teamIds.map(() => "?").join(",");
         let rows = [];
@@ -2047,6 +2047,8 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
             workerCount: shift.workerCount + parsed.workerCount,
             plannedQty: shift.plannedQty + parsed.plannedQty,
             perHourTarget: shift.perHourTarget + parsed.perHourTarget,
+            targetSoFar: 0,
+            pphTarget: null,
           };
         }
         for (const r of rows) {
@@ -2077,6 +2079,12 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
         .slice(0, 5);
       // QC kiểm lỗi của Đầu ra nên tỷ lệ lỗi tính trên Đầu ra. Số lỗi lưu riêng, không trừ vào sản lượng.
       const quality = { outputQty, defectQty, defectRatePct: outputQty > 0 ? Math.round((defectQty / outputQty) * 10000) / 100 : null };
+      // Mục tiêu tính tới giờ hiện tại (để so lũy kế) và PPH mục tiêu = mục tiêu giờ / số công nhân.
+      const openMinutes = await pphOpenMinutesBySlot(env);
+      const nowMin = pphNowMinutes();
+      const openSlotCount = date === today ? qSlots.filter((s) => pphOpenMinutesFor(s, openMinutes) <= nowMin).length : qSlots.length;
+      shift.targetSoFar = Math.min(shift.plannedQty, shift.perHourTarget * openSlotCount);
+      shift.pphTarget = shift.workerCount > 0 ? Math.round((shift.perHourTarget / shift.workerCount) * 100) / 100 : null;
       return { success: true, data: { hourly: [...hourlyMap.values()], topDefects, supply, quality, shift } };
     }, ctx);
   }

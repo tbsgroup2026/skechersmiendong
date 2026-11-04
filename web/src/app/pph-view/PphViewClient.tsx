@@ -326,7 +326,7 @@ export default function PphViewClient() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/images/tbs-logo.png" alt="TBS" className="h-10 w-auto shrink-0 object-contain" />
           <h2 className="pointer-events-none absolute left-1/2 top-1/2 max-w-[55%] -translate-x-1/2 -translate-y-1/2 truncate text-center text-4xl font-black uppercase tracking-wide text-tbs-dark">
-            {pphLineTitle(resolved.areaName, resolved.lineName)}
+            {resolved.trackMode ? `Bảng kết quả sản xuất - ${resolved.areaName}` : pphLineTitle(resolved.areaName, resolved.lineName)}
           </h2>
           <div className="flex items-center gap-2">
             {/* Icon loa — nằm bên trái ô ngày giờ. Đỏ nhấp nháy = chưa bật (bấm 1 cái nghe xác nhận
