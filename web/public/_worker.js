@@ -1507,8 +1507,251 @@ async function pphTrackEnsureTable(env) {
   ).run().catch(() => {});
 }
 
+let __pphTrackPushSchemaMigratedOnce = false;
+async function pphTrackPushEnsureTable(env) {
+  if (__pphTrackPushSchemaMigratedOnce) return;
+  __pphTrackPushSchemaMigratedOnce = true;
+  // 1 (team_id, point) CHỈ giữ ĐÚNG 1 đăng ký — người nộp gần nhất "giành" quyền nhận nhắc của đúng
+  // điểm đó (đúng ý đã chốt: nhắc NGƯỜI VỪA NỘP KHUNG GẦN NHẤT, không phải 1 danh sách cố định).
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS pph_track_push_subs (
+      team_id TEXT NOT NULL,
+      point TEXT NOT NULL,
+      endpoint TEXT NOT NULL,
+      p256dh TEXT NOT NULL,
+      auth_key TEXT NOT NULL,
+      submitted_by TEXT,
+      last_notified_slot TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (team_id, point)
+    )
+  `).run().catch(() => {});
+}
+
+// ============================================================================
+// Web Push RIÊNG cho "Theo dõi chuyền" — BẢN SAO rút gọn của signVapidJWT/encryptPushPayload/
+// sendWebPushToDevice (xem bản gốc trong handleRequest(), khu "WEB PUSH ENGINE") — KHÔNG gọi thẳng
+// bản gốc được vì chúng là hàm cục bộ (closure) khai báo BÊN TRONG handleRequest(), đóng kín theo
+// biến `env` của request đó; scheduled() là 1 method RIÊNG của cùng object export default, không có
+// quyền truy cập closure của handleRequest(). Nhân bản 3 hàm thuần (không state dùng chung, chỉ
+// Web Crypto + tham số) AN TOÀN hơn nhiều so với sửa lại code gốc đang chạy thật cho các module
+// khác (Kaizen...) chỉ để dùng chung — đổi lại phải tự đồng bộ tay nếu sau này bản gốc sửa lỗi.
+// ============================================================================
+async function pphTrackSignVapidJWT(privateKeyB64, audience, subject, expSeconds = 43200) {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const header = { typ: "JWT", alg: "ES256" };
+    const payload = { aud: audience, exp: now + expSeconds, sub: subject };
+    const encodeB64Url = (obj) => {
+      const json = typeof obj === "string" ? obj : JSON.stringify(obj);
+      const bytes = new TextEncoder().encode(json);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+    };
+    const signingInput = `${encodeB64Url(header)}.${encodeB64Url(payload)}`;
+    const rawPrivate = Uint8Array.from(atob(privateKeyB64.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+    const cryptoKey = await crypto.subtle.importKey(
+      "jwk",
+      { kty: "EC", crv: "P-256", d: btoa(String.fromCharCode(...rawPrivate)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, ""), x: "", y: "", key_ops: ["sign"] },
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"]
+    ).catch(() => null);
+    if (!cryptoKey) return null;
+    const sigBuffer = await crypto.subtle.sign({ name: "ECDSA", hash: { name: "SHA-256" } }, cryptoKey, new TextEncoder().encode(signingInput));
+    const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sigBuffer))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+    return `${signingInput}.${sigB64}`;
+  } catch (e) {
+    console.warn("[Track Push][VAPID] JWT signing error:", e);
+    return null;
+  }
+}
+
+async function pphTrackEncryptPushPayload(subscriptionJson, payloadStr) {
+  try {
+    const encoder = new TextEncoder();
+    const payloadBytes = encoder.encode(payloadStr);
+    const fromB64 = (b64) => Uint8Array.from(atob(b64.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+    const serverP256dhBytes = fromB64(subscriptionJson.keys.p256dh);
+    const authBytes = fromB64(subscriptionJson.keys.auth);
+    const ephemeralKeyPair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+    const ephemeralPublicKeyRaw = await crypto.subtle.exportKey("raw", ephemeralKeyPair.publicKey);
+    const clientPublicKey = await crypto.subtle.importKey("raw", serverP256dhBytes, { name: "ECDH", namedCurve: "P-256" }, false, []);
+    const sharedBits = await crypto.subtle.deriveBits({ name: "ECDH", public: clientPublicKey }, ephemeralKeyPair.privateKey, 256);
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const authHmacKey = await crypto.subtle.importKey("raw", authBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const prk = await crypto.subtle.sign("HMAC", authHmacKey, new Uint8Array(sharedBits));
+    await crypto.subtle.importKey("raw", prk, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]); // giữ đúng bước HKDF như bản gốc (không dùng tiếp, xem ghi chú bản gốc)
+    const aesKeyMaterial = await crypto.subtle.importKey("raw", new Uint8Array(sharedBits).slice(0, 16), { name: "AES-GCM" }, false, ["encrypt"]);
+    const iv = new Uint8Array(sharedBits).slice(16, 28);
+    const paddedPayload = new Uint8Array([...payloadBytes, 0x02]);
+    const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKeyMaterial, paddedPayload);
+    return {
+      ciphertext: btoa(String.fromCharCode(...new Uint8Array(encrypted))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, ""),
+      salt: btoa(String.fromCharCode(...salt)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, ""),
+      dh: btoa(String.fromCharCode(...new Uint8Array(ephemeralPublicKeyRaw))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, ""),
+    };
+  } catch (e) {
+    console.warn("[Track Push] Encryption error:", e);
+    return null;
+  }
+}
+
+// subRow: { endpoint, p256dh, auth_key } — trả true/false, KHÔNG tự xoá/vô hiệu hoá record ở đây
+// (gọi nơi dùng tự xử lý 404/410, xem runPphTrackPushCheck bên dưới) để hàm này thuần (dễ test).
+async function pphTrackSendWebPush(env, subRow, notifPayload) {
+  try {
+    const vapidPrivate = (env && env.VAPID_PRIVATE_KEY) || "";
+    const vapidPublic = (env && env.VAPID_PUBLIC_KEY) || "BC8JBKkxGTW34UgLCgb8l1Y-6kjGiMqqRL5-OtQ4pNOVx2re-qurzaKF2cSYHydAzG3zcIG-G4F91CHCvNABImw";
+    const vapidContact = (env && env.VAPID_CONTACT) || "mailto:admin@tbsgroup.vn";
+    const endpointUrl = new URL(subRow.endpoint);
+    const audience = `${endpointUrl.protocol}//${endpointUrl.host}`;
+    const jwt = await pphTrackSignVapidJWT(vapidPrivate, audience, vapidContact);
+    if (!jwt) return { success: false, status: 0, error: "VAPID_SIGN_FAIL" };
+    const payloadStr = JSON.stringify({
+      title: notifPayload.title,
+      message: notifPayload.message,
+      url: notifPayload.url || "/work",
+      icon: "/icon.png",
+    });
+    const subKeys = { keys: { p256dh: subRow.p256dh, auth: subRow.auth_key } };
+    const encrypted = await pphTrackEncryptPushPayload(subKeys, payloadStr);
+    let pushBody, pushHeaders;
+    if (encrypted) {
+      const cipherBytes = Uint8Array.from(atob(encrypted.ciphertext.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+      pushBody = cipherBytes;
+      pushHeaders = {
+        "Content-Type": "application/octet-stream",
+        "Content-Encoding": "aesgcm",
+        "Encryption": `salt=${encrypted.salt}`,
+        "Crypto-Key": `dh=${encrypted.dh};p256ecdsa=${vapidPublic}`,
+        "Authorization": `vapid t=${jwt},k=${vapidPublic}`,
+        "TTL": "86400",
+      };
+    } else {
+      pushBody = payloadStr;
+      pushHeaders = { "Content-Type": "application/json", "Authorization": `vapid t=${jwt},k=${vapidPublic}`, "TTL": "86400" };
+    }
+    const res = await fetch(subRow.endpoint, { method: "POST", headers: pushHeaders, body: pushBody });
+    return { success: res.ok || res.status === 201, status: res.status };
+  } catch (e) {
+    console.warn("[Track Push] send error:", e);
+    return { success: false, status: 0, error: e.message };
+  }
+}
+
+// Chạy từ cron mỗi giờ (xem scheduled(), nhịp "0 * * * *") — với MỖI đăng ký push đang có
+// (pph_track_push_subs), xem điểm đó của Tổ đó HÔM NAY có khung ĐÃ TỚI GIỜ mà CHƯA nhập không
+// (dùng lại ĐÚNG pphResolveStatus/pphOpenMinutesBySlot như /scan-info, setupDone=true vì module
+// này không có đầu ca) — có thì nhắc, debounce bằng last_notified_slot để KHÔNG nhắc lặp lại cùng
+// 1 khung mỗi lần cron chạy (chỉ nhắc 1 lần/khung, dù khung đó còn thiếu suốt nhiều giờ liền).
+// ⚠ GIỚI HẠN THẬT: cron hệ thống hiện chỉ chạy đúng mỗi giờ tròn (0 * * * *, phút 00), còn khung
+// giờ PPH mở lúc phút 30 (08:30, 09:30...) — nên lần nhắc SỚM NHẤT có thể luôn trễ 0-60 phút sau
+// khi khung mở (TB ~30 phút), KHÔNG nhắc được ngay lập tức. Muốn sát giờ hơn (VD mỗi 10-15 phút)
+// cần thêm 1 lịch cron mới trong wrangler.jsonc — CHƯA tự thêm, cần xác nhận trước vì đổi cấu hình hạ tầng.
+async function runPphTrackPushCheck(env) {
+  if (!env.DB) return;
+  await pphTrackPushEnsureTable(env);
+  let subs = [];
+  try {
+    const r = await env.DB.prepare("SELECT * FROM pph_track_push_subs").all();
+    subs = r.results || [];
+  } catch {
+    return;
+  }
+  if (!subs.length) return;
+  const date = pphTodayStr();
+  const openMinutesBySlot = await pphOpenMinutesBySlot(env);
+  for (const row of subs) {
+    try {
+      let filledRows = [];
+      try {
+        const r = await env.DB.prepare(
+          "SELECT DISTINCT slot FROM pph_track_entries WHERE team_id = ? AND entry_date = ? AND point = ?"
+        ).bind(row.team_id, date, row.point).all();
+        filledRows = r.results || [];
+      } catch {}
+      const filledSlots = new Set(filledRows.map((x) => x.slot));
+      const resolved = pphResolveStatus(true, filledSlots, openMinutesBySlot, PPH_SLOTS);
+      if (resolved.nextAction !== "quantity") continue; // "wait"/"done" — chưa tới giờ hoặc đã xong hết, không có gì để nhắc.
+      const targetSlot = resolved.targetSlot;
+      if (row.last_notified_slot === targetSlot) continue; // Khung này đã nhắc rồi — chờ sang khung kế mới nhắc tiếp.
+      const found = await pphFindNodeChain(env, row.team_id);
+      const teamName = found ? found.node.name : row.team_id;
+      const pointLabel = PPH_TRACK_POINTS[row.point] || row.point;
+      const sendRes = await pphTrackSendWebPush(
+        env,
+        { endpoint: row.endpoint, p256dh: row.p256dh, auth_key: row.auth_key },
+        {
+          title: `Nhắc nhập ${pointLabel}`,
+          message: `${teamName}: chưa nhập khung ${targetSlot} (${pointLabel}) — vào quét lại nhé!`,
+          url: `/pph-track-scan?team=${encodeURIComponent(row.team_id)}&point=${encodeURIComponent(row.point)}`,
+        }
+      );
+      if (sendRes.status === 404 || sendRes.status === 410) {
+        // Đăng ký hết hạn (người dùng đổi máy/xoá quyền) — xoá luôn, tránh gọi lại mỗi giờ vô ích.
+        await env.DB.prepare("DELETE FROM pph_track_push_subs WHERE team_id = ? AND point = ?").bind(row.team_id, row.point).run().catch(() => {});
+        continue;
+      }
+      await env.DB.prepare("UPDATE pph_track_push_subs SET last_notified_slot = ? WHERE team_id = ? AND point = ?")
+        .bind(targetSlot, row.team_id, row.point).run().catch(() => {});
+    } catch (e) {
+      console.warn("[Track Push] row failed", row.team_id, row.point, e);
+    }
+  }
+}
+
 async function handlePphTrack(request, env, sub, searchParams, ctx) {
   await pphTrackEnsureTable(env);
+
+  // ---- Danh sách Tổ thuộc 1 Line — CÔNG KHAI — dùng cho mã QC DÙNG CHUNG theo Line (quét vào chọn
+  // đúng Tổ đang kiểm trước khi vào form QC, xem PphTrackScanClient.tsx). Khu tập trung/Đầu vào/Đầu
+  // ra KHÔNG dùng route này — vẫn giữ nguyên QR riêng từng Tổ như trước. ----
+  if (sub === "/line-teams" && request.method === "GET") {
+    const lineId = String(searchParams.get("lineId") || "").trim();
+    if (!lineId) return pphJson({ success: false, error: "Thiếu mã Line trong đường dẫn QR" }, 400);
+    const lines = await pphGetDashboardLines(env);
+    const line = lines.find((l) => l.id === lineId);
+    if (!line) return pphJson({ success: false, error: "Không tìm thấy Line này — mã QR có thể đã cũ" }, 404);
+    const teams = [];
+    for (const leafId of line.leafIds) {
+      const found = await pphFindNodeChain(env, leafId);
+      if (!found) continue;
+      const path = [found.factory ? found.factory.name : null, found.area ? found.area.name : null].filter(Boolean).join(" › ");
+      teams.push({ id: found.node.id, name: found.node.name, path });
+    }
+    teams.sort((a, b) => a.name.localeCompare(b.name, "vi"));
+    return pphJson({ success: true, lineId, lineName: line.name, teams });
+  }
+
+  // ---- Đăng ký nhận nhắc Web Push cho 1 (Tổ, điểm) — CÔNG KHAI, không đăng nhập. Đăng ký MỚI đè
+  // lên đăng ký CŨ của đúng (team, point) đó (PRIMARY KEY), đúng ý "nhắc người vừa nộp gần nhất" —
+  // KHÔNG dùng chung bảng push_subscriptions (gắn user_id, đòi đăng nhập) của hệ thống thông báo cũ. ----
+  if (sub === "/push-subscribe" && request.method === "POST") {
+    try {
+      const body = await request.json();
+      const teamId = String(body.team || "").trim();
+      const point = String(body.point || "").trim();
+      const submittedBy = String(body.submittedBy || "").trim();
+      const subscription = body.subscription;
+      if (!teamId || !PPH_TRACK_POINTS[point]) return pphJson({ success: false, error: "Thiếu thông tin đăng ký" }, 400);
+      if (!subscription || !subscription.endpoint || !subscription.keys || !subscription.keys.p256dh || !subscription.keys.auth) {
+        return pphJson({ success: false, error: "Dữ liệu đăng ký không hợp lệ" }, 400);
+      }
+      await pphTrackPushEnsureTable(env);
+      const nowIso = new Date().toISOString();
+      await env.DB.prepare(
+        `INSERT INTO pph_track_push_subs (team_id, point, endpoint, p256dh, auth_key, submitted_by, last_notified_slot, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?)
+         ON CONFLICT(team_id, point) DO UPDATE SET endpoint = excluded.endpoint, p256dh = excluded.p256dh, auth_key = excluded.auth_key,
+           submitted_by = excluded.submitted_by, last_notified_slot = NULL, updated_at = excluded.updated_at`
+      ).bind(teamId, point, subscription.endpoint, subscription.keys.p256dh, subscription.keys.auth, submittedBy || null, nowIso).run();
+      return pphJson({ success: true });
+    } catch (err) {
+      return pphJson({ success: false, error: err.message || "Không lưu được đăng ký thông báo" }, 500);
+    }
+  }
 
   // ---- Thông tin để vào form quét — CÔNG KHAI, không đăng nhập (giống /api/pph/scan-info) ----
   if (sub === "/scan-info" && request.method === "GET") {
@@ -3771,8 +4014,11 @@ export default {
         ].includes(p)) ||
         // "Theo dõi chuyền" (module MỚI, độc lập PPH) — quét QR 4 điểm (Khu tập trung/Đầu vào/Đầu
         // ra/QC) + TV dashboard gộp theo Line, cũng công khai không đăng nhập giống PPH ở trên.
+        // line-teams: danh sách Tổ cho mã QC dùng chung theo Line. push-subscribe: đăng ký nhắc Web
+        // Push ngay trên máy đang quét, không cần biết tài khoản/đăng nhập.
         (p === "/api/pph-track/scan" && m === "POST") ||
-        (m === "GET" && ["/api/pph-track/scan-info", "/api/pph-track/dashboard"].includes(p));
+        (p === "/api/pph-track/push-subscribe" && m === "POST") ||
+        (m === "GET" && ["/api/pph-track/scan-info", "/api/pph-track/dashboard", "/api/pph-track/line-teams"].includes(p));
       const isAdminOnly =
         p.startsWith("/api/admin/") ||
         p === "/api/users/sync-diff" ||
@@ -20859,10 +21105,13 @@ async function ensureKaizenGuestTable(env) {
 
   // ⏰ Cloudflare Worker Cron Trigger Handler (Daily System Backup & Kaizen Sync)
   async scheduled(event, env, ctx) {
-    // Nhịp mỗi giờ: chỉ chạy tác vụ SCM (leo thang theo giờ cấu hình trong scm_settings).
+    // Nhịp mỗi giờ: chạy tác vụ SCM (leo thang theo giờ cấu hình trong scm_settings) + nhắc Web Push
+    // "Theo dõi chuyền" (xem runPphTrackPushCheck — ⚠ cron chỉ chạy đúng phút 00 mỗi giờ nên nhắc
+    // trễ 0-60 phút sau khi khung giờ PPH mở ở phút 30, xem ghi chú ở hàm đó).
     // Các tác vụ cũ (đồng bộ Kaizen, backup) giữ nguyên ở lịch 0 19 * * *.
     if (event.cron === "0 * * * *") {
       if (env.DB) ctx.waitUntil(runScmHourly(env.DB).catch((e) => console.error("[SCM CRON]", e)));
+      if (env.DB) ctx.waitUntil(runPphTrackPushCheck(env).catch((e) => console.error("[TRACK PUSH CRON]", e)));
       return;
     }
 

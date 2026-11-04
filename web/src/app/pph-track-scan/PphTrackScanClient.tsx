@@ -17,6 +17,7 @@ import {
   IconTrash,
   IconRuler2,
   IconBug,
+  IconUsersGroup,
 } from '@tabler/icons-react';
 
 // Trang quét QR của module MỚI "Theo dõi chuyền" — ĐỘC LẬP hoàn toàn với PPH (/pph-scan), không
@@ -45,10 +46,93 @@ type TrackInfo = {
 const REMEMBERED_NAME_KEY = 'pph_track_scan_reporter_name';
 const VALID_POINTS = ['khutaptrung', 'dauvao', 'daura', 'qc'];
 
+// Đổi Uint8Array VAPID key cho PushManager.subscribe — BẢN SAO rút gọn của hàm cùng tên (không
+// export) ở web/src/lib/browserNotifications.ts, vì trang này KHÔNG đăng nhập nên không dùng được
+// syncPushSubscriptionToServer() (gắn /api/push/subscribe cần cookie đăng nhập) — xem registerTrackPush().
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+// Đăng ký Web Push nhắc "quên nhập" cho ĐÚNG (Tổ, điểm) vừa submit — đè lên đăng ký cũ (nếu có) của
+// chính (team, point) đó, đúng ý đã chốt "nhắc người vừa nộp khung gần nhất" — dùng CHUNG sw.js đã
+// có sẵn (không đăng ký Service Worker thứ 2), KHÔNG dùng bảng/endpoint push_subscriptions cũ (đòi
+// đăng nhập) — xem POST /api/pph-track/push-subscribe ở _worker.js. Lỗi/từ chối quyền thì bỏ qua
+// lặng lẽ, KHÔNG được chặn luồng nhập số liệu chính (chỉ là tiện ích nhắc thêm).
+async function registerTrackPush(teamId: string, point: string, submittedBy: string) {
+  try {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+    if (Notification.permission === 'denied') return;
+    if (Notification.permission !== 'granted') {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') return;
+    }
+    const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const publicVapidKey =
+        process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || 'BC8JBKkxGTW34UgLCgb8l1Y-6kjGiMqqRL5-OtQ4pNOVx2re-qurzaKF2cSYHydAzG3zcIG-G4F91CHCvNABImw';
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicVapidKey) as unknown as BufferSource,
+      });
+    }
+    await fetch('/api/pph-track/push-subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team: teamId, point, submittedBy, subscription: sub.toJSON() }),
+    });
+  } catch {
+    // Im lặng bỏ qua — đăng ký Push chỉ là tiện ích thêm, không phải luồng chính.
+  }
+}
+
+type LineTeam = { id: string; name: string; path: string };
+
 export default function PphTrackScanClient() {
   const searchParams = useSearchParams();
-  const teamId = searchParams.get('team') || '';
+  const teamIdParam = searchParams.get('team') || '';
+  const lineIdParam = searchParams.get('lineId') || '';
   const point = searchParams.get('point') || '';
+
+  // Mã QC dùng CHUNG theo Line (quét vào ?point=qc&lineId=... KHÔNG kèm team) — hiện danh sách Tổ
+  // để chọn trước khi vào form QC của đúng Tổ đó. Khu tập trung/Đầu vào/Đầu ra vẫn luôn vào thẳng
+  // bằng ?team=... như cũ (isQcLinePicker luôn false với 3 điểm đó).
+  const isQcLinePicker = point === 'qc' && !!lineIdParam && !teamIdParam;
+  const [pickedTeamId, setPickedTeamId] = useState('');
+  const teamId = teamIdParam || pickedTeamId;
+
+  const [lineTeams, setLineTeams] = useState<LineTeam[] | null>(null);
+  const [lineName, setLineName] = useState('');
+  const [lineTeamsError, setLineTeamsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isQcLinePicker || pickedTeamId) return;
+    let cancelled = false;
+    fetch(`/api/pph-track/line-teams?lineId=${encodeURIComponent(lineIdParam)}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (cancelled) return;
+        if (res.success) {
+          setLineTeams(res.teams || []);
+          setLineName(res.lineName || '');
+        } else {
+          setLineTeamsError(res.error || 'Không tải được danh sách Tổ');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLineTeamsError('Không kết nối được tới hệ thống');
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isQcLinePicker, lineIdParam, pickedTeamId]);
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -97,9 +181,12 @@ export default function PphTrackScanClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId, point]);
 
-  // Ghi nhận xong tự quay lại form (khung kế tiếp) sau ~1.8s, giống /pph-scan.
+  // Ghi nhận xong tự quay lại form (khung kế tiếp) sau ~1.8s, giống /pph-scan — đồng thời ĐĂNG KÝ
+  // Web Push nhắc (fire-and-forget, không await/không chặn gì) cho đúng (Tổ, điểm) vừa nộp, xem
+  // registerTrackPush() ở trên.
   useEffect(() => {
     if (!success) return;
+    void registerTrackPush(teamId, point, submittedBy.trim() || rememberedName);
     const t = setTimeout(() => {
       setSuccess(null);
       load({ silent: true });
@@ -178,6 +265,47 @@ export default function PphTrackScanClient() {
         <div className="flex items-center justify-center py-10">
           <div className="w-8 h-8 rounded-full border-4 border-amber-600 border-t-transparent animate-spin" />
         </div>
+      </ScanShell>
+    );
+  }
+
+  if (isQcLinePicker && !pickedTeamId) {
+    return (
+      <ScanShell pointLabel="QC">
+        {lineTeamsError ? (
+          <StateCard icon={IconAlertTriangle} tone="rose" title="Không tải được danh sách Tổ" desc={lineTeamsError} />
+        ) : lineTeams === null ? (
+          <div className="flex items-center justify-center py-10">
+            <div className="w-8 h-8 rounded-full border-4 border-amber-600 border-t-transparent animate-spin" />
+          </div>
+        ) : lineTeams.length === 0 ? (
+          <StateCard icon={IconAlertTriangle} tone="amber" title="Line chưa có Tổ" desc="Line này chưa gán Tổ nào — liên hệ quản lý để cấu hình ở Cài Đặt." />
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs font-bold text-slate-500 text-center">
+              {lineName ? `${lineName} — ` : ''}Chọn Tổ đang kiểm:
+            </p>
+            <div className="space-y-2">
+              {lineTeams.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setPickedTeamId(t.id)}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl bg-amber-50/60 border border-amber-200 hover:bg-amber-100 active:scale-[0.99] transition text-left"
+                >
+                  <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                    <IconUsersGroup size={17} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-black text-slate-900 text-sm truncate">{t.name}</div>
+                    {t.path && <div className="text-[11px] text-slate-400 font-semibold truncate">{t.path}</div>}
+                  </div>
+                  <IconChevronRight size={16} className="text-amber-400 shrink-0" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </ScanShell>
     );
   }

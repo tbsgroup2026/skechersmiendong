@@ -29,14 +29,14 @@ import PphFactoryConfigView from './PphFactoryConfigView';
 import PphShoeModelsView from './PphShoeModelsView';
 import PphShoePphTargetsView from './PphShoePphTargetsView';
 
-// Module MỚI "Theo dõi chuyền" — 4 điểm quét QR riêng mỗi Tổ (độc lập PPH), khớp PPH_TRACK_POINTS
-// bên _worker.js. Chỉ dùng để tạo URL + nhãn hiện trong popup QR bên dưới.
-const PPH_TRACK_POINT_IDS = ['khutaptrung', 'dauvao', 'daura', 'qc'] as const;
+// Module MỚI "Theo dõi chuyền" — 3 điểm quét QR riêng mỗi Tổ (độc lập PPH), khớp PPH_TRACK_POINTS
+// bên _worker.js. Chỉ dùng để tạo URL + nhãn hiện trong popup QR bên dưới. QC KHÔNG còn ở đây —
+// QC dùng 1 mã QR DÙNG CHUNG theo LINE (quét vào tự chọn Tổ), xem nút "QR QC" ở PphDashboardLinesView.tsx.
+const PPH_TRACK_POINT_IDS = ['khutaptrung', 'dauvao', 'daura'] as const;
 const PPH_TRACK_POINT_LABEL: Record<string, string> = {
   khutaptrung: 'Khu tập trung',
   dauvao: 'Đầu vào',
   daura: 'Đầu ra',
-  qc: 'QC',
 };
 import PphTvMediaSlotsView from './PphTvMediaSlotsView';
 import PphGeneralQrView from './PphGeneralQrView';
@@ -745,11 +745,12 @@ export default function PphSettingsView({ onClose }: { onClose: () => void }) {
               )}
             </div>
 
-            {/* 4 mã QR "Theo dõi chuyền" (module mới, độc lập PPH ở trên) — Khu tập trung/Đầu vào/
-                Đầu ra/QC, mỗi điểm 1 mã riêng cho cùng Tổ này. */}
+            {/* 3 mã QR "Theo dõi chuyền" (module mới, độc lập PPH ở trên) — Khu tập trung/Đầu vào/
+                Đầu ra, mỗi điểm 1 mã riêng cho cùng Tổ này. Mã QC dùng chung theo Line, xem nút
+                "QR QC" ở màn Cấu hình Line (subView 'lines'). */}
             <div className="pt-3 mt-1 border-t border-slate-100 text-left">
               <p className="text-[11px] font-extrabold uppercase tracking-wide text-amber-700 mb-2 text-center">Theo dõi chuyền (thử nghiệm)</p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {PPH_TRACK_POINT_IDS.map((p) => (
                   <div key={p} className="rounded-xl border border-amber-200 bg-amber-50 p-2 flex flex-col items-center gap-1">
                     {trackQrUrls?.[p] ? (

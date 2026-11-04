@@ -12,7 +12,10 @@ import {
   IconArrowUp,
   IconArrowDown,
   IconX,
+  IconQrcode,
+  IconDownload,
 } from '@tabler/icons-react';
+import QRCode from 'qrcode';
 
 type TreeTeam = { id: string; name: string };
 type TreeLine = { id: string; name: string; teams: TreeTeam[] };
@@ -63,6 +66,21 @@ export default function PphDashboardLinesView({ onBack }: { onBack: () => void }
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // Mã QR "QC" DÙNG CHUNG cho cả Line (quét vào tự chọn Tổ đang kiểm, xem PphTrackScanClient.tsx) —
+  // CHỈ hiện được khi Line đã có `id` thật (đã Lưu ít nhất 1 lần), vì URL cần đúng id đã lưu bên CSDL.
+  const [qrLine, setQrLine] = useState<{ id: string; name: string; areaName: string } | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!qrLine) {
+      setQrDataUrl(null);
+      return;
+    }
+    const url = `${window.location.origin}/pph-track-scan?point=qc&lineId=${encodeURIComponent(qrLine.id)}`;
+    QRCode.toDataURL(url, { width: 480, margin: 2 })
+      .then(setQrDataUrl)
+      .catch(() => setQrDataUrl(null));
+  }, [qrLine]);
 
   const load = async () => {
     setLoading(true);
@@ -261,10 +279,28 @@ export default function PphDashboardLinesView({ onBack }: { onBack: () => void }
                             <IconTrash size={14} />
                           </button>
                         </div>
-                        <label className="mt-1.5 flex items-center gap-1.5 text-[11px] font-bold text-amber-700 cursor-pointer w-fit">
-                          <input type="checkbox" checked={ln.trackMode} onChange={() => toggleTrackMode(ln.key)} className="accent-amber-600" />
-                          Dùng dashboard &quot;Theo dõi chuyền&quot; trên TV (thử nghiệm)
-                        </label>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                          <label className="flex items-center gap-1.5 text-[11px] font-bold text-amber-700 cursor-pointer w-fit">
+                            <input type="checkbox" checked={ln.trackMode} onChange={() => toggleTrackMode(ln.key)} className="accent-amber-600" />
+                            Dùng dashboard &quot;Theo dõi chuyền&quot; trên TV (thử nghiệm)
+                          </label>
+                          {ln.id ? (
+                            <button
+                              type="button"
+                              onClick={() => setQrLine({ id: ln.id as string, name: ln.name, areaName: g.areaName })}
+                              className="flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-bold text-amber-700 hover:bg-amber-100"
+                            >
+                              <IconQrcode size={13} /> QR QC (dùng chung Line)
+                            </button>
+                          ) : (
+                            <span
+                              className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-bold text-slate-400"
+                              title="Lưu thay đổi trước để Line có mã — mới tạo mã QR QC được"
+                            >
+                              <IconQrcode size={13} /> QR QC (lưu Line trước)
+                            </span>
+                          )}
+                        </div>
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
                           {ln.leafIds.length === 0 ? (
                             <span className="text-[11px] italic text-slate-400">Chưa có tổ nào — chọn từ &quot;Chưa gán&quot; bên dưới.</span>
@@ -343,6 +379,47 @@ export default function PphDashboardLinesView({ onBack }: { onBack: () => void }
           </span>
         )}
       </div>
+
+      {qrLine && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setQrLine(null)}>
+          <div className="w-full max-w-xs rounded-2xl bg-white p-5 text-center shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <p className="text-[11px] font-extrabold uppercase tracking-wide text-amber-700">QR QC — dùng chung cả Line</p>
+            <p className="mt-0.5 text-sm font-black text-slate-900">{qrLine.name}</p>
+            <p className="text-[11px] font-semibold text-slate-400">{qrLine.areaName}</p>
+            <p className="mt-2 text-[11px] text-slate-500 leading-relaxed">
+              Quét mã này vào sẽ hiện danh sách Tổ của Line — chọn đúng Tổ đang kiểm rồi mới nhập Size/Loại lỗi/Số lượng lỗi.
+            </p>
+            <div className="mt-3 flex items-center justify-center">
+              {qrDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={qrDataUrl} alt={`QR QC ${qrLine.name}`} className="w-56 h-56 rounded-lg border border-amber-200" />
+              ) : (
+                <div className="flex h-56 w-56 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-xs text-slate-400">
+                  Đang tạo mã...
+                </div>
+              )}
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setQrLine(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-600 text-sm font-bold hover:bg-slate-200"
+              >
+                Đóng
+              </button>
+              {qrDataUrl && (
+                <a
+                  href={qrDataUrl}
+                  download={`QR-QC-${qrLine.name.replace(/\s+/g, '-')}.png`}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#006838] text-white text-sm font-bold hover:opacity-90"
+                >
+                  <IconDownload size={15} /> Tải ảnh
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
