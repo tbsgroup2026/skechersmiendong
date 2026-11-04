@@ -2552,6 +2552,17 @@ export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: 
     <div className="space-y-2">
       <TrackStatTiles supply={data?.supply} outputQty={data?.quality?.outputQty ?? 0} shift={data?.shift} tv={tv} />
       <TrackLineChart
+        title="Sản lượng lũy kế — Đầu ra (đôi)"
+        series={[{ label: 'Lũy kế', color: '#7c3aed', marker: 'circle', values: hourly.map((d) => d.cumulativeQty) }]}
+        slots={slots}
+        format={fmtInt}
+        tooltip={(i) => [
+          { name: 'Sản lượng lũy kế', value: hourly[i].cumulativeQty == null ? notEntered : `${fmtInt(hourly[i].cumulativeQty as number)} đôi` },
+        ]}
+        light={light}
+        tv={tv}
+      />
+      <TrackLineChart
         title={`Sản lượng theo giờ — Đầu ra (đôi)${target > 0 ? ` · Mục tiêu ${fmtInt(target)}/giờ (nét đứt)` : ''}`}
         series={[{ label: 'Thực tế', color: '#16a34a', marker: 'circle', values: hourly.map((d) => d.qty) }]}
         targetLabel={target > 0 ? `Mục tiêu ${fmtInt(target)}/giờ` : undefined}
