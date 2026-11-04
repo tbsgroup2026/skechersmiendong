@@ -2534,8 +2534,8 @@ export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: 
         .catch(() => {});
     }
     load(true);
-    // Mỗi lần nhập, sửa, xoá đều xoá cache ở server, nên TV cập nhật số mới trong tối đa 1 chu kỳ này.
-    const t = setInterval(() => load(false), POLL_MS);
+    // Yêu cầu: TV làm mới 30 phút một lần; tải lại trang thì thấy số mới ngay.
+    const t = setInterval(() => load(false), 30 * 60 * 1000);
     return () => {
       cancelled = true;
       clearInterval(t);
