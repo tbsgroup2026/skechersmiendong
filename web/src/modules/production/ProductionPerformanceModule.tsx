@@ -98,9 +98,8 @@ export type PphLeaf = {
   }>;
 };
 export type PphFactory = { id: string; name: string; leaves: PphLeaf[] };
-// trackMode — THỬ NGHIỆM: Line bật cờ này thì TV (/pph-view?lineId=...) đổi hẳn sang dashboard
-// "Theo dõi chuyền" (TrackLineBoard, dữ liệu từ module MỚI /api/pph-track/..., độc lập PPH) thay
-// cho LineBoard (bảng "Chi tiết các Tổ") — xem PphViewClient.tsx.
+// trackMode — cờ cũ, TV không còn đọc: bảng "Theo dõi chuyền" (TrackLineBoard) mở bằng link riêng
+// /pph-view?lineId=...&board=track — xem PphViewClient.tsx.
 export type DashLine = { id: string; areaId: string; name: string; sortOrder: number; leafIds: string[]; trackMode?: boolean };
 // 1 "Line" đã chọn để xem trang riêng — nhận diện bằng tên Xưởng + tên Line + danh sách điểm quét.
 export type LineSel = { areaName: string; name: string; leafIds: string[] };

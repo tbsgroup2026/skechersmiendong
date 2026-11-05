@@ -45,6 +45,9 @@ function pphTimeToMinutes(t: string): number {
 export default function PphViewClient() {
   const searchParams = useSearchParams();
   const lineId = searchParams.get('lineId') || '';
+  // Bảng "Theo dõi chuyền" có link rút gọn riêng (target_type 'track' redirect kèm ?board=track), link
+  // TV thường của Line luôn ra bảng "Line May" cũ.
+  const trackBoard = searchParams.get('board') === 'track';
 
   const [factories, setFactories] = useState<PphFactory[]>([]);
   const [lines, setLines] = useState<DashLine[]>([]);
@@ -262,12 +265,12 @@ export default function PphViewClient() {
       const byId = new Map((factory?.leaves ?? []).map((l) => [l.id, l]));
       const leaves = dashLine.leafIds.map((id) => byId.get(id)).filter((x): x is PphLeaf => !!x);
       const areaName = leaves[0]?.areaName ?? dashLine.name;
-      return { factory, leaves, areaName, lineName: dashLine.name, trackMode: !!dashLine.trackMode };
+      return { factory, leaves, areaName, lineName: dashLine.name };
     }
     // Fallback: mã là 1 leaf đơn lẻ.
     const found = factories.flatMap((f) => f.leaves.map((l) => ({ f, l }))).find(({ l }) => l.id === lineId);
     if (found) {
-      return { factory: found.f, leaves: [found.l], areaName: found.l.areaName ?? found.l.name, lineName: found.l.name, trackMode: false };
+      return { factory: found.f, leaves: [found.l], areaName: found.l.areaName ?? found.l.name, lineName: found.l.name };
     }
     return null;
   }, [lines, factories, lineId]);
@@ -326,7 +329,7 @@ export default function PphViewClient() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/images/tbs-logo.png" alt="TBS" className="h-10 w-auto shrink-0 object-contain" />
           <h2 className="pointer-events-none absolute left-1/2 top-1/2 max-w-[55%] -translate-x-1/2 -translate-y-1/2 truncate text-center text-4xl font-black uppercase tracking-wide text-tbs-dark">
-            {resolved.trackMode ? `Bảng kết quả sản xuất - ${resolved.areaName}` : pphLineTitle(resolved.areaName, resolved.lineName)}
+            {trackBoard ? `Bảng kết quả sản xuất - ${resolved.areaName}` : pphLineTitle(resolved.areaName, resolved.lineName)}
           </h2>
           <div className="flex items-center gap-2">
             {/* Icon loa — nằm bên trái ô ngày giờ. Đỏ nhấp nháy = chưa bật (bấm 1 cái nghe xác nhận
@@ -363,7 +366,7 @@ export default function PphViewClient() {
           </div>
         </div>
         <div className="space-y-2 p-3">
-          {resolved.trackMode ? (
+          {trackBoard ? (
             <TrackLineBoard lineId={lineId} light tv />
           ) : (
             <LineBoard

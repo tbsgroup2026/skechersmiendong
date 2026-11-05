@@ -26,9 +26,7 @@ type AreaGroup = { areaId: string; areaName: string; factoryName: string; leaves
 // `id` = mã THẬT của Line bên CSDL (undefined = Line vừa thêm ở màn này, chưa lưu lần nào) — PHẢI
 // giữ lại xuyên suốt từ lúc tải tới lúc lưu, gửi kèm khi lưu để server UPDATE giữ nguyên ID thay vì
 // cấp ID mới cho Line đã có, tránh làm vỡ link TV đã lưu trước đó (xem PUT /api/pph/dashboard-lines).
-// trackMode — THỬ NGHIỆM: bật thì TV của Line này đổi hẳn sang dashboard "Theo dõi chuyền" (đường
-// xu hướng Đầu vào/Đầu ra + Top 5 lỗi QC) thay cho bảng "Chi tiết các Tổ" cũ — tắt lại là quay về
-// ngay, không mất gì (xem TrackLineBoard ở ProductionPerformanceModule.tsx).
+// trackMode — cờ cũ, TV không còn đọc, chỉ giữ nguyên giá trị khi lưu (xem PphViewClient.tsx).
 type EditLine = { key: string; id?: string; areaId: string; name: string; leafIds: string[]; trackMode: boolean };
 
 let __seq = 0;
@@ -142,10 +140,6 @@ export default function PphDashboardLinesView({ onBack }: { onBack: () => void }
   function updName(key: string, name: string) {
     touch();
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, name } : l)));
-  }
-  function toggleTrackMode(key: string) {
-    touch();
-    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, trackMode: !l.trackMode } : l)));
   }
   function delLine(key: string) {
     touch();
@@ -280,10 +274,6 @@ export default function PphDashboardLinesView({ onBack }: { onBack: () => void }
                           </button>
                         </div>
                         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                          <label className="flex items-center gap-1.5 text-[11px] font-bold text-amber-700 cursor-pointer w-fit">
-                            <input type="checkbox" checked={ln.trackMode} onChange={() => toggleTrackMode(ln.key)} className="accent-amber-600" />
-                            Dùng dashboard &quot;Theo dõi chuyền&quot; trên TV (thử nghiệm)
-                          </label>
                           {ln.id ? (
                             <button
                               type="button"

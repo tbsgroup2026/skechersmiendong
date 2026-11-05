@@ -1236,10 +1236,8 @@ async function pphBoardEnsureTable(env) {
       sort_order INTEGER NOT NULL DEFAULT 0
     )
   `).run().catch(() => {});
-  // "track_mode" (THỬ NGHIỆM) — Line nào bật cờ này thì TV (/pph-view?lineId=...) đổi hẳn sang
-  // dashboard "Theo dõi chuyền" mới (đường xu hướng Đầu vào/Đầu ra + Top 5 lỗi QC, xem
-  // TrackLineBoard ở ProductionPerformanceModule.tsx) THAY CHO bảng "Chi tiết các Tổ" cũ — tắt lại
-  // (bỏ chọn ở Cài Đặt) là quay về y hệt bảng cũ ngay, không mất gì.
+  // "track_mode" — cờ cũ, TV KHÔNG còn đọc nữa: bảng "Theo dõi chuyền" giờ có link rút gọn riêng
+  // (pph_tv_short_links.target_type = 'track', xem migration 0028). Cột giữ lại để khỏi đổi schema.
   await env.DB.prepare("ALTER TABLE pph_dashboard_lines ADD COLUMN track_mode INTEGER NOT NULL DEFAULT 0").run().catch(() => {});
   // 1 điểm quét (leaf) thuộc TỐI ĐA 1 line — leaf_id là khoá chính.
   await env.DB.prepare(`
@@ -1333,7 +1331,7 @@ async function pphResolveTvShortLink(env, code) {
   return {
     targetId: row.line_id,
     targetType:
-      row.target_type === "factory" ? "factory" : row.target_type === "workshop" ? "workshop" : row.target_type === "combo" ? "combo" : "line",
+      row.target_type === "factory" ? "factory" : row.target_type === "workshop" ? "workshop" : row.target_type === "combo" ? "combo" : row.target_type === "track" ? "track" : "line",
   };
 }
 
@@ -19807,6 +19805,9 @@ function getValidWorkerImageUrl(rawUrl, attachmentsJson) {
           // targetId đã là "<lineId 1>,<lineId 2>,..." (nối sẵn lúc tạo mã, xem POST /tv-short-link)
           // — encodeURIComponent cả cụm, trình duyệt tự decode lại dấu phẩy khi đọc query string.
           return Response.redirect(new URL(`/pph-view-combo?lineIds=${encodeURIComponent(resolved.targetId)}`, request.url), 302);
+        }
+        if (resolved && resolved.targetType === "track") {
+          return Response.redirect(new URL(`/pph-view?lineId=${encodeURIComponent(resolved.targetId)}&board=track`, request.url), 302);
         }
         if (resolved) {
           return Response.redirect(new URL(`/pph-view?lineId=${encodeURIComponent(resolved.targetId)}`, request.url), 302);
