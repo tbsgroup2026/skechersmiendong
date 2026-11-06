@@ -103,6 +103,13 @@ export type PphFactory = { id: string; name: string; leaves: PphLeaf[] };
 export type DashLine = { id: string; areaId: string; name: string; sortOrder: number; leafIds: string[]; trackMode?: boolean };
 // 1 "Line" đã chọn để xem trang riêng — nhận diện bằng tên Xưởng + tên Line + danh sách điểm quét.
 export type LineSel = { areaName: string; name: string; leafIds: string[] };
+// Tạm ẩn khỏi các bảng cấp Line (xem LineBoard): Tổ 1 và Tổ 4 của Line May 1 đang tạm thời không dùng đến.
+// Ẩn thẻ và bỏ khỏi số tổng, biểu đồ, nhắc trễ nhập; dữ liệu và mã QR giữ nguyên. Cấp Nhà máy vẫn tính đủ.
+// Dùng lại thì xoá mã tương ứng khỏi danh sách này rồi deploy.
+const PPH_HIDDEN_LINE_LEAF_IDS = new Set([
+  'pphorg_mv6fi3ay_mi0yvh', // Line May 1 · TỔ 1
+  'pphorg_mv6figu7_k5yfwd', // Line May 1 · TỔ 4
+]);
 export type FactoryConfig = {
   factoryId: string;
   targetPphPct: number | null;
@@ -112,6 +119,9 @@ export type FactoryConfig = {
   th: string | null;
 };
 
+// Line có bảng "Theo dõi chuyền" (chuyền chuẩn) — thẻ "Chuyền chuẩn" hiện cạnh các thẻ Line của Xưởng
+// chứa Line này, bấm vào để xem ngay số liệu bảng đó (TrackLineBoard) ngay trong trang này.
+const TRACK_LINE_ID = 'pphline_mvj5xlfa_ugml9m32';
 export const POLL_MS = 60_000;
 export const DEFAULT_TARGET_PPH = 100;
 // Bề rộng "thiết kế" khi phóng to toàn màn hình — nội dung dựng ở bề rộng này rồi SCALE cho lấp đầy
@@ -710,7 +720,8 @@ export default function ProductionPerformanceModule() {
   const factoryCfg = factory ? configs.find((c) => c.factoryId === factory.id) : undefined;
   const factoryTargetPph = factoryCfg?.targetPphPct ?? DEFAULT_TARGET_PPH;
   // Điểm quét của Line đang chọn — lọc lại từ dữ liệu MỚI mỗi lần render để số liệu luôn cập nhật.
-  const lineLeaves = factory && lineSel ? factory.leaves.filter((l) => lineSel.leafIds.includes(l.id)) : [];
+  const lineLeaves =
+    factory && lineSel ? factory.leaves.filter((l) => lineSel.leafIds.includes(l.id) && !PPH_HIDDEN_LINE_LEAF_IDS.has(l.id)) : [];
 
   function toggleFs() {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -1976,6 +1987,10 @@ function AreaPanel({
   // Có cấu hình Line ở Cài Đặt → LUÔN hiện (kể cả 1 Line). Chưa cấu hình → hiện khi Xưởng có ≥ 2 tổ.
   const configuredForArea = useMemo(() => lines.some((l) => l.areaId === area.id), [lines, area.id]);
   const showLines = configuredForArea || lineGroups.length >= 2;
+  // Thẻ "Chuyền chuẩn" — chỉ hiện ở Xưởng chứa Line có bảng Theo dõi chuyền (TRACK_LINE_ID), không
+  // hiện trên TV. Bấm vào mở/đóng bảng TrackLineBoard ngay dưới hàng Line.
+  const trackInArea = useMemo(() => lines.some((l) => l.id === TRACK_LINE_ID && l.areaId === area.id), [lines, area.id]);
+  const [trackOpen, setTrackOpen] = useState(false);
   const mtPerHour = r.perHourTargetSum;
   const singlePoint = area.leaves.length === 1;
 
@@ -2132,9 +2147,28 @@ function AreaPanel({
                 </div>
               );
             })}
+            {!tv && trackInArea && (
+              <button
+                type="button"
+                onClick={() => setTrackOpen((o) => !o)}
+                title="Xem bảng Chuyền chuẩn (Theo dõi chuyền) của Line này"
+                className={`w-full rounded-lg border px-2 py-1.5 text-center transition hover:brightness-125 ${trackOpen ? 'border-emerald-400 bg-emerald-500/20' : light ? 'border-emerald-300 bg-emerald-50' : 'border-emerald-500/40 bg-emerald-500/10'}`}
+              >
+                <div className={`truncate font-black uppercase tracking-wide text-[10px] ${light ? 'text-gray-500' : 'text-slate-300'}`}>Chuyền chuẩn</div>
+                <div className={`font-black text-base ${light ? 'text-emerald-700' : 'text-emerald-300'}`}>{trackOpen ? 'Đóng ▲' : 'Xem ▼'}</div>
+              </button>
+            )}
           </div>
         )}
       </div>
+
+      {/* Bảng Chuyền chuẩn (Theo dõi chuyền) — mở khi bấm thẻ "Chuyền chuẩn" ở trên, cùng số liệu với
+          link TV /pph-view?lineId=...&board=track. Chỉ mount khi đang mở để không tự gọi API khi đóng. */}
+      {!tv && trackInArea && trackOpen && (
+        <div className="mt-2.5">
+          <TrackLineBoard lineId={TRACK_LINE_ID} light={light} />
+        </div>
+      )}
 
       {/* Biểu đồ giờ + lũy kế NẰM CẠNH NHAU (như ảnh mẫu) — min-w-0 trên CẢ 2 cột để nội dung
           (số/chữ dài khi có dữ liệu thật) co lại đúng khổ cột thay vì đẩy tràn ra ngoài panel. Cột
@@ -2220,7 +2254,7 @@ type TrackTopDefect = { defectType: string; qty: number };
 type TrackSupply = { collected: number; input: number; gap: number };
 type TrackQuality = { outputQty: number; defectQty: number };
 type TrackShift = { workerCount: number; activeWorkers: number; plannedQty: number; perHourTarget: number; targetSoFar: number };
-type TrackDashboardData = { hourly: TrackHourly[]; topDefects: TrackTopDefect[]; supply?: TrackSupply; quality?: TrackQuality; shift?: TrackShift };
+type TrackDashboardData = { hourly: TrackHourly[]; topDefects: TrackTopDefect[]; supply?: TrackSupply; quality?: TrackQuality; shift?: TrackShift; missing?: { central: boolean; input: boolean; output: boolean } };
 
 const TRACK_TILE_TONES = {
   green: { box: 'border-emerald-200 bg-emerald-50', icon: 'text-emerald-600', label: 'text-tbs-dark', value: 'text-tbs-dark' },
@@ -2237,6 +2271,7 @@ function TrackStatTile({
   big,
   children,
   tv,
+  blink,
 }: {
   icon: typeof IconSettingsFilled;
   tone: keyof typeof TRACK_TILE_TONES;
@@ -2245,10 +2280,20 @@ function TrackStatTile({
   big?: boolean;
   children?: React.ReactNode;
   tv?: boolean;
+  blink?: boolean;
 }) {
   const t = TRACK_TILE_TONES[tone];
   return (
-    <div className={`flex min-w-0 items-center gap-4 rounded-2xl border px-5 py-3 ${t.box}`}>
+    <div className={`relative flex min-w-0 items-center gap-4 rounded-2xl border px-5 py-3 ${t.box} ${blink ? 'animate-pulse ring-4 ring-rose-500' : ''}`}>
+      {/* Chưa nhập số của trạm này: nhãn "Nhập số liệu" nhấp nháy cùng nhịp với ô, nằm lệch lên mép trên ô. */}
+      {blink && (
+        <span
+          className="absolute right-3 whitespace-nowrap rounded-full bg-rose-600 px-2 py-0.5 text-xs font-black text-white shadow animate-pulse"
+          style={{ top: -12 }}
+        >
+          ✎ Nhập số liệu
+        </span>
+      )}
       <Icon size={tv ? (big ? 72 : 64) : 32} className={`shrink-0 ${t.icon}`} aria-hidden />
       <div className="min-w-0 flex-1">
         <div className={`font-black uppercase leading-tight tracking-wide ${tv ? 'text-lg' : 'text-[10px]'} ${t.label}`}>{label}</div>
@@ -2261,7 +2306,7 @@ function TrackStatTile({
 
 // Khối trên cùng theo mẫu: TT, ĐV, Lũy kế, Người lao động, ĐR (ô đặc, to nhất). Trạng thái luôn có chữ kèm
 // theo, không chỉ dựa vào màu, để nhìn từ xa trên TV vẫn đọc được.
-function TrackStatTiles({ supply, outputQty, shift, tv }: { supply?: TrackSupply; outputQty: number; shift?: TrackShift; tv?: boolean }) {
+function TrackStatTiles({ supply, outputQty, shift, tv, missing }: { supply?: TrackSupply; outputQty: number; shift?: TrackShift; tv?: boolean; missing?: TrackDashboardData['missing'] }) {
   const gap = supply?.gap ?? 0;
   const hasSupply = !!supply && (supply.collected > 0 || supply.input > 0);
   const note = `font-black ${tv ? 'text-base' : 'text-[10px]'}`;
@@ -2269,14 +2314,21 @@ function TrackStatTiles({ supply, outputQty, shift, tv }: { supply?: TrackSupply
   const targetSoFar = shift?.targetSoFar ?? 0;
   const deltaPct = targetSoFar > 0 ? Math.round((outputQty / targetSoFar - 1) * 100) : null;
   return (
-    <div className="grid grid-cols-[1.05fr_1.15fr_1.15fr_1.05fr_1.35fr] items-stretch gap-2">
-      <TrackStatTile icon={IconNeedleThread} tone="green" label="TT - Tập trung" value={fmtInt(supply?.collected ?? 0)} tv={tv} />
-      <TrackStatTile icon={IconSettingsFilled} tone="blue" label="ĐV - Đầu vào" value={fmtInt(supply?.input ?? 0)} tv={tv}>
+    <div className="grid grid-cols-[1.05fr_1.15fr_1.35fr_1.05fr_1.15fr] items-stretch gap-2">
+      <TrackStatTile icon={IconNeedleThread} tone="green" label="TT - Tập trung" value={fmtInt(supply?.collected ?? 0)} tv={tv} blink={missing?.central} />
+      <TrackStatTile icon={IconSettingsFilled} tone="blue" label="ĐV - Đầu vào" value={fmtInt(supply?.input ?? 0)} tv={tv} blink={missing?.input}>
         {hasSupply && (
           <div className={`${note} ${gap < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
             {gap < 0 ? `⚠ Tập trung thiếu ${fmtInt(-gap)}` : `Tập trung đủ · còn ${fmtInt(gap)}`}
           </div>
         )}
+      </TrackStatTile>
+      <TrackStatTile icon={IconPackage} tone="solid" label="ĐR - Đầu ra" value={fmtInt(outputQty)} big tv={tv} blink={missing?.output} />
+      <TrackStatTile icon={IconUsersGroup} tone="green" label="Người lao động" value={fmtInt(shift?.activeWorkers ?? 0)} tv={tv}>
+        <div className={`font-bold leading-tight ${tv ? 'text-base' : 'text-[10px]'} text-tbs-dark`}>
+          Đang làm việc
+          <br />/ Tổng {fmtInt(shift?.workerCount ?? 0)} người
+        </div>
       </TrackStatTile>
       <TrackStatTile
         icon={IconChartArrowsVertical}
@@ -2297,13 +2349,6 @@ function TrackStatTiles({ supply, outputQty, shift, tv }: { supply?: TrackSupply
           </div>
         )}
       </TrackStatTile>
-      <TrackStatTile icon={IconUsersGroup} tone="green" label="Người lao động" value={fmtInt(shift?.activeWorkers ?? 0)} tv={tv}>
-        <div className={`font-bold leading-tight ${tv ? 'text-base' : 'text-[10px]'} text-tbs-dark`}>
-          Đang làm việc
-          <br />/ Tổng {fmtInt(shift?.workerCount ?? 0)} người
-        </div>
-      </TrackStatTile>
-      <TrackStatTile icon={IconPackage} tone="solid" label="ĐR - Đầu ra" value={fmtInt(outputQty)} big tv={tv} />
     </div>
   );
 }
@@ -2536,7 +2581,7 @@ export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: 
     }
     load(true);
     // Yêu cầu: TV làm mới 30 phút một lần; tải lại trang thì thấy số mới ngay.
-    const t = setInterval(() => load(false), 30 * 60 * 1000);
+    const t = setInterval(() => load(false), 15 * 1000);
     return () => {
       cancelled = true;
       clearInterval(t);
@@ -2551,12 +2596,11 @@ export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: 
 
   return (
     <div className="space-y-2">
-      <TrackStatTiles supply={data?.supply} outputQty={data?.quality?.outputQty ?? 0} shift={data?.shift} tv={tv} />
+      <TrackStatTiles supply={data?.supply} outputQty={data?.quality?.outputQty ?? 0} shift={data?.shift} tv={tv} missing={data?.missing} />
       <TrackLineChart
-        title="Sản lượng theo giờ và lũy kế — Đầu ra (đôi)"
+        title="Sản lượng theo giờ Đầu ra (đôi)"
         series={[
-          { label: 'Theo giờ', rowLabel: 'SL', color: '#16a34a', marker: 'circle', values: hourly.map((d) => d.qty) },
-          { label: 'Lũy kế', rowLabel: 'LK', color: '#7c3aed', marker: 'square', values: hourly.map((d) => d.cumulativeQty) },
+          { label: 'Theo giờ', rowLabel: 'SL', color: '#7c3aed', marker: 'square', values: hourly.map((d) => d.qty) },
         ]}
         targetLabel={target > 0 ? `Mục tiêu ${fmtInt(target)}/giờ` : undefined}
         tall
@@ -2605,7 +2649,7 @@ export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: 
 
 export function LineBoard({
   sel,
-  leaves,
+  leaves: allLeaves,
   targetPph,
   light = false,
   tv = false,
@@ -2627,6 +2671,7 @@ export function LineBoard({
   // ngày giờ trên header — component này chỉ ĐỌC trạng thái để quyết có phát hay không).
   audioUnlocked?: boolean;
 }) {
+  const leaves = useMemo(() => allLeaves.filter((l) => !PPH_HIDDEN_LINE_LEAF_IDS.has(l.id)), [allLeaves]);
   const r = rollup(leaves);
   const tone = toneFor(r.pct);
   const teamCards = useMemo(() => sortLeavesTeamAsc(leaves), [leaves]);
