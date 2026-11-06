@@ -102,7 +102,8 @@ export type PphFactory = { id: string; name: string; leaves: PphLeaf[] };
 // /pph-view?lineId=...&board=track — xem PphViewClient.tsx.
 export type DashLine = { id: string; areaId: string; name: string; sortOrder: number; leafIds: string[]; trackMode?: boolean };
 // 1 "Line" đã chọn để xem trang riêng — nhận diện bằng tên Xưởng + tên Line + danh sách điểm quét.
-export type LineSel = { areaName: string; name: string; leafIds: string[] };
+// track: true = mở màn "Chuyền chuẩn" (bảng Theo dõi chuyền, TRACK_LINE_ID) thay vì bảng Line thường.
+export type LineSel = { areaName: string; name: string; leafIds: string[]; track?: boolean };
 // Tạm ẩn khỏi các bảng cấp Line (xem LineBoard): Tổ 1 và Tổ 4 của Line May 1 đang tạm thời không dùng đến.
 // Ẩn thẻ và bỏ khỏi số tổng, biểu đồ, nhắc trễ nhập; dữ liệu và mã QR giữ nguyên. Cấp Nhà máy vẫn tính đủ.
 // Dùng lại thì xoá mã tương ứng khỏi danh sách này rồi deploy.
@@ -742,7 +743,7 @@ export default function ProductionPerformanceModule() {
 
   // Cấp Line đổi hẳn sang nền trắng cho dễ nhìn khi đọc bảng số liệu (Tổng quan/Nhà máy vẫn giữ
   // nền tối) — light-theme CSS đã xây sẵn khắp các component con, chỉ cần bật/tắt qua prop này.
-  const isLineView = !!(factory && lineSel && lineLeaves.length > 0);
+  const isLineView = !!(factory && lineSel && (lineSel.track || lineLeaves.length > 0));
 
   return (
     <div
@@ -770,7 +771,7 @@ export default function ProductionPerformanceModule() {
             // eslint-disable-next-line @next/next/no-img-element
             <img src="/images/tbs-logo.png" alt="TBS" className="h-8 w-auto shrink-0 object-contain sm:h-9" />
           )}
-          {factory && lineSel && lineLeaves.length > 0 ? (
+          {factory && lineSel && (lineSel.track || lineLeaves.length > 0) ? (
             <button
               type="button"
               onClick={() => setLineSel(null)}
@@ -798,7 +799,7 @@ export default function ProductionPerformanceModule() {
               ở màn hẹp dễ đè lên đám nút đó. Tổng quan/Nhà máy không đổi gì (giữ nguyên luồng cũ). */}
           <div className={`min-w-0 ${isLineView ? 'xl:absolute xl:left-1/2 xl:top-1/2 xl:max-w-[45%] xl:-translate-x-1/2 xl:-translate-y-1/2 xl:text-center' : ''}`}>
             <h2 className={`truncate text-lg font-black uppercase tracking-wide sm:text-2xl ${isLineView ? 'text-tbs-dark' : 'text-white'}`}>
-              {factory && lineSel && lineLeaves.length > 0
+              {factory && lineSel && (lineSel.track || lineLeaves.length > 0)
                 ? pphLineTitle(lineSel.areaName, lineSel.name)
                 : factory
                   ? factoryCfg?.title || `Kết quả sản xuất — ${factory.name}`
@@ -806,9 +807,9 @@ export default function ProductionPerformanceModule() {
             </h2>
             {/* Cấp Line đổi hẳn dòng phụ thành câu mô tả bảng (giống bảng mẫu Excel) thay vì lặp lại
                 tên Nhà máy (đã gộp vào dòng tiêu đề chính ở trên rồi, xem nhánh trên). */}
-            {factory && lineSel && lineLeaves.length > 0 && (
+            {factory && lineSel && (lineSel.track || lineLeaves.length > 0) && (
               <p className={`truncate text-[11px] font-bold sm:text-xs ${isLineView ? 'text-cyan-700' : 'text-cyan-300'}`}>
-                Bảng tiến độ và năng suất sản xuất ({lineLeaves.length} điểm quét)
+                {lineSel.track ? 'Bảng Chuyền chuẩn — Theo dõi chuyền (hôm nay)' : `Bảng tiến độ và năng suất sản xuất (${lineLeaves.length} điểm quét)`}
               </p>
             )}
           </div>
@@ -909,6 +910,8 @@ export default function ProductionPerformanceModule() {
               Vào Cài Đặt để thêm Nhà máy / Xưởng / Chuyền / Tổ →
             </button>
           </div>
+        ) : factory && lineSel && lineSel.track ? (
+          <TrackLineBoard lineId={TRACK_LINE_ID} light />
         ) : factory && lineSel && lineLeaves.length > 0 ? (
           <LineBoard sel={lineSel} leaves={lineLeaves} targetPph={factoryTargetPph} light tv />
         ) : factory ? (
@@ -1990,7 +1993,6 @@ function AreaPanel({
   // Thẻ "Chuyền chuẩn" — chỉ hiện ở Xưởng chứa Line có bảng Theo dõi chuyền (TRACK_LINE_ID), không
   // hiện trên TV. Bấm vào mở/đóng bảng TrackLineBoard ngay dưới hàng Line.
   const trackInArea = useMemo(() => lines.some((l) => l.id === TRACK_LINE_ID && l.areaId === area.id), [lines, area.id]);
-  const [trackOpen, setTrackOpen] = useState(false);
   const mtPerHour = r.perHourTargetSum;
   const singlePoint = area.leaves.length === 1;
 
@@ -2150,25 +2152,17 @@ function AreaPanel({
             {!tv && trackInArea && (
               <button
                 type="button"
-                onClick={() => setTrackOpen((o) => !o)}
+                onClick={() => onPickLine({ areaName: area.name, name: 'Chuyền chuẩn', leafIds: [], track: true })}
                 title="Xem bảng Chuyền chuẩn (Theo dõi chuyền) của Line này"
-                className={`w-full rounded-lg border px-2 py-1.5 text-center transition hover:brightness-125 ${trackOpen ? 'border-emerald-400 bg-emerald-500/20' : light ? 'border-emerald-300 bg-emerald-50' : 'border-emerald-500/40 bg-emerald-500/10'}`}
+                className={`w-full rounded-lg border px-1 py-1.5 text-center transition hover:brightness-125 ${light ? 'border-emerald-300 bg-emerald-50' : 'border-emerald-500/40 bg-emerald-500/10'}`}
               >
-                <div className={`truncate font-black uppercase tracking-wide text-[10px] ${light ? 'text-gray-500' : 'text-slate-300'}`}>Chuyền chuẩn</div>
-                <div className={`font-black text-base ${light ? 'text-emerald-700' : 'text-emerald-300'}`}>{trackOpen ? 'Đóng ▲' : 'Xem ▼'}</div>
+                <div className={`font-black uppercase leading-tight tracking-wide text-[10px] ${light ? 'text-gray-500' : 'text-slate-300'}`}>Chuyền chuẩn</div>
+                <div className={`font-black text-base ${light ? 'text-emerald-700' : 'text-emerald-300'}`}>Xem ›</div>
               </button>
             )}
           </div>
         )}
       </div>
-
-      {/* Bảng Chuyền chuẩn (Theo dõi chuyền) — mở khi bấm thẻ "Chuyền chuẩn" ở trên, cùng số liệu với
-          link TV /pph-view?lineId=...&board=track. Chỉ mount khi đang mở để không tự gọi API khi đóng. */}
-      {!tv && trackInArea && trackOpen && (
-        <div className="mt-2.5">
-          <TrackLineBoard lineId={TRACK_LINE_ID} light={light} />
-        </div>
-      )}
 
       {/* Biểu đồ giờ + lũy kế NẰM CẠNH NHAU (như ảnh mẫu) — min-w-0 trên CẢ 2 cột để nội dung
           (số/chữ dài khi có dữ liệu thật) co lại đúng khổ cột thay vì đẩy tràn ra ngoài panel. Cột
