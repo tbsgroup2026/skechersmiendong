@@ -103,6 +103,26 @@ export default function PphViewClient() {
     document.title = 'Kết quả sản xuất — TBS';
   }, []);
 
+  // Bảng Theo dõi chuyền: cứ 15 giây kiểm tra bản code trên server; chỉ tải lại trang khi có bản mới, không nhấp nháy.
+  useEffect(() => {
+    if (!trackBoard) return;
+    let firstSignature: string | null = null;
+    const check = async () => {
+      try {
+        const html = await fetch(window.location.pathname + window.location.search, { cache: 'no-store' }).then((r) => r.text());
+        const signature = (html.match(/\/_next\/static\/[^"']+\.js/g) || []).join('|');
+        if (!signature) return;
+        if (firstSignature === null) firstSignature = signature;
+        else if (signature !== firstSignature) window.location.reload();
+      } catch {
+        // Mất mạng tạm thời thì bỏ qua, lần kiểm tra sau sẽ thử lại.
+      }
+    };
+    check();
+    const t = setInterval(check, 15 * 1000);
+    return () => clearInterval(t);
+  }, [trackBoard]);
+
   // Co giãn theo CẢ chiều ngang LẪN chiều cao (Math.min 2 tỉ lệ) — KHÁC hẳn nút "phóng to toàn màn
   // hình" trong app (ProductionPerformanceModule.tsx) CHỈ co theo chiều ngang, chấp nhận cuộn dọc
   // nếu nội dung cao hơn màn hình. Trang TV này KHÔNG ai cuộn được (chiếu cố định, không tương

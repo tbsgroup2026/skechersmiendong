@@ -278,7 +278,7 @@ export default function PphTrackScanClient() {
         return;
       }
       if (!r.defectType) {
-        setFormError(`Dòng ${i + 1}: Vui lòng chọn Loại lỗi`);
+        setFormError(`Dòng ${i + 1}: Vui lòng nhập Loại lỗi`);
         return;
       }
       payloadRows.push({ size: r.size.trim(), qty, defectType: r.defectType });
@@ -727,19 +727,13 @@ export default function PphTrackScanClient() {
                   <span className="flex items-center gap-1.5 text-xs font-bold text-slate-600">
                     <IconBug size={13} className="text-slate-400 shrink-0" /> Loại lỗi *
                   </span>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {(info.defectTypes || []).map((d) => (
-                      <button
-                        key={d}
-                        type="button"
-                        aria-pressed={r.defectType === d}
-                        onClick={() => setRows((prev) => prev.map((x, i) => (i === idx ? { ...x, defectType: d } : x)))}
-                        className={`min-h-[44px] rounded-lg border px-2 py-2 text-xs font-black ${r.defectType === d ? 'border-rose-600 bg-rose-600 text-white' : 'border-rose-200 bg-white text-slate-700'}`}
-                      >
-                        {d}
-                      </button>
-                    ))}
-                  </div>
+                  <input
+                    value={r.defectType}
+                    maxLength={40}
+                    onChange={(e) => setRows((prev) => prev.map((x, i) => (i === idx ? { ...x, defectType: e.target.value } : x)))}
+                    placeholder="Nhập loại lỗi, VD: Lỗi may"
+                    className="w-full px-3.5 py-3 bg-white border border-rose-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-rose-400"
+                  />
                 </div>
                 <Field label="Số lượng lỗi *" icon={IconChartBar}>
                   <input

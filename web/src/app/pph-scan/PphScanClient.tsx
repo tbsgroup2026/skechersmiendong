@@ -53,6 +53,10 @@ type ScanInfo = {
   entries?: PphSlotEntry[];
   perHourTarget?: number | null;
   extraModels?: ExtraModelInfo[];
+  // Số giây còn được sửa kế hoạch mã phụ, do server tính. load() đổi ra mốc theo đồng hồ của máy này
+  // ngay khi nhận (DeadlineMs), nên giờ điện thoại lệch cũng không ẩn/hiện nút sai.
+  extraPlanEditSecondsLeft?: number;
+  extraPlanEditDeadlineMs?: number;
   setup?: { workerCount: number; model: string; color?: string | null; plannedQty: number; productionHours: number | null } | null;
   nextAction?: 'setup' | 'quantity' | 'wait' | 'done';
   targetSlot?: string | null;
@@ -165,7 +169,7 @@ export default function PphScanClient() {
   const [modelPphTouched, setModelPphTouched] = useState(false);
 
   // Mã PHỤ — Tổ sản xuất THÊM 1 (hay nhiều) mã khác CÙNG lúc với mã chính trong ngày hôm nay, khai
-  // 1 lần duy nhất ở Đầu ca (không đổi được giữa ngày) — xem ExtraModelInfo. Danh sách này CHỈ dùng
+  // 1 lần ở Đầu ca (giữa ngày chỉ sửa được Sản lượng kế hoạch) — xem ExtraModelInfo. Danh sách này CHỈ dùng
   // ở màn Đầu ca (isSetup); mỗi dòng có Mã + Màu + Sản lượng kế hoạch + PPH chuẩn RIÊNG, giống y hệt
   // mã chính (model/color/plannedQty/modelPph phía trên).
   const [extraModelsSetup, setExtraModelsSetup] = useState<
@@ -262,7 +266,7 @@ export default function PphScanClient() {
     try {
       if (!opts?.silent) setLoading(true);
       const res = await fetch(`/api/pph/scan-info?teamId=${encodeURIComponent(teamId)}`).then((r) => r.json());
-      setInfo(res);
+      setInfo({ ...res, extraPlanEditDeadlineMs: Date.now() + (res.extraPlanEditSecondsLeft ?? 0) * 1000 });
     } catch (err) {
       console.warn('Failed to fetch scan-info:', err);
       if (!opts?.silent) setInfo({ success: false, error: 'Không kết nối được tới hệ thống' });
@@ -392,6 +396,18 @@ export default function PphScanClient() {
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info?.targetSlot]);
+
+  // Sửa kế hoạch hoặc giờ sản xuất giữa khung giờ thì targetSlot không đổi: chỉ cập nhật Mục tiêu/giờ,
+  // giữ nguyên số đang gõ dở, để form khớp đúng ngưỡng hụt chỉ tiêu mà server sẽ kiểm tra.
+  useEffect(() => {
+    const list = info?.extraModels || [];
+    setExtraModelQty((prev) =>
+      prev.map((row) => {
+        const em = list.find((x) => x.model === row.model);
+        return em ? { ...row, perHourTarget: em.perHourTarget ?? null } : row;
+      })
+    );
+  }, [info?.extraModels]);
 
   function updateExtraModelQty(index: number, patch: Partial<ExtraModelQtyRow>) {
     setExtraModelQty((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
@@ -1725,6 +1741,25 @@ function SlotHistoryPanel({
   const [fieldDraft, setFieldDraft] = useState('');
   const [savingField, setSavingField] = useState(false);
   const [fieldError, setFieldError] = useState<string | null>(null);
+  // Mã phụ đang sửa Sản lượng kế hoạch — dùng chung ô nháp với field Đầu ca, chỉ sửa 1 chỗ mỗi lúc.
+  const [editingExtraModel, setEditingExtraModel] = useState<string | null>(null);
+  // Hết 15 phút từ lúc nộp Đầu ca thì ẩn nút sửa mã phụ, kể cả khi bảng này đang mở hoặc đang sửa dở.
+  const extraPlanDeadlineMs = info.extraPlanEditDeadlineMs ?? 0;
+  const [extraPlanEditable, setExtraPlanEditable] = useState(() => extraPlanDeadlineMs > Date.now());
+  useEffect(() => {
+    const leftMs = extraPlanDeadlineMs - Date.now();
+    const closeEdit = () => {
+      setExtraPlanEditable(false);
+      setEditingExtraModel(null);
+    };
+    if (leftMs <= 0) {
+      closeEdit();
+      return;
+    }
+    setExtraPlanEditable(true);
+    const timer = setTimeout(closeEdit, leftMs);
+    return () => clearTimeout(timer);
+  }, [extraPlanDeadlineMs]);
 
   // ---- Sửa Số lượng làm được + Số lỗi của 1 khung giờ thường (không phải Đầu ca) ----
   const [editingQty, setEditingQty] = useState(false);
@@ -1824,13 +1859,52 @@ function SlotHistoryPanel({
   }
 
   function startEdit(field: SetupFieldKey, currentValue: string) {
+    setEditingExtraModel(null);
     setEditingField(field);
     setFieldDraft(currentValue);
     setFieldError(null);
   }
+  function startEditExtra(model: string, plannedQty: number | null) {
+    setEditingField(null);
+    setEditingExtraModel(model);
+    setFieldDraft(plannedQty != null ? String(plannedQty) : '');
+    setFieldError(null);
+  }
   function cancelEdit() {
     setEditingField(null);
+    setEditingExtraModel(null);
     setFieldError(null);
+  }
+  async function putSetupEdit(body: Record<string, unknown>) {
+    setSavingField(true);
+    setFieldError(null);
+    try {
+      const res = await fetch('/api/pph/scan', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then((r) => r.json());
+      if (res?.success) {
+        setEditingField(null);
+        setEditingExtraModel(null);
+        onSetupSaved();
+      } else {
+        setFieldError(res?.error || 'Không sửa được — thử lại');
+      }
+    } catch {
+      setFieldError('Không kết nối được tới hệ thống');
+    } finally {
+      setSavingField(false);
+    }
+  }
+  async function saveExtraPlannedQty() {
+    if (!editingExtraModel) return;
+    const num = Number(fieldDraft.trim());
+    if (!fieldDraft.trim() || !Number.isFinite(num) || num <= 0) {
+      setFieldError('Vui lòng nhập đúng Sản lượng kế hoạch cả ca');
+      return;
+    }
+    await putSetupEdit({ teamId, extraModel: editingExtraModel, plannedQty: num });
   }
   async function saveField() {
     if (!editingField) return;
@@ -1867,25 +1941,7 @@ function SlotHistoryPanel({
       }
       body[editingField] = num;
     }
-    setSavingField(true);
-    setFieldError(null);
-    try {
-      const res = await fetch('/api/pph/scan', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      }).then((r) => r.json());
-      if (res?.success) {
-        setEditingField(null);
-        onSetupSaved();
-      } else {
-        setFieldError(res?.error || 'Không sửa được — thử lại');
-      }
-    } catch {
-      setFieldError('Không kết nối được tới hệ thống');
-    } finally {
-      setSavingField(false);
-    }
+    await putSetupEdit(body);
   }
 
   return (
@@ -1927,6 +1983,7 @@ function SlotHistoryPanel({
                     // Đóng/đổi khung giờ đang xem thì thoát luôn chế độ sửa (nếu đang dở) — tránh mở
                     // lại đúng khung Đầu ca hoặc khung giờ khác vẫn còn kẹt form sửa dở từ lượt trước.
                     setEditingField(null);
+                    setEditingExtraModel(null);
                     setFieldError(null);
                     setEditingQty(false);
                     setQtyError(null);
@@ -2052,6 +2109,49 @@ function SlotHistoryPanel({
                               : '—'
                           }
                         />
+                        {(info.extraModels || []).map((em, idx) => (
+                          <div key={em.model} className="mt-2 space-y-1 rounded-lg border border-amber-200 bg-amber-50/50 p-2">
+                            <p className="text-[11px] font-black uppercase tracking-wide text-amber-700">Mã phụ #{idx + 1}</p>
+                            <DetailRow label="Model sản xuất" value={em.model} />
+                            <DetailRow label="Màu sắc" value={em.color ?? '—'} />
+                            {extraPlanEditable ? (
+                              <EditableSetupField
+                                label="Sản lượng kế hoạch cả ca"
+                                displayValue={em.plannedQty ?? '—'}
+                                editing={editingExtraModel === em.model}
+                                saving={savingField}
+                                error={editingExtraModel === em.model ? fieldError : null}
+                                onStartEdit={() => startEditExtra(em.model, em.plannedQty)}
+                                onCancel={cancelEdit}
+                                onSave={saveExtraPlannedQty}
+                                renderInput={() => (
+                                  <input
+                                    type="number"
+                                    inputMode="numeric"
+                                    min="1"
+                                    value={fieldDraft}
+                                    onChange={(ev) => setFieldDraft(ev.target.value)}
+                                    autoFocus
+                                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 focus:outline-none focus:border-[#006838]"
+                                  />
+                                )}
+                              />
+                            ) : (
+                              <DetailRow label="Sản lượng kế hoạch cả ca" value={em.plannedQty ?? '—'} />
+                            )}
+                            <DetailRow
+                              label="Mục tiêu sản lượng mỗi giờ (PPH)"
+                              value={
+                                em.plannedQty && info.setup?.productionHours
+                                  ? `${Math.round((em.plannedQty / info.setup.productionHours) * 10) / 10} đôi/giờ`
+                                  : '—'
+                              }
+                            />
+                            {extraPlanEditable && (
+                              <p className="text-[10px] italic text-amber-700">Chỉ sửa được trong 15 phút sau khi cập nhật Đầu ca.</p>
+                            )}
+                          </div>
+                        ))}
                       </>
                     ) : editingQty ? (
                       <div className="space-y-1.5 rounded-lg bg-white p-2 border border-emerald-200">
