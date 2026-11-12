@@ -297,11 +297,18 @@ export default function PphTrackDataView({ onBack, lineId }: { onBack?: () => vo
             <label className={labelCls}>Size
               <input required value={setupForm.size} onChange={(e) => setSetupForm({ ...setupForm, size: e.target.value })} className={input} />
             </label>
-            {setupForm.point === 'daura' && (
-              <label className={labelCls}>PPH kế hoạch
-                <input required type="number" min={0.01} step="any" value={setupForm.planPph} onChange={(e) => setSetupForm({ ...setupForm, planPph: e.target.value })} className={input} />
-              </label>
-            )}
+            {setupForm.point === 'daura' && (() => {
+              // PPH kế hoạch tự tính = Kế hoạch cả ca / (Công nhân × Số giờ ca), server tính lại khi lưu.
+              const h = Number(setupForm.shiftHours);
+              const w = Number(setupForm.workerCount);
+              const p = Number(setupForm.plannedQty);
+              const pph = h > 0 && w > 0 && p > 0 ? Math.round((p / (w * h)) * 100) / 100 : null;
+              return (
+                <div className={labelCls}>PPH kế hoạch (tự tính)
+                  <div className={`${input} bg-amber-50 font-bold text-amber-700`}>{pph == null ? '—' : pph.toLocaleString('vi-VN')}</div>
+                </div>
+              );
+            })()}
             <label className={labelCls}>Người sửa
               <input required value={editor} onChange={(e) => setEditor(e.target.value)} className={input} />
             </label>

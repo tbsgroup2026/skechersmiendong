@@ -118,7 +118,10 @@ type HourBase = { slot: string; qty: number | null; cumulativeQty: number | null
 
 // Bảng Đầu ra theo giờ cho form nhập (1 Tổ) và TV (cả Line). PPH kế hoạch của giờ đã nhập lấy trung bình các mã
 // theo giờ công; giờ chưa nhập lấy theo mã đang chạy và số công nhân. Dòng thiếu lao động hoặc giờ làm không tính PPH.
-export function trackOutputHourly(series: HourBase[], rows: TrackRowInput[], runs: TrackRun[], slots: string[]) {
+// totalWorkers (TV cả Line): PPH thực hiện = sản lượng đạt chất lượng / (tổng công nhân 3 khu × giờ làm), không
+// dùng số người khai riêng ở Đầu ra. PPH kế hoạch = sản lượng kế hoạch của giờ / tổng công nhân 3 khu. Không truyền
+// totalWorkers thì tính như cũ.
+export function trackOutputHourly(series: HourBase[], rows: TrackRowInput[], runs: TrackRun[], slots: string[], totalWorkers?: number) {
   const teams = groupByTeam(runs);
   return series.map((hour) => {
     const entered = rows.filter((r) => r.point === 'daura' && r.slot === hour.slot && r.worker_count != null && r.work_hours != null);
@@ -147,6 +150,23 @@ export function trackOutputHourly(series: HourBase[], rows: TrackRowInput[], run
       const active = teams.map((team) => runAtSlot(team, slots, hour.slot)).filter((r): r is TrackRun => !!r && r.planPph != null && r.workerCount > 0);
       const workers = active.reduce((sum, r) => sum + r.workerCount, 0);
       planPph = workers > 0 ? round2(active.reduce((sum, r) => sum + (r.planPph as number) * r.workerCount, 0) / workers) : null;
+    }
+    if (totalWorkers != null && totalWorkers > 0) {
+      const hourWorkHours = entered.length ? Math.max(...entered.map((r) => Number(r.work_hours))) : 0;
+      const lineLabor = entered.length && hourWorkHours > 0 ? totalWorkers * hourWorkHours : 0;
+      // PPH kế hoạch của giờ = sản lượng kế hoạch của giờ / tổng lao động 3 khu; PPH thực hiện cùng mẫu số.
+      const hourTarget = teams.reduce((sum, team) => sum + (runAtSlot(team, slots, hour.slot)?.perHourTarget ?? 0), 0);
+      const linePlan = hourTarget > 0 ? round2(hourTarget / totalWorkers) : null;
+      const lineActual = pphFromLaborHours(goodQty, lineLabor);
+      return {
+        ...hour,
+        workerCount: entered.length ? totalWorkers : null,
+        workHours: entered.length ? round2(hourWorkHours) : null,
+        laborHours: entered.length ? round2(lineLabor) : null,
+        planPph: linePlan,
+        actualPph: lineActual,
+        met: meetsPlan(lineActual, linePlan),
+      };
     }
     const workers = Array.from(workersByTeam.values()).reduce((sum, value) => sum + value, 0);
     const actual = pphFromLaborHours(goodQty, labor);

@@ -25,26 +25,9 @@ async function test() {
 
   const uName = await page.$eval('#sidebarUserName', el => el.innerText).catch(e => e.message);
   const uRole = await page.$eval('#sidebarUserRole', el => el.innerText).catch(e => e.message);
-  const uAvatar = await page.$eval('#sidebarUserAvatar', el => el.innerText).catch(e => e.message);
-  console.log('[TEST 1 - PHẠM MINH TÙNG]:', { uName, uRole, uAvatar });
+  console.log('[TEST 1 - PHẠM MINH TÙNG]:', { uName, uRole });
 
-  // 2. Test user: ĐỖ ĐẮC MIỀN
-  await page.evaluate(() => {
-    localStorage.setItem('tbs_current_user', JSON.stringify({
-      empCode: '249507002',
-      name: 'ĐỖ ĐẮC MIỀN',
-      roleCode: 'TONG_GIAM_DOC'
-    }));
-    localStorage.removeItem('gemba_active_user_override');
-  });
-  await page.reload({ waitUntil: 'networkidle2' });
-  await sleep(1500);
-
-  const uName2 = await page.$eval('#sidebarUserName', el => el.innerText).catch(e => e.message);
-  const uRole2 = await page.$eval('#sidebarUserRole', el => el.innerText).catch(e => e.message);
-  console.log('[TEST 2 - ĐỖ ĐẮC MIỀN]:', { uName2, uRole2 });
-
-  // 3. Test user: DƯ THỊ THANH TÌNH
+  // 2. Test user: DƯ THỊ THANH TÌNH
   await page.evaluate(() => {
     localStorage.setItem('tbs_current_user', JSON.stringify({
       empCode: '222102020',
@@ -56,9 +39,26 @@ async function test() {
   await page.reload({ waitUntil: 'networkidle2' });
   await sleep(1500);
 
+  const uName2 = await page.$eval('#sidebarUserName', el => el.innerText).catch(e => e.message);
+  const uRole2 = await page.$eval('#sidebarUserRole', el => el.innerText).catch(e => e.message);
+  console.log('[TEST 2 - DƯ THỊ THANH TÌNH]:', { uName2, uRole2 });
+
+  // 3. Test user: NGUYỄN VĂN TÌNH (MSNV 211206004)
+  await page.evaluate(() => {
+    localStorage.setItem('tbs_current_user', JSON.stringify({
+      empCode: '211206004',
+      name: 'NGUYỄN VĂN TÌNH',
+      roleCode: 'TRUONG_PHONG'
+    }));
+    localStorage.removeItem('gemba_active_user_override');
+  });
+  await page.reload({ waitUntil: 'networkidle2' });
+  await sleep(1500);
+
   const uName3 = await page.$eval('#sidebarUserName', el => el.innerText).catch(e => e.message);
   const uRole3 = await page.$eval('#sidebarUserRole', el => el.innerText).catch(e => e.message);
-  console.log('[TEST 3 - DƯ THỊ THANH TÌNH]:', { uName3, uRole3 });
+  const isDenied3 = await page.evaluate(() => document.body.innerText.includes('Từ chối quyền truy cập'));
+  console.log('[TEST 3 - NGUYỄN VĂN TÌNH]:', { uName: uName3, uRole: uRole3, isAccessDenied: isDenied3 });
 
   // 4. Test unauthorized user: NGUYỄN VĂN A
   await page.evaluate(() => {

@@ -1492,6 +1492,11 @@ const PPH_TRACK_POINTS = {
 // Mốc đầu tiên là nhập đầu ca, sau đó nhập mỗi giờ từ 8:30 đến 16:30 (khung 8:30 là 7h30-8h30). Không còn mốc
 // 7:30 (7h-7h30) theo yêu cầu. Không có 12:30 vì trùng giờ nghỉ trưa, khớp bảng giấy và PPH_SLOTS.
 const PPH_TRACK_SLOTS = ["07:00", ...PPH_SLOTS.slice(1)];
+// Ca tăng ca CHỈ cho 1 ngày cụ thể: thêm các khung sau 16:30 để nhập số khi làm thêm giờ. Muốn bỏ thì xoá dòng ngày đó.
+const PPH_TRACK_EXTRA_SLOTS_BY_DATE = { "2026-11-09": ["18:00", "19:00", "20:00"], "2026-11-10": ["18:00", "19:00", "20:00"] };
+function pphTrackSlotsFor(date) {
+  return [...PPH_TRACK_SLOTS, ...(PPH_TRACK_EXTRA_SLOTS_BY_DATE[date] || [])];
+}
 // Danh mục loại lỗi QC — CỐ ĐỊNH (đề xuất ban đầu, CHƯA có màn Cài Đặt để admin tự sửa — nếu cần
 // đổi/thêm/bớt thì sửa thẳng mảng này rồi deploy lại).
 const PPH_TRACK_DEFECT_TYPES = ["Lỗi may", "Lỗi keo/dán", "Lỗi size", "Lỗi form", "Lỗi vệ sinh công nghiệp", "Khác"];
@@ -1507,9 +1512,9 @@ function pphTrackSupply(rows) {
 
 // Khung cần nhập = khung của giờ hiện tại (khung đã mở muộn nhất), không phải khung sớm nhất còn thiếu.
 // Khung bị bỏ sót trả về missingSlots để người nhập tự chọn nhập bù, không bị ép đi lần lượt.
-function pphTrackResolveSlot(filledSlots, openMinutesBySlot) {
+function pphTrackResolveSlot(filledSlots, openMinutesBySlot, slots = PPH_TRACK_SLOTS) {
   const nowMin = pphNowMinutes();
-  const qSlots = PPH_TRACK_SLOTS.slice(1);
+  const qSlots = slots.slice(1);
   // Cho nhập sớm 5 phút trước giờ mở khung (VD khung 10:30 thì nhập được từ 10:25).
   const isOpen = (s) => pphOpenMinutesFor(s, openMinutesBySlot) - 5 <= nowMin;
   const open = qSlots.filter(isOpen);
@@ -1548,7 +1553,10 @@ function pphTrackSetupFromRow(row) {
     model: row.model,
     color: row.color,
     size: row.size,
-    planPph: row.plan_pph == null ? null : Number(row.plan_pph),
+    // PPH kế hoạch tính lại từ đầu ca (không đọc plan_pph đã lưu) để luôn cùng mẫu số giờ công với PPH thực hiện.
+    planPph: plannedQty > 0 && shiftHours > 0 && Number(row.worker_count) > 0 && row.point === "daura"
+      ? Math.round((plannedQty / (Number(row.worker_count) * shiftHours)) * 100) / 100
+      : null,
     perHourTarget: Math.round(plannedQty / shiftHours),
     startTime: row.start_time ?? null,
     resumedAt: row.resumed_at ?? null,
@@ -1556,8 +1564,8 @@ function pphTrackSetupFromRow(row) {
 }
 
 // Số từng giờ và lũy kế của 1 trạm, cộng mọi Tổ có trong rows. Lũy kế luôn tính lại từ số từng giờ.
-function pphTrackPointSeries(rows, point) {
-  const qSlots = PPH_TRACK_SLOTS.slice(1);
+function pphTrackPointSeries(rows, point, slots = PPH_TRACK_SLOTS) {
+  const qSlots = slots.slice(1);
   const totals = new Map();
   for (const r of rows) {
     if (r.point === point) totals.set(r.slot, (totals.get(r.slot) || 0) + Number(r.qty));
@@ -1568,8 +1576,8 @@ function pphTrackPointSeries(rows, point) {
 }
 
 // Bảng Đầu ra theo giờ — NGUỒN DUY NHẤT cho form nhập (1 Tổ) và dashboard TV (cả Line).
-function pphTrackOutputHourly(rows, runs) {
-  return trackOutputHourly(pphTrackPointSeries(rows, "daura"), rows, runs, PPH_TRACK_SLOTS);
+function pphTrackOutputHourly(rows, runs, slots = PPH_TRACK_SLOTS, totalWorkers) {
+  return trackOutputHourly(pphTrackPointSeries(rows, "daura", slots), rows, runs, slots, totalWorkers);
 }
 
 // Đọc và kiểm tra số liệu 1 giờ từ body, dùng chung cho nhập mới (POST) và sửa (PUT). Giờ có đổi mã gửi
@@ -1645,19 +1653,17 @@ function pphTrackParseRunFields(body, point) {
   const model = String(body.model || "").trim().slice(0, 40);
   const color = String(body.color || "").trim().slice(0, 40);
   const size = String(body.size || "").trim().slice(0, 40);
-  // PPH tính trên sản lượng Đầu ra nên PPH kế hoạch chỉ nhập ở trạm Đầu ra/QC.
-  const needsPlanPph = pphTrackSetupPoint(point) === "daura";
-  const planPph = needsPlanPph ? Number(body.planPph) : null;
   if (!submittedBy) return { error: "Vui lòng nhập tên người báo cáo" };
-  if (needsPlanPph && (body.planPph === "" || body.planPph == null || !Number.isFinite(planPph) || planPph <= 0)) {
-    return { error: "Vui lòng nhập PPH kế hoạch lớn hơn 0" };
-  }
   if (!Number.isFinite(shiftHours) || shiftHours <= 0 || shiftHours > 24) return { error: "Thời gian sản xuất phải lớn hơn 0 và tối đa 24 giờ" };
   if (!Number.isInteger(workerCount) || workerCount < 1 || workerCount > 1000) return { error: "Số lượng công nhân không hợp lệ (1-1000)" };
   if (!model) return { error: "Vui lòng nhập mã giày" };
   if (!color) return { error: "Vui lòng nhập màu sắc" };
   if (!size) return { error: "Vui lòng nhập size" };
   if (!Number.isInteger(plannedQty) || plannedQty < 1) return { error: "Số lượng kế hoạch không hợp lệ" };
+  // PPH kế hoạch = Sản lượng kế hoạch / (Số công nhân × Số giờ ca), cùng mẫu số giờ công với PPH thực hiện.
+  // Chỉ tính ở trạm Đầu ra/QC; không nhận số gửi lên từ form để tránh nhập lệch.
+  const needsPlanPph = pphTrackSetupPoint(point) === "daura";
+  const planPph = needsPlanPph ? Math.round((plannedQty / (workerCount * shiftHours)) * 100) / 100 : null;
   return { submittedBy, shiftHours, workerCount, plannedQty, model, color, size, planPph };
 }
 
@@ -2045,19 +2051,20 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
     const runs = await pphTrackGetRuns(env, teamId, date, point);
     const setup = runs[0] ?? null;
     const currentRun = runs[runs.length - 1] ?? null;
+    const slots = pphTrackSlotsFor(date);
     const resolved = !setup
-      ? { nextAction: "setup", targetSlot: PPH_TRACK_SLOTS[0] }
-      : pphTrackResolveSlot(filledSlots, openMinutesBySlot);
+      ? { nextAction: "setup", targetSlot: slots[0] }
+      : pphTrackResolveSlot(filledSlots, openMinutesBySlot, slots);
     const bySlot = new Map();
     for (const x of rows) {
       const arr = bySlot.get(x.slot) || [];
       arr.push({ point: x.point, size: x.size ?? null, qty: x.qty, defectType: x.defect_type ?? null, runId: x.run_id ?? "", workerCount: x.worker_count ?? null, workHours: x.work_hours ?? null });
       bySlot.set(x.slot, arr);
     }
-    const qSlots = PPH_TRACK_SLOTS.slice(1);
+    const qSlots = slots.slice(1);
     const entries = qSlots.map((s) => ({ slot: s, filled: bySlot.has(s), rows: bySlot.get(s) || [] }));
     // Mã nào chạy trong từng khung giờ, để form tách sẵn ô nhập khi có đổi mã giữa giờ.
-    const partsBySlot = Object.fromEntries(qSlots.map((s) => [s, slotParts(runs, PPH_TRACK_SLOTS, s).map((p) => ({ runId: p.run.id, workHours: p.workHours }))]));
+    const partsBySlot = Object.fromEntries(qSlots.map((s) => [s, slotParts(runs, slots, s).map((p) => ({ runId: p.run.id, workHours: p.workHours }))]));
 
     // Số đối chiếu hiện ngay trên form: Đầu vào xem Tập trung còn bao nhiêu, QC xem lỗi so với Đầu ra.
     const sumOf = (p) => allRows.filter((x) => x.point === p).reduce((total, x) => total + Number(x.qty), 0);
@@ -2071,8 +2078,8 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
     }
     const qcContext = pointNames.includes("qc") ? { dayOutput: sumOf("daura"), dayDefects: sumOf("qc") } : undefined;
     const hourly = pointNames.includes("qc")
-      ? pphTrackOutputHourly(allRows, runs)
-      : pphTrackPointSeries(allRows, point);
+      ? pphTrackOutputHourly(allRows, runs, slots)
+      : pphTrackPointSeries(allRows, point, slots);
 
     return pphJson({
       supply,
@@ -2221,7 +2228,7 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       }
       const filledSlots = await pphTrackFilledSlots(env, teamId, date, point);
       const openMinutesBySlot = await pphOpenMinutesBySlot(env);
-      const resolved = pphTrackResolveSlot(filledSlots, openMinutesBySlot);
+      const resolved = pphTrackResolveSlot(filledSlots, openMinutesBySlot, pphTrackSlotsFor(date));
 
       // Gửi lại do rớt mạng — khung gửi kèm đã có dữ liệu rồi thì coi như lần trước đã tới server.
       const expSlot = body.expectedSlot ? String(body.expectedSlot) : "";
@@ -2240,7 +2247,7 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       }
       const slot = expSlot || resolved.targetSlot;
 
-      const parsed = pphTrackParseHourInput(body, point, runs, runAtSlot(runs, PPH_TRACK_SLOTS, slot)?.id ?? "");
+      const parsed = pphTrackParseHourInput(body, point, runs, runAtSlot(runs, pphTrackSlotsFor(date), slot)?.id ?? "");
       if (parsed.error) return pphJson({ success: false, error: parsed.error }, 400);
       const nowIso = new Date().toISOString();
       try {
@@ -2273,7 +2280,7 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       const filledSlots = await pphTrackFilledSlots(env, teamId, date, point);
       if (!filledSlots.has(slot)) return pphJson({ success: false, error: `Khung giờ ${slot} chưa có số liệu để sửa` }, 404);
       const runs = await pphTrackGetRuns(env, teamId, date, point);
-      const parsed = pphTrackParseHourInput(body, point, runs, runAtSlot(runs, PPH_TRACK_SLOTS, slot)?.id ?? "");
+      const parsed = pphTrackParseHourInput(body, point, runs, runAtSlot(runs, pphTrackSlotsFor(date), slot)?.id ?? "");
       if (parsed.error) return pphJson({ success: false, error: parsed.error }, 400);
       const points = pphTrackFilledPoints(point);
       const nowIso = new Date().toISOString();
@@ -2338,7 +2345,7 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       lineName: line ? line.name : null,
       teamIds: line ? line.leafIds : Object.keys(teamNames),
       teamNames,
-      slots: PPH_TRACK_SLOTS.slice(1),
+      slots: pphTrackSlotsFor(date).slice(1),
       defectTypes: PPH_TRACK_DEFECT_TYPES,
       entries: (entries.results || []).filter(inScope),
       setups: (setups.results || []).filter(inScope),
@@ -2354,7 +2361,7 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       const date = String(body.date || "");
       const submittedBy = String(body.submittedBy || "").trim().slice(0, 60);
       if (!PPH_TRACK_POINTS[point]) return pphJson({ success: false, error: "Trạm không hợp lệ" }, 400);
-      if (!PPH_TRACK_SLOTS.slice(1).includes(slot)) return pphJson({ success: false, error: "Khung giờ không hợp lệ" }, 400);
+      if (!pphTrackSlotsFor(date).slice(1).includes(slot)) return pphJson({ success: false, error: "Khung giờ không hợp lệ" }, 400);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > pphTodayStr()) return pphJson({ success: false, error: "Ngày không hợp lệ" }, 400);
       if (!submittedBy) return pphJson({ success: false, error: "Vui lòng nhập tên người sửa" }, 400);
       if (!(await pphFindNodeChain(env, teamId))) return pphJson({ success: false, error: "Không tìm thấy Tổ" }, 404);
@@ -2407,10 +2414,12 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       const lines = await pphGetDashboardLines(env);
       const line = lines.find((l) => l.id === lineId);
       const teamIds = line ? line.leafIds : [];
-      const qSlots = PPH_TRACK_SLOTS.slice(1);
+      const daySlots = pphTrackSlotsFor(date);
+      const qSlots = daySlots.slice(1);
       let rows = [];
       let setups = [];
       let workersTotal = 0;
+      const workersByPoint = {};
       // Không nuốt lỗi truy vấn: lỗi thì TV giữ số lần tải trước, không được hiện toàn số 0 như số thật.
       if (teamIds.length > 0) {
         const placeholders = teamIds.map(() => "?").join(",");
@@ -2439,8 +2448,13 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
           latestByTeamPoint.set(`${run.teamId}|${run.point}`, run);
         }
         workersTotal = [...latestByTeamPoint.values()].reduce((sum, run) => sum + run.workerCount, 0);
+        // Lao động RIÊNG từng khu (Tập trung / Đầu vào / Đầu ra) — cùng nguồn mã đang chạy, hiện trên từng ô khu.
+        for (const run of latestByTeamPoint.values()) {
+          workersByPoint[run.point] = (workersByPoint[run.point] || 0) + run.workerCount;
+        }
       }
-      const hourly = pphTrackOutputHourly(rows, setups);
+      // TV cả Line: PPH chia cho tổng lao động của cả Line (cùng số "Người lao động" trên màn hình).
+      const hourly = pphTrackOutputHourly(rows, setups, daySlots, workersTotal);
       // Cùng 1 nguồn với bảng theo giờ nên ô Đầu ra, ô Lũy kế và biểu đồ luôn khớp nhau.
       const outputQty = hourly.reduce((sum, h) => sum + (h.qty ?? 0), 0);
       const defectMap = new Map();
@@ -2465,9 +2479,10 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       const shift = {
         workerCount: workersTotal,
         activeWorkers: workersTotal,
+        workersByPoint,
         plannedQty,
         perHourTarget,
-        targetSoFar: trackTargetSoFar(setups, PPH_TRACK_SLOTS, openSlots),
+        targetSoFar: trackTargetSoFar(setups, daySlots, openSlots),
       };
       // Trạm nào chưa nhập khung đang đến hạn (khung mới mở gần nhất của hôm nay) thì TV nhấp nháy để nhắc nhập.
       const dueSlot = date === today ? openSlots[openSlots.length - 1] : null;
@@ -2477,9 +2492,25 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
         input: !!dueSlot && !hasPoint(['dauvao']),
         output: !!dueSlot && !hasPoint(['daura', 'qc']),
       };
+      // Sản lượng theo GIỜ của từng khu (Tập trung, Đầu vào) — cộng số đã nhập theo khung giờ; Đầu ra lấy từ hourly.
+      const areaHourly = (point) => {
+        let cum = 0;
+        return hourly.map(({ slot }) => {
+          const hit = rows.filter((r) => r.point === point && r.slot === slot);
+          if (!hit.length) return { slot, qty: null, cumulativeQty: null };
+          const qty = hit.reduce((sum, r) => sum + Number(r.qty || 0), 0);
+          cum += qty;
+          return { slot, qty, cumulativeQty: cum };
+        });
+      };
+      const hourlyByArea = {
+        khutaptrung: areaHourly("khutaptrung"),
+        dauvao: areaHourly("dauvao"),
+        daura: hourly.map((h) => ({ slot: h.slot, qty: h.qty, cumulativeQty: h.cumulativeQty })),
+      };
       return {
         success: true,
-        data: { date, hourly, topDefects, supply: pphTrackSupply(rows), quality: { outputQty, defectQty }, shift, models: trackModelSummary(rows, setups), missing },
+        data: { date, hourly, hourlyByArea, topDefects, supply: pphTrackSupply(rows), quality: { outputQty, defectQty }, shift, models: trackModelSummary(rows, setups), missing },
       };
     }, ctx);
   }

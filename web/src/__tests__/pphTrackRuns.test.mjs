@@ -61,6 +61,16 @@ test('nhiều lần đổi mã trong 1 khung tách đủ các mã và tổng gi�
   assert.deepEqual(parts.map((p) => p.workHours), [0.25, 0.5, 0.25]);
 });
 
+test('TV cả Line: PPH chia cho tổng lao động của Line, không chỉ người khai ở Đầu ra', () => {
+  // 50 đôi kế hoạch/giờ, 61 người cả Line, Đầu ra khai 19 người, thực tế 51 đôi trong 1 giờ.
+  const runs = [run({ planPph: 2.63, plannedQty: 400, perHourTarget: 50, workerCount: 19 })];
+  const [hour] = trackOutputHourly(series({ '09:30': 51 }).filter((h) => h.slot === '09:30'), [output('09:30', 51, '', 19, 1)], runs, SLOTS, 61);
+  assert.equal(hour.planPph, 0.82);
+  assert.equal(hour.actualPph, 0.84);
+  assert.equal(hour.laborHours, 61);
+  assert.equal(hour.met, true);
+});
+
 test('khung sau nghỉ trưa không tính giờ nghỉ', () => {
   const parts = slotParts([run(), runB({ startTime: '13:00' })], SLOTS, '13:30');
   assert.deepEqual(parts.map((p) => p.workHours), [0.5, 0.5]);

@@ -430,6 +430,9 @@ export default function PphTrackScanClient() {
   const setupHours = Number(setupForm.shiftHours);
   const setupPlanned = Number(setupForm.plannedQty);
   const setupTarget = setupHours > 0 && setupPlanned > 0 ? Math.round(setupPlanned / setupHours) : null;
+  // PPH kế hoạch = Sản lượng kế hoạch / (Công nhân × Số giờ ca), tự tính giống server.
+  const setupWorkers = Number(setupForm.workerCount);
+  const setupPlanPph = setupHours > 0 && setupPlanned > 0 && setupWorkers > 0 ? Math.round((setupPlanned / (setupWorkers * setupHours)) * 100) / 100 : null;
 
   const reporterField =
     rememberedName && !editingName ? (
@@ -564,9 +567,9 @@ export default function PphTrackScanClient() {
             Mục tiêu sản lượng giờ: {setupTarget == null ? '—' : `${setupTarget} đôi`}
           </div>
           {(point === 'daura' || point === 'qc') && (
-            <Field label="PPH kế hoạch hôm nay (đôi/giờ công) *" icon={IconGauge}>
-              <input type="number" inputMode="decimal" min={0.01} step="any" value={setupForm.planPph} onChange={set('planPph')} placeholder="Nhập mục tiêu của ngày" className={input} required />
-            </Field>
+            <div className="rounded-xl bg-amber-50 border border-amber-200 px-3.5 py-3 text-sm font-black text-amber-700">
+              PPH kế hoạch (tự tính, đôi/giờ công): {setupPlanPph == null ? '—' : fmtNumber(setupPlanPph)}
+            </div>
           )}
           {formError && <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">⚠️ {formError}</div>}
           <button type="submit" disabled={submitting} className="w-full py-3.5 rounded-xl bg-[#006838] text-white text-sm font-black hover:opacity-90 disabled:opacity-50 transition">

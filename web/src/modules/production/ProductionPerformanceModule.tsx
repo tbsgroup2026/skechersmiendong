@@ -725,8 +725,8 @@ export default function ProductionPerformanceModule() {
     factory && lineSel ? factory.leaves.filter((l) => lineSel.leafIds.includes(l.id) && !PPH_HIDDEN_LINE_LEAF_IDS.has(l.id)) : [];
 
   function toggleFs() {
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    else rootRef.current?.requestFullscreen().catch(() => {});
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
+    else rootRef.current?.requestFullscreen().catch(() => { });
   }
 
   if (showSettings) {
@@ -748,197 +748,189 @@ export default function ProductionPerformanceModule() {
   return (
     <div
       ref={rootRef}
-      className={`w-full max-w-full ${
-        isLineView ? 'bg-white text-tbs-dark' : 'bg-[#0a1a2f] bg-[radial-gradient(ellipse_at_top,#0f2b4a_0%,#0a1a2f_60%)] text-slate-200'
-      } ${
+      className={`w-full max-w-full ${isLineView ? 'bg-white text-tbs-dark' : 'bg-[#0a1a2f] bg-[radial-gradient(ellipse_at_top,#0f2b4a_0%,#0a1a2f_60%)] text-slate-200'
+        } ${
         // Cuộn dọc được khi phóng to (scale giờ chỉ theo bề ngang — xem ghi chú ở effect tính
         // fsScale — nội dung có thể cao hơn màn hình thật) — bình thường (không phóng to) vẫn
         // overflow-hidden như cũ, trang cha /work tự cuộn.
         fs ? 'flex items-start justify-center overflow-y-auto' : `overflow-hidden rounded-3xl border ${isLineView ? 'border-gray-200' : 'border-cyan-500/20'}`
-      }`}
+        }`}
     >
       <div
         ref={contentRef}
         className={fs ? 'shrink-0' : 'w-full'}
         style={fs ? { width: FS_DESIGN_W, transform: `scale(${fsScale})`, transformOrigin: 'top center' } : undefined}
       >
-      {/* Header */}
-      <div className={`relative flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-6 ${isLineView ? 'border-gray-100' : 'border-cyan-500/15'}`}>
-        <div className="flex min-w-0 items-center gap-3">
-          {/* Logo TBS bên trái — CHỈ cấp Line (giống hệt TV, xem PphViewClient.tsx), Tổng quan/Nhà
+        {/* Header */}
+        <div className={`relative flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-6 ${isLineView ? 'border-gray-100' : 'border-cyan-500/15'}`}>
+          <div className="flex min-w-0 items-center gap-3">
+            {/* Logo TBS bên trái — CHỈ cấp Line (giống hệt TV, xem PphViewClient.tsx), Tổng quan/Nhà
               máy giữ nguyên không đổi. */}
-          {isLineView && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src="/images/tbs-logo.png" alt="TBS" className="h-8 w-auto shrink-0 object-contain sm:h-9" />
-          )}
-          {factory && lineSel && (lineSel.track || lineLeaves.length > 0) ? (
-            <button
-              type="button"
-              onClick={() => setLineSel(null)}
-              className={`flex h-9 items-center gap-1 rounded-lg border px-2.5 text-xs font-bold ${
-                isLineView ? 'border-gray-200 bg-gray-100 text-tbs-dark hover:bg-gray-200' : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20'
-              }`}
-            >
-              <IconChevronLeft size={15} /> {factory.name}
-            </button>
-          ) : factory ? (
-            <button
-              type="button"
-              onClick={() => {
-                setLineSel(null);
-                setFactoryId(null);
-              }}
-              className="flex h-9 items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 text-xs font-bold text-cyan-200 hover:bg-cyan-500/20"
-            >
-              <IconChevronLeft size={15} /> Tổng quan
-            </button>
-          ) : null}
-          {/* Cấp Line — tiêu đề CĂN GIỮA hàng (đúng ảnh mẫu, khớp cách TV đã làm ở PphViewClient.tsx)
+            {isLineView && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src="/images/tbs-logo.png" alt="TBS" className="h-8 w-auto shrink-0 object-contain sm:h-9" />
+            )}
+            {factory && lineSel && (lineSel.track || lineLeaves.length > 0) ? (
+              <button
+                type="button"
+                onClick={() => setLineSel(null)}
+                className={`flex h-9 items-center gap-1 rounded-lg border px-2.5 text-xs font-bold ${isLineView ? 'border-gray-200 bg-gray-100 text-tbs-dark hover:bg-gray-200' : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20'
+                  }`}
+              >
+                <IconChevronLeft size={15} /> {factory.name}
+              </button>
+            ) : factory ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setLineSel(null);
+                  setFactoryId(null);
+                }}
+                className="flex h-9 items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 text-xs font-bold text-cyan-200 hover:bg-cyan-500/20"
+              >
+                <IconChevronLeft size={15} /> Tổng quan
+              </button>
+            ) : null}
+            {/* Cấp Line — tiêu đề CĂN GIỮA hàng (đúng ảnh mẫu, khớp cách TV đã làm ở PphViewClient.tsx)
               nhưng CHỈ từ xl: trở lên (≥1280px) — màn hẹp hơn thì giữ nguyên vị trí cũ (ngay sau nút
               back) vì bên phải hàng này còn lịch/nút làm mới/toàn màn hình/cài đặt, absolute-center
               ở màn hẹp dễ đè lên đám nút đó. Tổng quan/Nhà máy không đổi gì (giữ nguyên luồng cũ). */}
-          <div className={`min-w-0 ${isLineView ? 'xl:absolute xl:left-1/2 xl:top-1/2 xl:max-w-[45%] xl:-translate-x-1/2 xl:-translate-y-1/2 xl:text-center' : ''}`}>
-            <h2 className={`truncate text-lg font-black uppercase tracking-wide sm:text-2xl ${isLineView ? 'text-tbs-dark' : 'text-white'}`}>
-              {factory && lineSel && (lineSel.track || lineLeaves.length > 0)
-                ? pphLineTitle(lineSel.areaName, lineSel.name)
-                : factory
-                  ? factoryCfg?.title || `Kết quả sản xuất — ${factory.name}`
-                  : 'Kết quả sản xuất — Skechers Miền Đông'}
-            </h2>
-            {/* Cấp Line đổi hẳn dòng phụ thành câu mô tả bảng (giống bảng mẫu Excel) thay vì lặp lại
+            <div className={`min-w-0 ${isLineView ? 'xl:absolute xl:left-1/2 xl:top-1/2 xl:max-w-[45%] xl:-translate-x-1/2 xl:-translate-y-1/2 xl:text-center' : ''}`}>
+              <h2 className={`truncate text-lg font-black uppercase tracking-wide sm:text-2xl ${isLineView ? 'text-tbs-dark' : 'text-white'}`}>
+                {factory && lineSel && (lineSel.track || lineLeaves.length > 0)
+                  ? pphLineTitle(lineSel.areaName, lineSel.name)
+                  : factory
+                    ? factoryCfg?.title || `Kết quả sản xuất — ${factory.name}`
+                    : 'Kết quả sản xuất — Skechers Miền Đông'}
+              </h2>
+              {/* Cấp Line đổi hẳn dòng phụ thành câu mô tả bảng (giống bảng mẫu Excel) thay vì lặp lại
                 tên Nhà máy (đã gộp vào dòng tiêu đề chính ở trên rồi, xem nhánh trên). */}
-            {factory && lineSel && (lineSel.track || lineLeaves.length > 0) && (
-              <p className={`truncate text-[11px] font-bold sm:text-xs ${isLineView ? 'text-cyan-700' : 'text-cyan-300'}`}>
-                {lineSel.track ? 'Bảng Chuyền chuẩn — Theo dõi chuyền (hôm nay)' : `Bảng tiến độ và năng suất sản xuất (${lineLeaves.length} điểm quét)`}
-              </p>
-            )}
+              {factory && lineSel && (lineSel.track || lineLeaves.length > 0) && (
+                <p className={`truncate text-[11px] font-bold sm:text-xs ${isLineView ? 'text-cyan-700' : 'text-cyan-300'}`}>
+                  {lineSel.track ? 'Bảng Chuyền chuẩn — Theo dõi chuyền (hôm nay)' : `Bảng tiến độ và năng suất sản xuất (${lineLeaves.length} điểm quét)`}
+                </p>
+              )}
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Khối ngày/giờ ĐÃ BỎ khỏi đây theo yêu cầu — chỉ giữ lại ở trang chiếu TV riêng
+          <div className="flex items-center gap-2">
+            {/* Khối ngày/giờ ĐÃ BỎ khỏi đây theo yêu cầu — chỉ giữ lại ở trang chiếu TV riêng
               (PphViewClient.tsx), không hiện ở Tổng quan/Nhà máy/Line trong app nữa. */}
-          <label
-            className={`flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 ${
-              isLineView ? 'border-gray-200 bg-gray-50 text-tbs-dark' : 'border-cyan-500/25 bg-cyan-500/5 text-cyan-100'
-            }`}
-          >
-            <IconCalendar size={15} className={`shrink-0 ${isLineView ? 'text-gray-500' : 'text-cyan-400'}`} />
-            <input
-              type="date"
-              value={selectedDate}
-              max={todayVNStr()}
-              onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-              className={`w-[112px] bg-transparent text-sm font-bold outline-none ${isLineView ? 'text-tbs-dark [color-scheme:light]' : 'text-cyan-100 [color-scheme:dark]'}`}
-            />
-          </label>
-          {!isToday && (
+            <label
+              className={`flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 ${isLineView ? 'border-gray-200 bg-gray-50 text-tbs-dark' : 'border-cyan-500/25 bg-cyan-500/5 text-cyan-100'
+                }`}
+            >
+              <IconCalendar size={15} className={`shrink-0 ${isLineView ? 'text-gray-500' : 'text-cyan-400'}`} />
+              <input
+                type="date"
+                value={selectedDate}
+                max={todayVNStr()}
+                onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                className={`w-[112px] bg-transparent text-sm font-bold outline-none ${isLineView ? 'text-tbs-dark [color-scheme:light]' : 'text-cyan-100 [color-scheme:dark]'}`}
+              />
+            </label>
+            {!isToday && (
+              <button
+                type="button"
+                onClick={() => setSelectedDate(todayVNStr())}
+                className={`h-9 rounded-lg border px-2.5 text-sm font-bold ${isLineView ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20'
+                  }`}
+              >
+                Hôm nay
+              </button>
+            )}
+            {factory && !lineSel && (
+              <button
+                type="button"
+                onClick={() => copyTvLinkFactory(factory.id)}
+                title="Lấy link TV (xem riêng cả Nhà máy, không cần đăng nhập)"
+                className="flex h-9 items-center gap-1.5 rounded-lg border border-cyan-500/25 bg-cyan-500/5 px-2.5 text-xs font-bold text-cyan-300 hover:bg-cyan-500/15"
+              >
+                <IconDeviceTv size={16} /> Lấy link TV
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => setSelectedDate(todayVNStr())}
-              className={`h-9 rounded-lg border px-2.5 text-sm font-bold ${
-                isLineView ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20'
-              }`}
+              onClick={() => load({ fresh: true })}
+              title="Làm mới"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg border ${isLineView ? 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100' : 'border-cyan-500/25 bg-cyan-500/5 text-cyan-300 hover:bg-cyan-500/15'
+                }`}
             >
-              Hôm nay
+              <IconRefresh size={16} />
             </button>
-          )}
-          {factory && !lineSel && (
             <button
               type="button"
-              onClick={() => copyTvLinkFactory(factory.id)}
-              title="Lấy link TV (xem riêng cả Nhà máy, không cần đăng nhập)"
-              className="flex h-9 items-center gap-1.5 rounded-lg border border-cyan-500/25 bg-cyan-500/5 px-2.5 text-xs font-bold text-cyan-300 hover:bg-cyan-500/15"
+              onClick={toggleFs}
+              title="Toàn màn hình"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg border ${isLineView ? 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100' : 'border-cyan-500/25 bg-cyan-500/5 text-cyan-300 hover:bg-cyan-500/15'
+                }`}
             >
-              <IconDeviceTv size={16} /> Lấy link TV
+              {fs ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
             </button>
-          )}
-          <button
-            type="button"
-            onClick={() => load({ fresh: true })}
-            title="Làm mới"
-            className={`flex h-9 w-9 items-center justify-center rounded-lg border ${
-              isLineView ? 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100' : 'border-cyan-500/25 bg-cyan-500/5 text-cyan-300 hover:bg-cyan-500/15'
-            }`}
-          >
-            <IconRefresh size={16} />
-          </button>
-          <button
-            type="button"
-            onClick={toggleFs}
-            title="Toàn màn hình"
-            className={`flex h-9 w-9 items-center justify-center rounded-lg border ${
-              isLineView ? 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100' : 'border-cyan-500/25 bg-cyan-500/5 text-cyan-300 hover:bg-cyan-500/15'
-            }`}
-          >
-            {fs ? <IconMinimize size={16} /> : <IconMaximize size={16} />}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowSettings(true)}
-            title="Cài đặt"
-            className={`flex h-9 w-9 items-center justify-center rounded-lg border ${
-              isLineView ? 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100' : 'border-cyan-500/25 bg-cyan-500/5 text-cyan-300 hover:bg-cyan-500/15'
-            }`}
-          >
-            <IconSettings size={16} />
-          </button>
-        </div>
-      </div>
-
-      {demo && (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-400/30 bg-amber-500/15 px-4 py-2 text-xs font-black text-amber-200 sm:px-6">
-          <span>⚠ CHẾ ĐỘ DEMO — số liệu MINH HOẠ để trình bày giao diện, KHÔNG phải dữ liệu thật.</span>
-          <button
-            type="button"
-            onClick={() => setShowSettings(true)}
-            className="rounded-md border border-amber-400/40 bg-amber-500/20 px-2 py-0.5 font-bold hover:bg-amber-500/30"
-          >
-            Tắt ở Cài đặt
-          </button>
-        </div>
-      )}
-
-      <div className="space-y-3 p-3 sm:p-5">
-        {loading && factories.length === 0 ? (
-          <div className="py-24 text-center text-sm font-semibold text-slate-400">Đang tải dữ liệu...</div>
-        ) : error && factories.length === 0 ? (
-          <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 py-10 text-center text-sm font-semibold text-rose-300">⚠️ {error}</div>
-        ) : factories.length === 0 ? (
-          <div className="space-y-2 py-20 text-center text-sm text-slate-400">
-            <p>Chưa có Nhà máy nào được cấu hình.</p>
-            <button type="button" onClick={() => setShowSettings(true)} className="font-bold text-cyan-300 hover:underline">
-              Vào Cài Đặt để thêm Nhà máy / Xưởng / Chuyền / Tổ →
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              title="Cài đặt"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg border ${isLineView ? 'border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100' : 'border-cyan-500/25 bg-cyan-500/5 text-cyan-300 hover:bg-cyan-500/15'
+                }`}
+            >
+              <IconSettings size={16} />
             </button>
           </div>
-        ) : factory && lineSel && lineSel.track ? (
-          <TrackLineBoard lineId={TRACK_LINE_ID} light />
-        ) : factory && lineSel && lineLeaves.length > 0 ? (
-          <LineBoard sel={lineSel} leaves={lineLeaves} targetPph={factoryTargetPph} light tv />
-        ) : factory ? (
-          <FactoryBoard factory={factory} lines={lines} configs={configs} onPickLine={setLineSel} />
-        ) : (
-          <OverviewBoard
-            factories={factories}
-            onPick={(id) => {
-              setLineSel(null);
-              setFactoryId(id);
-            }}
-          />
+        </div>
+
+        {demo && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-400/30 bg-amber-500/15 px-4 py-2 text-xs font-black text-amber-200 sm:px-6">
+            <span>⚠ CHẾ ĐỘ DEMO — số liệu MINH HOẠ để trình bày giao diện, KHÔNG phải dữ liệu thật.</span>
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              className="rounded-md border border-amber-400/40 bg-amber-500/20 px-2 py-0.5 font-bold hover:bg-amber-500/30"
+            >
+              Tắt ở Cài đặt
+            </button>
+          </div>
         )}
 
-        <div
-          className={`flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-[11px] font-semibold ${
-            isLineView ? 'border-gray-100 text-gray-500' : 'border-cyan-500/15 text-slate-500'
-          }`}
-        >
-          <span>
-            {isToday
-              ? `Cập nhật tự động mỗi 60s · lần cuối ${lastUpdated ? lastUpdated.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—'}`
-              : `Đang xem lại ngày ${formatDateVN(selectedDate)}`}
-          </span>
-          <span className="tracking-wide">MAKE GOOD SHOES FOR A BRIGHTER TOMORROW</span>
+        <div className="space-y-3 p-3 sm:p-5">
+          {loading && factories.length === 0 ? (
+            <div className="py-24 text-center text-sm font-semibold text-slate-400">Đang tải dữ liệu...</div>
+          ) : error && factories.length === 0 ? (
+            <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 py-10 text-center text-sm font-semibold text-rose-300">⚠️ {error}</div>
+          ) : factories.length === 0 ? (
+            <div className="space-y-2 py-20 text-center text-sm text-slate-400">
+              <p>Chưa có Nhà máy nào được cấu hình.</p>
+              <button type="button" onClick={() => setShowSettings(true)} className="font-bold text-cyan-300 hover:underline">
+                Vào Cài Đặt để thêm Nhà máy / Xưởng / Chuyền / Tổ →
+              </button>
+            </div>
+          ) : factory && lineSel && lineSel.track ? (
+            <TrackLineBoard lineId={TRACK_LINE_ID} light />
+          ) : factory && lineSel && lineLeaves.length > 0 ? (
+            <LineBoard sel={lineSel} leaves={lineLeaves} targetPph={factoryTargetPph} light tv />
+          ) : factory ? (
+            <FactoryBoard factory={factory} lines={lines} configs={configs} onPickLine={setLineSel} />
+          ) : (
+            <OverviewBoard
+              factories={factories}
+              onPick={(id) => {
+                setLineSel(null);
+                setFactoryId(id);
+              }}
+            />
+          )}
+
+          <div
+            className={`flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-[11px] font-semibold ${isLineView ? 'border-gray-100 text-gray-500' : 'border-cyan-500/15 text-slate-500'
+              }`}
+          >
+            <span>
+              {isToday
+                ? `Cập nhật tự động mỗi 60s · lần cuối ${lastUpdated ? lastUpdated.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '—'}`
+                : `Đang xem lại ngày ${formatDateVN(selectedDate)}`}
+            </span>
+            <span className="tracking-wide">MAKE GOOD SHOES FOR A BRIGHTER TOMORROW</span>
+          </div>
         </div>
-      </div>
       </div>
     </div>
   );
@@ -1386,9 +1378,8 @@ function LoiPie({
                 type="button"
                 disabled={!clickable}
                 onClick={() => toggle(it.name)}
-                className={`flex w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition ${
-                  clickable ? `cursor-pointer ${light ? 'hover:bg-gray-100' : 'hover:bg-white/10'}` : ''
-                } ${isSelected ? (light ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-300' : 'bg-cyan-500/15 ring-1 ring-inset ring-cyan-400/40') : ''}`}
+                className={`flex w-full items-center gap-1.5 rounded-md px-1 py-0.5 text-left transition ${clickable ? `cursor-pointer ${light ? 'hover:bg-gray-100' : 'hover:bg-white/10'}` : ''
+                  } ${isSelected ? (light ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-300' : 'bg-cyan-500/15 ring-1 ring-inset ring-cyan-400/40') : ''}`}
               >
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: LOI_COLORS[i % LOI_COLORS.length] }} />
                 <span className={`min-w-0 flex-1 truncate ${light ? 'text-gray-600' : 'text-slate-300'}`}>{it.name}</span>
@@ -1476,9 +1467,8 @@ function OverviewBoard({
             <Tag
               key={t.key}
               {...(t.clickable ? { type: 'button' as const, onClick: () => onPick(t.key) } : {})}
-              className={`flex flex-col gap-1.5 rounded-2xl border p-3.5 text-left transition ${TONE[tone].chipBorder} ${
-                t.key === '__all__' ? 'bg-cyan-500/10' : `${TONE[tone].chipBg} ${t.clickable ? 'hover:brightness-125' : ''}`
-              }`}
+              className={`flex flex-col gap-1.5 rounded-2xl border p-3.5 text-left transition ${TONE[tone].chipBorder} ${t.key === '__all__' ? 'bg-cyan-500/10' : `${TONE[tone].chipBg} ${t.clickable ? 'hover:brightness-125' : ''}`
+                }`}
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="min-w-0 truncate text-xs font-black uppercase tracking-wide text-slate-300">{t.name}</span>
@@ -1681,46 +1671,46 @@ function ToStatusGrid({
             (pill) đôi khi chớm tràn qua góc bo tròn dưới đáy khung. Cuộn ngang chuyển vào khung
             TRONG (overflow-x-auto riêng), không ảnh hưởng phần cắt góc của khung ngoài. */}
         <div className={`overflow-hidden rounded-xl border ${light ? 'border-gray-100' : 'border-cyan-500/15'}`}>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[420px] border-collapse text-center">
-            <thead>
-              <tr className={light ? 'bg-gray-100' : 'bg-[#0a1a2f]/60'}>
-                <th className={`p-2 text-left text-sm font-black uppercase tracking-wide ${light ? 'text-gray-600' : 'text-slate-400'}`}>Chỉ số</th>
-                {cells.map((c) => (
-                  <th key={c.id} className={`p-2 text-base font-black uppercase tracking-wide ${light ? 'text-tbs-dark' : 'text-slate-300'}`}>
-                    {c.name}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className={`divide-y ${light ? 'divide-gray-100' : 'divide-cyan-500/10'}`}>
-              <tr>
-                <td className={`p-2 text-left text-sm font-bold ${light ? 'text-gray-600' : 'text-slate-400'}`}>SL lũy kế thực hiện</td>
-                {cells.map((c) => (
-                  <td key={c.id} className={`p-2 text-3xl font-black ${light ? 'text-tbs-dark' : 'text-white'}`}>
-                    {c.actual == null ? '—' : fmtInt(c.actual)}
-                  </td>
-                ))}
-              </tr>
-              <tr>
-                <td className={`p-2 text-left text-sm font-bold ${light ? 'text-gray-600' : 'text-slate-400'}`}>% đạt PPH</td>
-                {cells.map((c) => {
-                  const band = bandFor(c.pct);
-                  const cellCls = `rounded px-3 py-2 text-xl font-black ${bandColors[band].chipBg} ${bandColors[band].text}`;
-                  return (
-                    <td key={c.id} className="p-2">
-                      {/* MỌI ô đều bấm được (không chỉ vàng/đỏ như trước) — xem thêm số liệu từng
-                          giờ của Tổ đó, không chỉ riêng lý do hụt. */}
-                      <button type="button" onClick={() => setOpenLeaf(c.leaf)} className={`${cellCls} cursor-pointer hover:brightness-95`}>
-                        {c.pct == null ? '—' : `${Math.round(c.pct)}%`}
-                      </button>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[420px] border-collapse text-center">
+              <thead>
+                <tr className={light ? 'bg-gray-100' : 'bg-[#0a1a2f]/60'}>
+                  <th className={`p-2 text-left text-sm font-black uppercase tracking-wide ${light ? 'text-gray-600' : 'text-slate-400'}`}>Chỉ số</th>
+                  {cells.map((c) => (
+                    <th key={c.id} className={`p-2 text-base font-black uppercase tracking-wide ${light ? 'text-tbs-dark' : 'text-slate-300'}`}>
+                      {c.name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className={`divide-y ${light ? 'divide-gray-100' : 'divide-cyan-500/10'}`}>
+                <tr>
+                  <td className={`p-2 text-left text-sm font-bold ${light ? 'text-gray-600' : 'text-slate-400'}`}>SL lũy kế thực hiện</td>
+                  {cells.map((c) => (
+                    <td key={c.id} className={`p-2 text-3xl font-black ${light ? 'text-tbs-dark' : 'text-white'}`}>
+                      {c.actual == null ? '—' : fmtInt(c.actual)}
                     </td>
-                  );
-                })}
-              </tr>
-            </tbody>
-          </table>
-        </div>
+                  ))}
+                </tr>
+                <tr>
+                  <td className={`p-2 text-left text-sm font-bold ${light ? 'text-gray-600' : 'text-slate-400'}`}>% đạt PPH</td>
+                  {cells.map((c) => {
+                    const band = bandFor(c.pct);
+                    const cellCls = `rounded px-3 py-2 text-xl font-black ${bandColors[band].chipBg} ${bandColors[band].text}`;
+                    return (
+                      <td key={c.id} className="p-2">
+                        {/* MỌI ô đều bấm được (không chỉ vàng/đỏ như trước) — xem thêm số liệu từng
+                          giờ của Tổ đó, không chỉ riêng lý do hụt. */}
+                        <button type="button" onClick={() => setOpenLeaf(c.leaf)} className={`${cellCls} cursor-pointer hover:brightness-95`}>
+                          {c.pct == null ? '—' : `${Math.round(c.pct)}%`}
+                        </button>
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
         {openLeaf && <ShortfallModal leaf={openLeaf} onClose={() => setOpenLeaf(null)} />}
       </>
@@ -1738,9 +1728,8 @@ function ToStatusGrid({
         <span className="text-rose-300">đỏ ≤85%</span> — bấm vào 1 ô để xem số liệu từng giờ
       </p>
       <div
-        className={`grid gap-1.5 ${
-          wide ? 'grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 2xl:grid-cols-10' : 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-5'
-        }`}
+        className={`grid gap-1.5 ${wide ? 'grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 2xl:grid-cols-10' : 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-5'
+          }`}
       >
         {cells.map((c) => {
           // MỌI ô đều bấm được (không chỉ vàng/đỏ như trước) — xem thêm số liệu từng giờ của Tổ
@@ -2247,12 +2236,13 @@ type TrackHourly = {
 type TrackTopDefect = { defectType: string; qty: number };
 type TrackSupply = { collected: number; input: number; gap: number };
 type TrackQuality = { outputQty: number; defectQty: number };
-type TrackShift = { workerCount: number; activeWorkers: number; plannedQty: number; perHourTarget: number; targetSoFar: number };
-type TrackDashboardData = { hourly: TrackHourly[]; topDefects: TrackTopDefect[]; supply?: TrackSupply; quality?: TrackQuality; shift?: TrackShift; missing?: { central: boolean; input: boolean; output: boolean } };
+type TrackShift = { workerCount: number; activeWorkers: number; workersByPoint?: Partial<Record<'khutaptrung' | 'dauvao' | 'daura', number>>; plannedQty: number; perHourTarget: number; targetSoFar: number };
+type TrackAreaKey = 'khutaptrung' | 'dauvao' | 'daura';
+type TrackDashboardData = { hourly: TrackHourly[]; hourlyByArea?: Partial<Record<TrackAreaKey, TrackHourly[]>>; topDefects: TrackTopDefect[]; supply?: TrackSupply; quality?: TrackQuality; shift?: TrackShift; missing?: { central: boolean; input: boolean; output: boolean } };
 
 const TRACK_TILE_TONES = {
-  green: { box: 'border-emerald-200 bg-emerald-50', icon: 'text-emerald-600', label: 'text-tbs-dark', value: 'text-tbs-dark' },
-  blue: { box: 'border-blue-200 bg-blue-50', icon: 'text-blue-600', label: 'text-tbs-dark', value: 'text-tbs-dark' },
+  green: { box: 'border-emerald-100 bg-emerald-50/40', icon: 'text-emerald-600', label: 'text-tbs-dark', value: 'text-tbs-dark' },
+  blue: { box: 'border-blue-100 bg-blue-50/40', icon: 'text-blue-600', label: 'text-tbs-dark', value: 'text-tbs-dark' },
   violet: { box: 'border-violet-200 bg-violet-50', icon: 'text-violet-500', label: 'text-tbs-dark', value: 'text-tbs-dark' },
   solid: { box: 'border-[#006838] bg-[#006838]', icon: 'text-white', label: 'text-white', value: 'text-white' },
 };
@@ -2278,71 +2268,175 @@ function TrackStatTile({
 }) {
   const t = TRACK_TILE_TONES[tone];
   return (
-    <div className={`relative flex min-w-0 items-center gap-4 rounded-2xl border px-5 py-3 ${t.box} ${blink ? 'animate-pulse ring-4 ring-rose-500' : ''}`}>
-      {/* Chưa nhập số của trạm này: nhãn "Nhập số liệu" nhấp nháy cùng nhịp với ô, nằm lệch lên mép trên ô. */}
+    <div className={`relative flex min-w-0 items-center gap-4 rounded-2xl px-5 py-3 ${blink ? 'border-2 animate-blink-red-alert ring-4 ring-rose-500' : `border ${t.box}`}`}>
+      {/* Chưa nhập số của trạm này: ô chớp đỏ-trắng cùng nhịp với thẻ Tổ, kèm nhãn lớn nằm lệch lên mép trên ô. */}
       {blink && (
         <span
-          className="absolute right-3 whitespace-nowrap rounded-full bg-rose-600 px-2 py-0.5 text-xs font-black text-white shadow animate-pulse"
-          style={{ top: -12 }}
+          className={`absolute right-3 whitespace-nowrap rounded-full bg-rose-600 font-black text-white shadow-lg animate-pulse ${tv ? 'px-5 py-1.5 text-xl' : 'px-2 py-0.5 text-xs'}`}
+          style={{ top: tv ? -20 : -12 }}
         >
-          ✎ Nhập số liệu
+          ⚠ CHƯA NHẬP SỐ — NHẬP NGAY
         </span>
       )}
       <Icon size={tv ? (big ? 72 : 64) : 32} className={`shrink-0 ${t.icon}`} aria-hidden />
       <div className="min-w-0 flex-1">
-        <div className={`font-black uppercase leading-tight tracking-wide ${tv ? 'text-lg' : 'text-[10px]'} ${t.label}`}>{label}</div>
-        <div className={`font-black leading-tight tabular-nums ${big ? (tv ? 'text-right text-7xl' : 'text-right text-3xl') : tv ? 'text-5xl' : 'text-2xl'} ${t.value}`}>{value}</div>
+        <div className={`font-black uppercase leading-tight tracking-wide ${tv ? 'text-xl' : 'text-[10px]'} ${t.label}`}>{label}</div>
+        <div className={`font-black leading-tight tabular-nums ${big ? (tv ? 'text-right text-8xl' : 'text-right text-3xl') : tv ? 'text-6xl' : 'text-2xl'} ${t.value}`}>{value}</div>
         {children}
       </div>
     </div>
   );
 }
 
-// Khối trên cùng theo mẫu: TT, ĐV, Lũy kế, Người lao động, ĐR (ô đặc, to nhất). Trạng thái luôn có chữ kèm
-// theo, không chỉ dựa vào màu, để nhìn từ xa trên TV vẫn đọc được.
-function TrackStatTiles({ supply, outputQty, shift, tv, missing }: { supply?: TrackSupply; outputQty: number; shift?: TrackShift; tv?: boolean; missing?: TrackDashboardData['missing'] }) {
+// Khối trên cùng: TT, ĐV, ĐR (ô đặc, to nhất), Lũy kế — 4 ô. Số lao động nằm TRONG từng ô khu (góc phải),
+// không còn ô "Người lao động" riêng. Trạng thái luôn có chữ kèm theo, không chỉ dựa vào màu, để nhìn từ xa
+// trên TV vẫn đọc được.
+// Thẻ khu theo mẫu thiết kế: tiêu đề khu bên trái, ô "Lao động" có viền bên phải, dưới là bảng
+// KH / TH / % với 2 hàng SL và PPH. Ô nào chưa có số thì hiện "—" (không bịa số).
+type TrackAreaFigures = { kh: number | null; th: number | null };
+const fmtPph = (v: number) => Number(v.toFixed(2)).toLocaleString('vi-VN');
+
+// Màu theo % so với kế hoạch (theo bảng quy ước): <85 đỏ, 85–<90 cam, 90–<95 vàng, 95–100 xanh lá vàng (lime), >100 hồng/tím.
+function pctToneClass(p: number): string {
+  if (p < 85) return 'text-red-600';
+  if (p < 90) return 'text-orange-500';
+  if (p < 95) return 'text-yellow-500';
+  if (p <= 100) return 'text-lime-600';
+  return 'text-fuchsia-600';
+}
+
+// PPH riêng từng khu (công thức A): PPH = sản lượng khu ÷ lao động khu, giờ làm = 1 giờ mỗi khung giờ.
+function trackAreaPphValue(qty: number | null | undefined, workers: number): number | null {
+  return qty == null || workers <= 0 ? null : qty / workers;
+}
+
+// Ba đường trên biểu đồ sản lượng theo giờ: nhãn hàng dưới trục giờ là TT / ĐV / ĐR.
+const TRACK_SL_AREAS: { key: TrackAreaKey; label: string; rowLabel: string; color: string }[] = [
+  { key: 'khutaptrung', label: 'Tập trung', rowLabel: 'TT', color: '#62b88f' },
+  { key: 'dauvao', label: 'Đầu vào', rowLabel: 'ĐV', color: '#319063' },
+  { key: 'daura', label: 'Đầu ra', rowLabel: 'ĐR', color: '#006838' },
+];
+
+// Ba mức đậm nhạt của cùng 1 tông xanh lá: nhạt nhất (TT), vừa (ĐV), đậm nhất (ĐR).
+const TRACK_SHADES = {
+  light: { bg: '#62b88f', text: 'text-white' },
+  mid: { bg: '#319063', text: 'text-white' },
+  dark: { bg: '#006838', text: 'text-white' },
+} as const;
+
+function TrackAreaCard({
+  icon: Icon,
+  tone,
+  shade,
+  title,
+  workers,
+  sl,
+  pph,
+  tv,
+  blink,
+  children,
+}: {
+  icon: typeof IconSettingsFilled;
+  tone: keyof typeof TRACK_TILE_TONES;
+  shade: keyof typeof TRACK_SHADES;
+  title: string;
+  workers: number;
+  sl: TrackAreaFigures;
+  pph: TrackAreaFigures;
+  tv?: boolean;
+  blink?: boolean;
+  children?: React.ReactNode;
+}) {
+  const t = TRACK_TILE_TONES[tone];
+  const dash = '—';
+  const pct = (f: TrackAreaFigures) => (f.kh && f.kh > 0 && f.th != null ? `${Math.round((f.th / f.kh) * 100)}` : dash);
+  // Ô % được tô màu theo ngưỡng; chưa có số thì giữ màu thân thẻ.
+  const pctCell = (f: TrackAreaFigures) => {
+    const p = f.kh && f.kh > 0 && f.th != null ? Math.round((f.th / f.kh) * 100) : null;
+    return `text-center font-black tabular-nums ${tv ? 'text-7xl' : 'text-base'} ${p == null ? bodyValue : pctToneClass(p)}`;
+  };
+  // Khu Đầu ra (solid): chỉ phần tiêu đề là nền xanh đậm; thân thẻ nền nhạt nên chữ thân đổi sang màu tối.
+  const S = TRACK_SHADES[shade];
+  const bodyValue = 'text-tbs-dark';
+  const bodyLabel = 'text-tbs-dark';
+  const cell = `text-center font-black tabular-nums ${tv ? 'text-7xl' : 'text-base'} ${bodyValue}`;
+  const head = `text-center font-black uppercase ${tv ? 'text-xl' : 'text-[10px]'} ${bodyLabel}`;
+  const rowLabel = `font-black uppercase ${tv ? 'text-2xl' : 'text-sm'} ${bodyLabel}`;
+  return (
+    <div className={`relative flex min-w-0 flex-col overflow-hidden rounded-2xl ${blink ? 'border-2 animate-blink-red-alert ring-4 ring-rose-500' : 'border-2 bg-[#f0faf5]'}`} style={blink ? undefined : { borderColor: S.bg }}>
+      {blink && (
+        <span
+          className={`absolute bottom-2 right-3 z-10 whitespace-nowrap rounded-full bg-rose-600 font-black text-white shadow-lg animate-pulse ${tv ? 'px-5 py-1.5 text-xl' : 'px-2 py-0.5 text-xs'}`}
+        >
+          ⚠ CHƯA NHẬP SỐ — NHẬP NGAY
+        </span>
+      )}
+      {/* Hàng tiêu đề: tên khu + ô Lao động (viền trái đậm, giống bản vẽ). */}
+      <div className={`flex items-stretch border-b-2 border-current/30 ${S.text}`} style={{ backgroundColor: S.bg }}>
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-3 px-4 py-2">
+          <Icon size={tv ? 48 : 24} className={`shrink-0 ${S.text}`} aria-hidden />
+          <span className={`truncate font-black uppercase leading-tight ${tv ? 'text-3xl' : 'text-sm'} ${S.text}`}>{title}</span>
+        </div>
+        <div className={`flex shrink-0 flex-col items-center justify-center border-l-2 border-current/30 px-4 py-1 bg-[#f0faf5]`}>
+          <span className={`font-black uppercase tracking-wide ${tv ? 'text-base' : 'text-[9px]'} text-blue-600`}>Lao động</span>
+          <span className={`font-black tabular-nums leading-none ${tv ? 'text-6xl' : 'text-3xl'} text-blue-600`}>{fmtInt(workers)}</span>
+        </div>
+      </div>
+      {/* Bảng KH / TH / %: cột 1 là nhãn hàng, hàng SL và PPH ngăn cách bằng nét chấm. */}
+      <div className="grid grid-cols-[auto_1fr_1fr_1fr] items-center">
+        <div />
+        <div className={head}>KH</div>
+        <div className={head}>TH</div>
+        <div className={head}>%</div>
+        <div className={`${rowLabel} col-span-4 border-t border-dashed border-current/30`} aria-hidden />
+        <div className={`${rowLabel} px-4 py-2`}>SL</div>
+        <div className={cell}>{sl.kh != null ? fmtInt(sl.kh) : dash}</div>
+        <div className={cell}>{sl.th != null ? fmtInt(sl.th) : dash}</div>
+        <div className={pctCell(sl)}>{pct(sl)}</div>
+        <div className="col-span-4 border-t border-dashed border-current/30" aria-hidden />
+        <div className={`${rowLabel} px-4 py-2`}>PPH</div>
+        <div className={cell}>{pph.kh != null ? fmtPph(pph.kh) : dash}</div>
+        <div className={cell}>{pph.th != null ? fmtPph(pph.th) : dash}</div>
+        <div className={pctCell(pph)}>{pct(pph)}</div>
+      </div>
+      {children && <div className={`px-4 pb-2 ${tv ? 'text-xl' : 'text-[10px]'}`}>{children}</div>}
+    </div>
+  );
+}
+
+function TrackStatTiles({ supply, outputQty, shift, hourly, areaHourly, tv, missing }: { supply?: TrackSupply; outputQty: number; shift?: TrackShift; hourly: TrackHourly[]; areaHourly?: Partial<Record<TrackAreaKey, TrackHourly[]>>; tv?: boolean; missing?: TrackDashboardData['missing'] }) {
   const gap = supply?.gap ?? 0;
   const hasSupply = !!supply && (supply.collected > 0 || supply.input > 0);
-  const note = `font-black ${tv ? 'text-base' : 'text-[10px]'}`;
-  // So lũy kế Đầu ra với mục tiêu tính tới giờ hiện tại, để biết đang vượt hay chậm tiến độ.
+  const note = `font-black ${tv ? 'text-xl' : 'text-[10px]'}`;
+  // Mục tiêu lũy kế tới giờ hiện tại — ĐR hiện KH lũy kế (xem TrackAreaCard bên dưới).
   const targetSoFar = shift?.targetSoFar ?? 0;
-  const deltaPct = targetSoFar > 0 ? Math.round((outputQty / targetSoFar - 1) * 100) : null;
+  const byPoint = shift?.workersByPoint ?? {};
+  // ĐR: PPH của GIỜ GẦN NHẤT đã có số (KH = PPH kế hoạch giờ đó, TH = PPH thực hiện giờ đó).
+  // PPH của từng khu theo lao động RIÊNG của khu đó: KH = mục tiêu/giờ ÷ lao động khu; TH = PPH giờ gần nhất có số.
+  // PPH LŨY KẾ CẢ NGÀY của từng khu: lao động khu × số giờ đã có số liệu (mỗi giờ = 1 giờ làm).
+  // TH = tổng sản lượng khu ÷ mẫu số; KH = SL KH lũy kế ÷ mẫu số.
+  const areaPph = (k: TrackAreaKey) => {
+    const w = byPoint[k] ?? 0;
+    const arr = areaHourly?.[k] ?? (k === 'daura' ? hourly : []);
+    const hours = arr.filter((h) => h.qty != null).length;
+    const total = arr.reduce((sum, h) => sum + (h.qty ?? 0), 0);
+    const denom = w * hours;
+    return {
+      kh: denom > 0 && targetSoFar > 0 ? targetSoFar / denom : null,
+      th: denom > 0 ? total / denom : null,
+    };
+  };
   return (
-    <div className="grid grid-cols-[1.05fr_1.15fr_1.35fr_1.05fr_1.15fr] items-stretch gap-2">
-      <TrackStatTile icon={IconNeedleThread} tone="green" label="TT - Tập trung" value={fmtInt(supply?.collected ?? 0)} tv={tv} blink={missing?.central} />
-      <TrackStatTile icon={IconSettingsFilled} tone="blue" label="ĐV - Đầu vào" value={fmtInt(supply?.input ?? 0)} tv={tv} blink={missing?.input}>
+    <div className="grid grid-cols-3 items-stretch gap-2">
+      <TrackAreaCard icon={IconNeedleThread} tone="green" shade="light" title="Khu Tập Trung" workers={byPoint.khutaptrung ?? 0} sl={{ kh: targetSoFar > 0 ? targetSoFar : null, th: supply?.collected ?? 0 }} pph={areaPph('khutaptrung')} tv={tv} blink={missing?.central} />
+      <TrackAreaCard icon={IconSettingsFilled} tone="green" shade="mid" title="Khu Đầu Vào" workers={byPoint.dauvao ?? 0} sl={{ kh: targetSoFar > 0 ? targetSoFar : null, th: supply?.input ?? 0 }} pph={areaPph('dauvao')} tv={tv} blink={missing?.input}>
         {hasSupply && (
           <div className={`${note} ${gap < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
             {gap < 0 ? `⚠ Tập trung thiếu ${fmtInt(-gap)}` : `Tập trung đủ · còn ${fmtInt(gap)}`}
           </div>
         )}
-      </TrackStatTile>
-      <TrackStatTile icon={IconPackage} tone="solid" label="ĐR - Đầu ra" value={fmtInt(outputQty)} big tv={tv} blink={missing?.output} />
-      <TrackStatTile icon={IconUsersGroup} tone="green" label="Người lao động" value={fmtInt(shift?.activeWorkers ?? 0)} tv={tv}>
-        <div className={`font-bold leading-tight ${tv ? 'text-base' : 'text-[10px]'} text-tbs-dark`}>
-          Đang làm việc
-          <br />/ Tổng {fmtInt(shift?.workerCount ?? 0)} người
-        </div>
-      </TrackStatTile>
-      <TrackStatTile
-        icon={IconChartArrowsVertical}
-        tone="violet"
-        label="Lũy kế trong ngày"
-        value={
-          <>
-            {fmtInt(outputQty)} <span className={tv ? 'text-3xl' : 'text-sm'}>đôi</span>
-          </>
-        }
-        tv={tv}
-      >
-        {deltaPct != null && (
-          <div className={`flex items-center gap-1 ${note} ${deltaPct < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
-            {deltaPct < 0 ? <IconTrendingDown size={tv ? 20 : 12} aria-hidden /> : <IconTrendingUp size={tv ? 20 : 12} aria-hidden />}
-            {deltaPct > 0 ? '+' : ''}
-            {deltaPct}% so với mục tiêu
-          </div>
-        )}
-      </TrackStatTile>
+      </TrackAreaCard>
+      <TrackAreaCard icon={IconPackage} tone="solid" shade="dark" title="Khu Đầu Ra" workers={byPoint.daura ?? 0} sl={{ kh: targetSoFar > 0 ? targetSoFar : null, th: outputQty }} pph={areaPph('daura')} tv={tv} blink={missing?.output} />
     </div>
   );
 }
@@ -2356,7 +2450,39 @@ type TrackSeries = {
   values: (number | null)[];
   // Đạt / chưa đạt từng giờ, hiện bằng ký hiệu kèm màu ở hàng số.
   status?: (boolean | null)[];
+  // 'bar' = vẽ cột (các khu đứng cạnh nhau trong cùng 1 giờ); mặc định là đường nối.
+  kind?: 'bar' | 'line';
+  // false = chỉ hiện hàng số dưới trục giờ, KHÔNG vẽ đường/chấm (VD hàng TT/ĐV/ĐR theo %).
+  plot?: boolean;
+  // Hàng số là % so với kế hoạch: tô màu theo ngưỡng (pctToneClass) thay cho màu đạt/chưa đạt.
+  pctTone?: boolean;
+  // false = không đưa vào chú thích (legend) phía trên biểu đồ.
+  legend?: boolean;
+  // Cột: hiện số nhỏ ngay trong đỉnh cột.
+  barLabels?: boolean;
+  // Số trong cột dùng chữ trắng (cho cột nền đậm).
+  labelWhite?: boolean;
+  // Hàng số dưới trục giờ: cỡ chữ lớn (trên màn TV).
+  big?: boolean;
+  // Vẽ thêm đường xu hướng tuyến tính (đứt nét, cùng màu) cho chuỗi này.
+  trend?: boolean;
+  // Có hiện hàng số dưới trục giờ cho chuỗi này không (mặc định có).
+  showValues?: boolean;
 };
+
+// Đường xu hướng tuyến tính (bình phương tối thiểu) qua các giờ có số; trả về đoạn đầu–cuối để vẽ.
+function trackTrendSegment(values: (number | null)[], x: (i: number) => number, yOf: (v: number) => number) {
+  const pts = values.flatMap((v, i) => (v == null ? [] : [{ i, v }]));
+  if (pts.length < 2) return null;
+  const mi = pts.reduce((s, p) => s + p.i, 0) / pts.length;
+  const mv = pts.reduce((s, p) => s + p.v, 0) / pts.length;
+  const den = pts.reduce((s, p) => s + (p.i - mi) ** 2, 0);
+  const slope = den === 0 ? 0 : pts.reduce((s, p) => s + (p.i - mi) * (p.v - mv), 0) / den;
+  const fit = (i: number) => Math.max(0, mv + slope * (i - mi));
+  const a = pts[0].i;
+  const b = pts[pts.length - 1].i;
+  return { x1: x(a), y1: 100 - yOf(fit(a)), x2: x(b), y2: 100 - yOf(fit(b)) };
+}
 
 // Biểu đồ đường theo giờ, 1 trục. Giờ chưa có số thì bỏ trống, không vẽ về 0 để khỏi trông như sụt giảm.
 // Giá trị để ở hàng dưới trục giờ vì TV không rê chuột được; có chuột hoặc chạm thì hiện thêm tooltip.
@@ -2372,8 +2498,14 @@ function TrackLineChart({
   light,
   tv,
   tall,
+  yTicks,
+  yTickLabels,
 }: {
   tall?: boolean;
+  // Nhãn riêng cho từng mốc trục Y (VD hiện PPH 0,5 / 1 ở đúng vị trí mốc tương ứng); không truyền thì dùng format.
+  yTickLabels?: string[];
+  // Các mốc trục Y cố định (VD 0, 30, 50, 70); không truyền thì tự tính.
+  yTicks?: number[];
   title: string;
   yLabel?: string;
   series: TrackSeries[];
@@ -2386,15 +2518,27 @@ function TrackLineChart({
   tv?: boolean;
 }) {
   const [hover, setHover] = useState<number | null>(null);
-  const h = tall ? (tv ? 220 : 170) : tv ? 130 : 110;
+  const h = tall ? (tv ? 160 : 170) : tv ? 100 : 110;
   const divisions = 4;
-  const allValues = series.flatMap((s) => s.values).map((v) => v ?? 0);
-  const axisMax = niceAxisMax(Math.max(0, target ?? 0, ...allValues), divisions);
-  const ticks = Array.from({ length: divisions + 1 }, (_, i) => (axisMax / divisions) * i);
+  const allValues = series.filter((s) => s.plot !== false).flatMap((s) => s.values).map((v) => v ?? 0);
+  const axisMax = yTicks ? Math.max(...yTicks, ...allValues, target ?? 0, 1) : niceAxisMax(Math.max(0, target ?? 0, ...allValues), divisions);
+  const ticks = yTicks ?? Array.from({ length: divisions + 1 }, (_, i) => (axisMax / divisions) * i);
+  const tickLabel = (v: number) => {
+    const idx = ticks.indexOf(v);
+    return yTickLabels && idx >= 0 && yTickLabels[idx] != null ? yTickLabels[idx] : format(v);
+  };
   const x = (i: number) => ((i + 0.5) / slots.length) * 100;
+  // Tâm của chính cột (chuỗi bar) trong nhóm cột của giờ i — để chấm và đường xu hướng dính đúng vào cột.
+  const barCenterX = (s: TrackSeries, i: number) => {
+    const bars = series.filter((b) => b.kind === 'bar');
+    const k = bars.indexOf(s);
+    const groupW = (100 / slots.length) * 0.72;
+    const barW = groupW / Math.max(bars.length, 1);
+    return x(i) - groupW / 2 + k * barW + barW / 2;
+  };
   const y = (v: number) => Math.min(1, v / axisMax) * 100;
   const axisW = tv ? 52 : 34;
-  const tickCls = `${tv ? 'text-sm' : 'text-[9px]'} font-semibold ${light ? 'text-gray-500' : 'text-slate-500'}`;
+  const tickCls = `${tv ? 'text-4xl' : 'text-[9px]'} font-semibold ${light ? 'text-gray-500' : 'text-slate-500'}`;
   const segments = (values: (number | null)[]) =>
     values.slice(1).flatMap((v, idx) => {
       const prev = values[idx];
@@ -2403,13 +2547,13 @@ function TrackLineChart({
   return (
     <div className={`min-w-0 overflow-hidden rounded-2xl border p-3 ${light ? 'border-gray-200 bg-white' : 'border-cyan-500/15 bg-[#0a1a2f]/60'}`}>
       <div className="mb-1 flex flex-wrap items-center justify-between gap-x-4">
-        <h3 className={`flex items-center gap-2 font-black uppercase ${tv ? 'text-lg' : 'text-xs'} ${light ? 'text-tbs-dark' : 'text-cyan-100'}`}>
-          <IconChartBar size={tv ? 24 : 14} style={{ color: series[series.length - 1]?.color }} aria-hidden />
+        <h3 className={`flex items-center gap-2 font-black uppercase ${tv ? 'text-2xl' : 'text-xs'} ${light ? 'text-tbs-dark' : 'text-cyan-100'}`}>
+          <IconChartBar size={tv ? 32 : 14} style={{ color: series[series.length - 1]?.color }} aria-hidden />
           {title}
         </h3>
-        <div className={`flex flex-wrap items-center gap-x-4 font-bold ${tv ? 'text-sm' : 'text-[10px]'} ${light ? 'text-gray-700' : 'text-slate-300'}`}>
+        <div className={`flex flex-wrap items-center gap-x-4 font-bold ${tv ? 'text-lg' : 'text-[10px]'} ${light ? 'text-gray-700' : 'text-slate-300'}`}>
           {yLabel && <span className={light ? 'text-gray-500' : 'text-slate-400'}>{yLabel}</span>}
-          {series.map((s) => (
+          {series.filter((s) => s.legend !== false).map((s) => (
             <span key={s.label} className="flex items-center gap-1.5">
               <span className={`h-2.5 w-2.5 ${s.marker === 'circle' ? 'rounded-full' : 'rounded-[2px]'}`} style={{ backgroundColor: s.color }} /> {s.label}
             </span>
@@ -2424,7 +2568,7 @@ function TrackLineChart({
       <div className="flex items-stretch gap-1.5">
         <div className="flex shrink-0 flex-col justify-between text-right" style={{ height: h, width: axisW }}>
           {ticks.slice().reverse().map((v) => (
-            <span key={v} className={`${tickCls} leading-none`}>{format(v)}</span>
+            <span key={v} className={`${tickCls} leading-none`}>{tickLabel(v)}</span>
           ))}
         </div>
         <div className="relative min-w-0 flex-1" style={{ height: h }}>
@@ -2435,14 +2579,51 @@ function TrackLineChart({
             <div className={`absolute left-0 right-0 border-t-2 border-dashed ${light ? 'border-slate-400' : 'border-slate-300'}`} style={{ bottom: `${y(target)}%` }} />
           )}
           <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
+            {/* Cột: các chuỗi kind='bar' đứng cạnh nhau trong cùng 1 khung giờ. */}
+            {series.map((s) => {
+              if (s.kind !== 'bar') return null;
+              const bars = series.filter((b) => b.kind === 'bar');
+              const k = bars.indexOf(s);
+              const slotW = 100 / slots.length;
+              const groupW = slotW * 0.72;
+              const barW = groupW / bars.length;
+              return s.values.map((v, i) =>
+                v == null ? null : (
+                  <rect key={`bar-${s.label}-${i}`} x={x(i) - groupW / 2 + k * barW} y={100 - y(v)} width={barW} height={y(v)} fill={s.color} />
+                ),
+              );
+            })}
             {series.map((s) =>
-              segments(s.values).map((seg, i) => (
-                <line key={`${s.label}-${i}`} x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} stroke={s.color} strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-              )),
+              s.kind === 'bar' || s.plot === false
+                ? null
+                : segments(s.values).map((seg, i) => (
+                  <line key={`${s.label}-${i}`} x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} stroke={s.color} strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                )),
             )}
+            {/* Đường liền nối các chấm trên đỉnh cột (chuỗi có trend), đi qua tâm từng cột. */}
+            {series.map((s) => {
+              if (!s.trend) return null;
+              const cx = (i: number) => (s.kind === 'bar' ? barCenterX(s, i) : x(i));
+              return s.values.slice(1).map((v, idx) => {
+                const prev = s.values[idx];
+                if (v == null || prev == null) return null;
+                return (
+                  <line
+                    key={`trend-${s.label}-${idx}`}
+                    x1={cx(idx)}
+                    y1={100 - y(prev)}
+                    x2={cx(idx + 1)}
+                    y2={100 - y(v)}
+                    stroke={s.color}
+                    strokeWidth={2}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                );
+              });
+            })}
           </svg>
           {series.map((s) =>
-            s.values.map((v, i) =>
+            s.kind === 'bar' || s.plot === false ? null : s.values.map((v, i) =>
               v == null ? null : (
                 <span
                   key={`${s.label}-${i}`}
@@ -2453,6 +2634,40 @@ function TrackLineChart({
               ),
             ),
           )}
+          {/* Chấm tại đỉnh từng cột của chuỗi có trend (Đầu ra), nối bằng đường xu hướng. */}
+          {series.map((s) =>
+            s.kind === 'bar' && s.trend
+              ? s.values.map((v, i) =>
+                v == null ? null : (
+                  <span
+                    key={`dot-${s.label}-${i}`}
+                    className={`pointer-events-none absolute h-2.5 w-2.5 -translate-x-1/2 translate-y-1/2 rounded-full border-2 ${light ? 'border-white' : 'border-[#0a1a2f]'}`}
+                    style={{ left: `${barCenterX(s, i)}%`, bottom: `${y(v)}%`, backgroundColor: s.color }}
+                  />
+                ),
+              )
+              : null,
+          )}
+          {/* Số nhỏ ngay trên đỉnh từng cột (chuỗi có barLabels). */}
+          {series.map((s) => {
+            if (s.kind !== 'bar' || !s.barLabels) return null;
+            const bars = series.filter((b) => b.kind === 'bar');
+            const k = bars.indexOf(s);
+            const slotW = 100 / slots.length;
+            const groupW = slotW * 0.72;
+            const barW = groupW / bars.length;
+            return s.values.map((v, i) =>
+              v == null ? null : (
+                <span
+                  key={`barlbl-${s.label}-${i}`}
+                  className={`pointer-events-none absolute whitespace-nowrap font-black tabular-nums ${tv ? 'text-4xl' : 'text-[9px]'} ${s.labelWhite ? 'text-white' : 'text-slate-900'}`}
+                  style={{ left: `${x(i) - groupW / 2 + k * barW + barW * 0.46}%`, bottom: `calc(${y(v)}% - ${tv ? 50 : 14}px)`, transform: 'translate(-50%, 0)' }}
+                >
+                  {format(v)}
+                </span>
+              ),
+            );
+          })}
           <div className="absolute inset-0 flex" onMouseLeave={() => setHover(null)}>
             {slots.map((slot, i) => (
               <button
@@ -2472,7 +2687,7 @@ function TrackLineChart({
               <div className="pointer-events-none absolute bottom-0 top-0 w-px bg-slate-400" style={{ left: `${x(hover)}%` }} />
               <div
                 data-track-tooltip
-                className={`pointer-events-none absolute top-0 z-20 whitespace-nowrap rounded-lg bg-tbs-dark px-3 py-1.5 text-white shadow-lg ${tv ? 'text-sm' : 'text-[10px]'}`}
+                className={`pointer-events-none absolute top-0 z-20 whitespace-nowrap rounded-lg bg-tbs-dark px-3 py-1.5 text-white shadow-lg ${tv ? 'text-lg' : 'text-[10px]'}`}
                 style={x(hover) > 60 ? { right: `calc(${100 - x(hover)}% + 8px)` } : { left: `calc(${x(hover)}% + 8px)` }}
               >
                 <div className="font-black">{slots[hover]}</div>
@@ -2488,27 +2703,27 @@ function TrackLineChart({
       </div>
       <div className="mt-0.5 flex gap-1.5">
         <div className={`shrink-0 text-right ${tickCls}`} style={{ width: axisW }}>Giờ</div>
-        <div className="flex min-w-0 flex-1">
+        <div className="flex min-w-0 flex-1 gap-2">
           {slots.map((s) => (
-            <span key={s} className={`min-w-0 flex-1 text-center ${tickCls}`}>{s}</span>
+            <span key={s} className={`min-w-0 flex-1 px-1 text-center ${tv ? `text-4xl font-bold ${light ? 'text-gray-500' : 'text-slate-500'}` : tickCls}`}>{s}</span>
           ))}
         </div>
       </div>
-      {series.map((s) => (
+      {series.filter((s) => s.showValues !== false).map((s) => (
         <div key={s.label} className="flex gap-1.5">
-          <div className={`shrink-0 text-right font-black ${tv ? 'text-sm' : 'text-[9px]'} ${light ? 'text-gray-500' : 'text-slate-400'}`} style={{ width: axisW }}>
+          <div className={`shrink-0 text-right font-black ${tv ? 'text-4xl' : 'text-[9px]'} ${light ? 'text-gray-500' : 'text-slate-400'}`} style={{ width: axisW }}>
             {s.rowLabel}
           </div>
-          <div className="flex min-w-0 flex-1">
+          <div className="flex min-w-0 flex-1 gap-2">
             {s.values.map((v, i) => {
               const met = s.status?.[i];
               return (
                 <span
                   key={i}
                   data-track-status={met === false ? 'chua-dat' : met ? 'dat' : undefined}
-                  className={`min-w-0 flex-1 text-center font-black tabular-nums ${tv ? 'text-lg' : 'text-[11px]'} ${met === false ? 'text-rose-600' : met ? 'text-emerald-700' : light ? 'text-tbs-dark' : 'text-slate-100'}`}
+                  className={`min-w-0 flex-1 px-1 text-center font-black tabular-nums ${tv ? (s.pctTone || s.big ? 'text-7xl' : 'text-4xl') : 'text-[11px]'} ${s.pctTone && v != null ? pctToneClass(Math.round(v)) : met === false ? 'text-rose-600' : met ? 'text-emerald-700' : light ? 'text-tbs-dark' : 'text-slate-100'}`}
                 >
-                  {v == null ? '–' : `${met === false ? '▼ ' : met ? '▲ ' : ''}${format(v)}`}
+                  {v == null ? '–' : format(v)}
                 </span>
               );
             })}
@@ -2527,20 +2742,21 @@ function TrackTopDefectsPanel({ items, light, tv }: { items: TrackTopDefect[]; l
     return <div className={`py-6 text-center text-xs ${light ? 'text-gray-400' : 'text-slate-500'}`}>Chưa có lỗi QC nào hôm nay.</div>;
   }
   const max = Math.max(1, ...items.map((d) => d.qty));
+  // Chia 2 cột: 1–2 hàng đầu, 3–4 hàng kế, 5 ở cột trái hàng cuối.
   return (
-    <div className="space-y-1.5">
+    <div className="grid grid-cols-2 gap-1.5">
       {items.map((d, i) => (
         <div
           key={d.defectType}
           className={`flex items-center gap-2.5 rounded-lg border px-2.5 py-1.5 ${light ? 'border-gray-100 bg-gray-50' : 'border-cyan-500/15 bg-white/5'}`}
         >
           <span
-            className={`flex shrink-0 items-center justify-center rounded-full font-black ${tv ? 'h-7 w-7 text-sm' : 'h-5 w-5 text-[10px]'}`}
+            className={`flex shrink-0 items-center justify-center rounded-full font-black ${tv ? 'h-9 w-9 text-lg' : 'h-5 w-5 text-[10px]'}`}
             style={{ backgroundColor: LOI_COLORS[i % LOI_COLORS.length], color: '#0a1a2f' }}
           >
             {i + 1}
           </span>
-          <span className={`w-1/5 min-w-0 truncate font-bold ${tv ? 'text-lg' : 'text-xs'} ${light ? 'text-gray-700' : 'text-slate-200'}`}>
+          <span className={`w-1/5 min-w-0 truncate font-bold ${tv ? 'text-2xl' : 'text-xs'} ${light ? 'text-gray-700' : 'text-slate-200'}`}>
             {d.defectType}
           </span>
           {/* Thanh mini — bề ngang CỐ ĐỊNH (không phóng theo max như bản cũ), chỉ để so sánh nhanh
@@ -2549,7 +2765,7 @@ function TrackTopDefectsPanel({ items, light, tv }: { items: TrackTopDefect[]; l
             <div className="h-full rounded-full" style={{ width: `${(d.qty / max) * 100}%`, backgroundColor: LOI_COLORS[i % LOI_COLORS.length] }} />
           </div>
           <span className="flex-1" />
-          <span className={`shrink-0 text-right font-black tabular-nums ${tv ? 'w-12 text-2xl' : 'w-8 text-base'} ${light ? 'text-tbs-dark' : 'text-white'}`}>
+          <span className={`shrink-0 text-right font-black tabular-nums ${tv ? 'w-16 text-3xl' : 'w-8 text-base'} ${light ? 'text-tbs-dark' : 'text-white'}`}>
             {fmtInt(d.qty)}
           </span>
         </div>
@@ -2571,7 +2787,7 @@ export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: 
         .then((res) => {
           if (!cancelled && res?.success && res.data) setData(res.data);
         })
-        .catch(() => {});
+        .catch(() => { });
     }
     load(true);
     // Yêu cầu: TV làm mới 30 phút một lần; tải lại trang thì thấy số mới ngay.
@@ -2585,25 +2801,41 @@ export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: 
   const hourly = data?.hourly || [];
   const slots = hourly.map((d) => d.slot);
   const target = data?.shift?.perHourTarget ?? 0;
-  const fmtPph = (v: number) => Number(v.toFixed(2)).toLocaleString('vi-VN');
   const notEntered = 'Chưa nhập';
+  // PPH theo giờ của từng khu = sản lượng khu ÷ lao động khu; KH = mục tiêu/giờ ÷ lao động khu.
+  const perHourTarget = data?.shift?.perHourTarget ?? 0;
+  const areaQtys = (k: TrackAreaKey) => (data?.hourlyByArea?.[k] ?? (k === 'daura' ? hourly : [])).map((h) => h.qty);
+  // PPH theo TỔNG lao động 3 khu: KH = mục tiêu/giờ ÷ tổng lao động; TH = sản lượng đầu ra giờ ÷ tổng lao động.
+  const totalWorkers = data?.shift?.workerCount ?? 0;
+  const lineKh = perHourTarget > 0 && totalWorkers > 0 ? perHourTarget / totalWorkers : null;
+  const lineTh = hourly.map((h) => (h.qty == null || totalWorkers <= 0 ? null : h.qty / totalWorkers));
+  // % so với kế hoạch của từng khu theo giờ = sản lượng khu ÷ mục tiêu/giờ.
+  const rowPct = (k: TrackAreaKey) => areaQtys(k).map((q) => (q == null || perHourTarget <= 0 ? null : (q / perHourTarget) * 100));
+  const pctAt = (k: TrackAreaKey, i: number) => {
+    const p = rowPct(k)[i];
+    return p == null ? notEntered : `${Math.round(p)}%`;
+  };
+  const pphAxisTicks = [0, 0.5, 1, 1.5];
 
   return (
     <div className="space-y-2">
-      <TrackStatTiles supply={data?.supply} outputQty={data?.quality?.outputQty ?? 0} shift={data?.shift} tv={tv} missing={data?.missing} />
+      <TrackStatTiles supply={data?.supply} outputQty={data?.quality?.outputQty ?? 0} shift={data?.shift} hourly={hourly} areaHourly={data?.hourlyByArea} tv={tv} missing={data?.missing} />
+      {/* Sản lượng theo giờ: 3 cột TT / ĐV / ĐR cạnh nhau; đường xu hướng + chấm đỉnh chỉ cho Đầu ra; không hiện số dưới trục giờ. */}
       <TrackLineChart
-        title="Sản lượng theo giờ Đầu ra (đôi)"
-        series={[
-          { label: 'Theo giờ', rowLabel: 'SL', color: '#7c3aed', marker: 'square', values: hourly.map((d) => d.qty) },
-        ]}
+        title="Sản lượng theo giờ theo khu (đôi)"
+        series={TRACK_SL_AREAS.map((a) => {
+          const rowsA = data?.hourlyByArea?.[a.key] ?? (a.key === 'daura' ? hourly : []);
+          return { label: a.label, rowLabel: a.rowLabel, color: a.color, marker: 'square' as const, kind: 'bar' as const, trend: a.key === 'daura', barLabels: true, labelWhite: true, showValues: a.key === 'daura', big: a.key === 'daura', values: slots.map((_, i) => rowsA[i]?.qty ?? null) };
+        })}
+        yTicks={[0, 30, 50, 70]}
         targetLabel={target > 0 ? `Mục tiêu ${fmtInt(target)}/giờ` : undefined}
         tall
         target={target}
         slots={slots}
         format={fmtInt}
         tooltip={(i) => [
-          { name: 'Đầu ra đạt chất lượng', value: hourly[i].qty == null ? notEntered : `${fmtInt(hourly[i].qty as number)} đôi` },
-          { name: 'Sản lượng lũy kế', value: hourly[i].cumulativeQty == null ? notEntered : `${fmtInt(hourly[i].cumulativeQty as number)} đôi` },
+          { name: 'Đầu ra trong giờ', value: hourly[i]?.qty == null ? notEntered : `${fmtInt(hourly[i].qty as number)} đôi` },
+          { name: 'Sản lượng lũy kế', value: hourly[i]?.cumulativeQty == null ? notEntered : `${fmtInt(hourly[i].cumulativeQty as number)} đôi` },
           ...(target > 0 ? [{ name: 'Mục tiêu', value: `${fmtInt(target)} đôi/giờ` }] : []),
         ]}
         light={light}
@@ -2611,28 +2843,33 @@ export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: 
       />
       <TrackLineChart
         title="Hiệu suất PPH theo giờ – Kế hoạch vs Thực hiện"
-        yLabel="PPH (đôi/giờ công)"
+        tall
+        // 2 đường (KH tổng 3 khu và SLTH đầu ra ÷ tổng lao động, mỗi đường có xu hướng). Hàng số dưới trục giờ là
+        // TT / ĐV / ĐR theo % so với kế hoạch; các chuỗi này chỉ hiện số, không vẽ đường.
         series={[
-          { label: 'PPH kế hoạch (PLAN)', rowLabel: 'KH', color: '#d97706', marker: 'square', values: hourly.map((d) => d.planPph) },
-          { label: 'PPH thực hiện (ACTUAL)', rowLabel: 'TH', color: '#2563eb', marker: 'circle', values: hourly.map((d) => d.actualPph), status: hourly.map((d) => d.met) },
+          { label: 'PPH kế hoạch (PLAN)', rowLabel: 'KH', color: '#d97706', marker: 'square', values: slots.map(() => lineKh), showValues: false },
+          { label: 'PPH thực hiện (ACTUAL)', rowLabel: 'TH', color: '#2563eb', marker: 'circle', values: lineTh, status: lineTh.map((v) => (v == null || lineKh == null ? null : v >= lineKh)), showValues: false },
+          { label: 'Tập trung', rowLabel: 'TT', color: '#059669', marker: 'circle', values: rowPct('khutaptrung'), plot: false, pctTone: true, legend: false },
+          { label: 'Đầu vào', rowLabel: 'ĐV', color: '#2563eb', marker: 'circle', values: rowPct('dauvao'), plot: false, pctTone: true, legend: false },
+          { label: 'Đầu ra', rowLabel: 'ĐR', color: '#7c3aed', marker: 'circle', values: rowPct('daura'), plot: false, big: true, pctTone: true, legend: false, status: rowPct('daura').map((v) => (v == null ? null : v >= 100)) },
         ]}
         slots={slots}
-        format={fmtPph}
-        tooltip={(i) => {
-          const hour = hourly[i];
-          return [
-            { name: 'PPH kế hoạch', value: hour.planPph == null ? 'Chưa nhập' : fmtPph(hour.planPph) },
-            { name: 'PPH thực hiện', value: hour.actualPph == null ? notEntered : fmtPph(hour.actualPph) },
-            ...(hour.laborHours != null ? [{ name: 'Tổng giờ công', value: fmtPph(hour.laborHours) }] : []),
-            ...(hour.met != null ? [{ name: 'Kết quả', value: hour.met ? '▲ Đạt' : '▼ Chưa đạt' }] : []),
-          ];
-        }}
+        yTicks={pphAxisTicks}
+        yTickLabels={pphAxisTicks.map((p) => fmtPph(p))}
+        format={(v) => `${Math.round(v)}%`}
+        tooltip={(i) => [
+          { name: 'PPH đầu ra (tổng 3 khu)', value: lineTh[i] == null ? notEntered : fmtPph(lineTh[i] as number) },
+          { name: 'PPH KH (tổng 3 khu)', value: lineKh == null ? 'Chưa nhập' : fmtPph(lineKh) },
+          { name: 'Tập trung — % KH', value: pctAt('khutaptrung', i) },
+          { name: 'Đầu vào — % KH', value: pctAt('dauvao', i) },
+          { name: 'Đầu ra — % KH', value: pctAt('daura', i) },
+        ]}
         light={light}
         tv={tv}
       />
       <div className={`rounded-2xl border p-3 ${light ? 'border-gray-200 bg-white' : 'border-cyan-500/15 bg-[#0a1a2f]/60'}`}>
-        <h3 className={`mb-2 flex items-center gap-2 font-black uppercase ${tv ? 'text-lg' : 'text-xs'} ${light ? 'text-tbs-dark' : 'text-cyan-100'}`}>
-          <IconUsersGroup size={tv ? 28 : 14} className="text-emerald-600" aria-hidden />
+        <h3 className={`mb-2 flex items-center gap-2 font-black uppercase ${tv ? 'text-2xl' : 'text-xs'} ${light ? 'text-tbs-dark' : 'text-cyan-100'}`}>
+          <IconUsersGroup size={tv ? 32 : 14} className="text-emerald-600" aria-hidden />
           Top 5 lỗi hôm nay
         </h3>
         <TrackTopDefectsPanel items={data?.topDefects || []} light={light} tv={tv} />
@@ -3012,18 +3249,16 @@ function RefStat({
   return (
     <div className="flex min-w-0 flex-col items-center gap-1">
       <div
-        className={`w-full truncate text-center font-bold uppercase tracking-wide ${
-          light ? (tv ? 'text-base text-gray-700' : 'text-xs text-gray-600') : 'text-[8px] text-slate-400'
-        }`}
+        className={`w-full truncate text-center font-bold uppercase tracking-wide ${light ? (tv ? 'text-base text-gray-700' : 'text-xs text-gray-600') : 'text-[8px] text-slate-400'
+          }`}
       >
         {label}
       </div>
       <div
         ref={noShrink ? undefined : ref}
         style={noShrink ? undefined : style}
-        className={`w-full truncate text-center font-black ${light ? 'rounded-none' : 'rounded-lg'} ${
-          small ? (light ? 'py-1 text-base' : 'py-0.5 text-xs') : light ? (tv ? 'py-2 text-5xl' : 'py-2 text-3xl') : 'py-1 text-sm'
-        } ${valueCls}`}
+        className={`w-full truncate text-center font-black ${light ? 'rounded-none' : 'rounded-lg'} ${small ? (light ? 'py-1 text-base' : 'py-0.5 text-xs') : light ? (tv ? 'py-2 text-5xl' : 'py-2 text-3xl') : 'py-1 text-sm'
+          } ${valueCls}`}
       >
         {content}
       </div>
@@ -3077,9 +3312,8 @@ function MiniStat({
   return (
     <div className="flex min-w-0 flex-col items-center gap-0.5">
       <div
-        className={`w-full truncate text-center font-bold uppercase tracking-wide ${
-          light ? (tv ? 'text-sm text-gray-600' : 'text-[9px] text-gray-500') : 'text-[8px] text-slate-400'
-        }`}
+        className={`w-full truncate text-center font-bold uppercase tracking-wide ${light ? (tv ? 'text-sm text-gray-600' : 'text-[9px] text-gray-500') : 'text-[8px] text-slate-400'
+          }`}
       >
         {label}
       </div>
@@ -3127,8 +3361,8 @@ function TeamPanel({
   // SAU khi đã nhập khung mới hơn, vẫn ra đúng người nhập gần đây nhất theo THỜI GIAN THẬT.
   const lastSubmitter = isOverdue
     ? leaf.slots
-        .filter((s) => s.filled && s.submittedBy && s.submittedAt)
-        .sort((a, b) => (b.submittedAt || '').localeCompare(a.submittedAt || ''))[0]?.submittedBy || null
+      .filter((s) => s.filled && s.submittedBy && s.submittedAt)
+      .sort((a, b) => (b.submittedAt || '').localeCompare(a.submittedAt || ''))[0]?.submittedBy || null
     : null;
   const r = rollup([leaf]);
   const workerCount = leaf.setup?.workerCount ?? null;
@@ -3189,56 +3423,56 @@ function TeamPanel({
               đỏ-trắng ở khung ngoài (animate-blink-red-alert) — nền trắng hiện đủ thông tin như
               thường, nền đỏ CHỈ còn tên người nhập gần nhất (nếu có) + dòng nhắc + ảnh, không cần
               JS đo/đồng bộ thời gian riêng. */
-          isOverdue ? (
-            <div className="grid">
-              <div className="col-start-1 row-start-1 animate-blink-content-normal">
-                <TeamPanelBody
-                  leaf={leaf}
-                  r={r}
-                  model={model}
-                  plannedQtyDay={plannedQtyDay}
-                  workerCount={workerCount}
-                  productionHours={productionHours}
-                  displayTargetPph={displayTargetPph}
-                  actualPphPerWorker={actualPphPerWorker}
-                  tv={tv}
-                />
-              </div>
-              {/* Chia đúng 2 nửa theo chiều cao ô (grid đã stretch ô này bằng đúng chiều cao
+            isOverdue ? (
+              <div className="grid">
+                <div className="col-start-1 row-start-1 animate-blink-content-normal">
+                  <TeamPanelBody
+                    leaf={leaf}
+                    r={r}
+                    model={model}
+                    plannedQtyDay={plannedQtyDay}
+                    workerCount={workerCount}
+                    productionHours={productionHours}
+                    displayTargetPph={displayTargetPph}
+                    actualPphPerWorker={actualPphPerWorker}
+                    tv={tv}
+                  />
+                </div>
+                {/* Chia đúng 2 nửa theo chiều cao ô (grid đã stretch ô này bằng đúng chiều cao
                   TeamPanelBody bên cạnh) — nửa trên tên người nhập + khẩu hiệu, nửa dưới ảnh to
                   hết cỡ (object-cover tự cắt cho vừa khung, không méo ảnh). */}
-              <div className="col-start-1 row-start-1 flex animate-blink-content-warning flex-col">
-                <div className="flex flex-none flex-col items-center justify-center gap-1 py-1.5">
-                  {lastSubmitter && <span className={`truncate font-black text-rose-800 ${tv ? 'text-2xl' : 'text-base'}`}>{lastSubmitter}</span>}
-                  <span className={`text-center font-black uppercase leading-tight text-rose-700 ${tv ? 'text-3xl' : 'text-xl'}`}>Nhập Sản Lượng Đi!!!!</span>
-                </div>
-                <div className="flex-1 overflow-hidden bg-white">
-                  {/* object-contain (không phải cover) — HIỆN TRỌN VẸN ảnh, tự thu nhỏ cho vừa khung
+                <div className="col-start-1 row-start-1 flex animate-blink-content-warning flex-col">
+                  <div className="flex flex-none flex-col items-center justify-center gap-1 py-1.5">
+                    {lastSubmitter && <span className={`truncate font-black text-rose-800 ${tv ? 'text-2xl' : 'text-base'}`}>{lastSubmitter}</span>}
+                    <span className={`text-center font-black uppercase leading-tight text-rose-700 ${tv ? 'text-3xl' : 'text-xl'}`}>Nhập Sản Lượng Đi!!!!</span>
+                  </div>
+                  <div className="flex-1 overflow-hidden bg-white">
+                    {/* object-contain (không phải cover) — HIỆN TRỌN VẸN ảnh, tự thu nhỏ cho vừa khung
                       thay vì phóng to hết cỡ rồi cắt bớt cạnh (trước đây cover cắt mất hàng icon
                       dưới cùng của ảnh) — nền trắng lấp khoảng dư 2 bên/trên dưới, khớp màu nền
                       trắng sẵn có của chính ảnh, không lộ viền. */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src="https://res.cloudinary.com/dwl2xtbqa/image/upload/v1789779633/thkiengiangshoes/pph_overdue_slogan_pic.jpg"
-                    alt=""
-                    className="h-full w-full object-contain"
-                  />
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="https://res.cloudinary.com/dwl2xtbqa/image/upload/v1789779633/thkiengiangshoes/pph_overdue_slogan_pic.jpg"
+                      alt=""
+                      className="h-full w-full object-contain"
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : (
-            <TeamPanelBody
-              leaf={leaf}
-              r={r}
-              model={model}
-              plannedQtyDay={plannedQtyDay}
-              workerCount={workerCount}
-              productionHours={productionHours}
-              displayTargetPph={displayTargetPph}
-              actualPphPerWorker={actualPphPerWorker}
-              tv={tv}
-            />
-          )}
+            ) : (
+              <TeamPanelBody
+                leaf={leaf}
+                r={r}
+                model={model}
+                plannedQtyDay={plannedQtyDay}
+                workerCount={workerCount}
+                productionHours={productionHours}
+                displayTargetPph={displayTargetPph}
+                actualPphPerWorker={actualPphPerWorker}
+                tv={tv}
+              />
+            )}
         </div>
       </div>
     );
