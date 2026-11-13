@@ -13,7 +13,7 @@ const CONFIG = {
   TEAM_IDS: ['pphorg_mv6fi3ay_mi0yvh', 'pphorg_mv6figu7_k5yfwd'],
   // Ngày đầu tiên ghi số lên Sheet, cũng là ngày bắt đầu ở ô D4 của tab SL & PPH.
   // Cột Ngày của SL & PPH tính từ ô D4: đổi sang ngày sau thì các ngày trước đó mất dòng trên bảng.
-  START_DATE: '2026-11-04',
+  START_DATE: '2026-11-01',
   // Từ ngày này lấy số từ Theo dõi chuyền. 3 link quét không kèm mã tổ nên đều nhập vào Tổ 1.
   TRACK_FROM: '2026-11-05',
   TRACK_TEAM_ID: 'pphorg_mv6fi3ay_mi0yvh',
@@ -447,16 +447,17 @@ function summarizeTrackDay_(date, centralBody, inputBody, outputBody) {
   const dayOutput = Number((outputBody.qcContext && outputBody.qcContext.dayOutput) || 0);
   const anyHour = outputBody.hourly.some((hour) => hour.qty != null);
   if (dayOutput > 0 && !anyHour) throw new Error(`API ngày ${date} có ${dayOutput} đôi nhưng không có số theo giờ.`);
-  // Giờ làm của đúng ngày đó: ca khai đầu ca (VD 11 giờ khi có tăng ca), không có thì 8 giờ chuẩn.
-  const shiftHours = Number((outputBody.setup && outputBody.setup.shiftHours) || 0) || CONFIG.SHIFT_HOURS;
   return {
     date,
     slotList: TRACK_SLOTS,
     // Số CN như ô Người lao động trên TV: cộng số người khai đầu ca của cả 3 trạm.
     workers: [centralBody, inputBody, outputBody].reduce((sum, body) => sum + Number((body.setup && body.setup.workerCount) || 0), 0),
-    hours: outputHours.length > 0 ? shiftHours : '',
-    // Thời gian sản xuất khai đầu ca (giờ) của ngày: lớn hơn 8 là ca tăng ca, quyết định hiện cột 18h–20h trên Báo cáo SL.
-    shiftHours: Math.max(...[centralBody, inputBody, outputBody].map((body) => Number((body.setup && body.setup.shiftHours) || 0))),
+    // Giờ làm = số khung đã nhập sản lượng (mỗi khung 1 giờ), nên có tăng ca thì tự tăng theo.
+    hours: outputHours.length > 0 ? outputHours.length : '',
+    // Số khung có sản lượng (dự phòng khi chưa có đầu ca).
+    shiftHours: outputHours.length,
+    // "Thời gian sản xuất" đã nhập ở đầu ca (trạm Đầu ra): quyết định cột 18h–20h và các dòng tăng ca, khớp TV.
+    setupHours: outputBody.setup && outputBody.setup.shiftHours != null ? Number(outputBody.setup.shiftHours) : null,
     qty,
     hasOutput: outputHours.length > 0,
     errorRate: qty > 0 ? defects / qty : '',
@@ -496,14 +497,15 @@ function summarizeDay_(data) {
       }
     });
   });
+  // Giờ làm = số khung đã nhập sản lượng (mỗi khung 1 giờ). Khung sau 16:30 (17:00-18:00 …) là tăng ca nên tự cộng thêm giờ.
   return {
     date: data.date,
     slotList: HOURLY.slots,
     hasOutput: slots.size > 0,
     topDefect: '',
     workers: teams.reduce((sum, team) => sum + ((team.setup && team.setup.workerCount) || 0), 0),
-    hours: slots.size > 0 ? CONFIG.SHIFT_HOURS : '',
-    shiftHours: Math.max(0, ...teams.map((team) => Number((team.setup && team.setup.productionHours) || 0))),
+    hours: slots.size > 0 ? slots.size : '',
+    shiftHours: slots.size,
     qty: [...slots.values()].reduce((sum, item) => sum + item.qty, 0),
     errorRate: qualifiedQty > 0 ? errors / qualifiedQty : '',
     defectTotal: '',
@@ -619,10 +621,15 @@ const REPORT_EXTRA_TITLES = ['18h00', '19h00', '20h00'];
 // Ngày có ca tăng ca (giờ sản xuất > giờ chuẩn), lấy từ form quét đầu ca của đúng ngày đó.
 function reportExtraDay_(date) {
   if (!date) return false;
-  const day = date >= CONFIG.TRACK_FROM
-    ? fetchTrackDays_([date])[0]
-    : summarizeDay_(fetchDays_([date])[0]);
-  return Number(day.shiftHours) > CONFIG.SHIFT_HOURS;
+  if (date < CONFIG.TRACK_FROM) return Number(summarizeDay_(fetchDays_([date])[0]).shiftHours) > CONFIG.SHIFT_HOURS;
+  const day = fetchTrackDays_([date])[0];
+  // Theo đầu ca đã nhập (giống TV); chưa có đầu ca thì theo số khung đã nhập.
+  return trackShiftHours_(day) > CONFIG.SHIFT_HOURS;
+}
+
+// Giờ sản xuất của ngày Theo dõi chuyền: ưu tiên đầu ca, không có thì đếm số khung đã nhập.
+function trackShiftHours_(day) {
+  return day.setupHours != null ? Number(day.setupHours) : Number(day.shiftHours);
 }
 
 function ensureReportHeaders_(report, reportDate) {
@@ -753,11 +760,13 @@ function writeHourly_(sheet, day, isNewDate) {
     sheet.getRange(HOURLY.firstRow, 11, rows, 2).clearContent();
   }
   // Dòng 9 = 07:00-07:30 (để trống, không cập nhật), dòng 10 = 07:30-08:30 … dòng 17 = 15:30-16:30, dòng 18-21 = tăng ca 17:30 … 20:30.
+  // Ca dài hơn 8 giờ (theo đầu ca): hiện nhãn đủ các khung tăng ca, kể cả khung chưa có số.
+  const showExtraRows = day.date >= CONFIG.TRACK_FROM && trackShiftHours_(day) > CONFIG.SHIFT_HOURS;
   for (let i = 0; i < rows; i++) {
     const row = HOURLY.firstRow + i;
     const slot = rowSlots[i];
     const item = slot ? day.slots.get(slot) : null;
-    sheet.getRange(row, 2).setValue(slot && (i < HOURLY.mainShiftSlots || item) ? slotLabel_(slot) : '');
+    sheet.getRange(row, 2).setValue(slot && (i < HOURLY.mainShiftSlots || item || showExtraRows) ? slotLabel_(slot) : '');
     sheet.getRange(row, 5).setValue(item && item.qty != null ? item.qty : '');
     // Ngày theo dõi chuyền: Đầu vào lấy từ trạm Đầu vào, khung chưa có thì để trống (xoá số cũ). Ngày PPH giữ ô nhập tay.
     if (day.date >= CONFIG.TRACK_FROM) sheet.getRange(row, 4).setValue(item && item.input != null ? item.input : '');
