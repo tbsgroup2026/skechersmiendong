@@ -1266,13 +1266,17 @@ async function pphBoardEnsureTable(env) {
   // "track_mode" — cờ cũ, TV KHÔNG còn đọc nữa: bảng "Theo dõi chuyền" giờ có link rút gọn riêng
   // (pph_tv_short_links.target_type = 'track', xem migration 0028). Cột giữ lại để khỏi đổi schema.
   await env.DB.prepare("ALTER TABLE pph_dashboard_lines ADD COLUMN track_mode INTEGER NOT NULL DEFAULT 0").run().catch(() => {});
-  // 1 điểm quét (leaf) thuộc TỐI ĐA 1 line — leaf_id là khoá chính.
+  // 1 điểm quét (leaf) có thể thuộc NHIỀU line (khoá = cặp leaf_id + line_id). Bảng cũ pph_line_members
+  // (leaf_id là khoá chính, mỗi tổ 1 line) được chép sang pph_line_members_v2 rồi xoá.
   await env.DB.prepare(`
-    CREATE TABLE IF NOT EXISTS pph_line_members (
-      leaf_id TEXT PRIMARY KEY,
-      line_id TEXT NOT NULL
+    CREATE TABLE IF NOT EXISTS pph_line_members_v2 (
+      leaf_id TEXT NOT NULL,
+      line_id TEXT NOT NULL,
+      PRIMARY KEY (leaf_id, line_id)
     )
   `).run().catch(() => {});
+  await env.DB.prepare("INSERT OR IGNORE INTO pph_line_members_v2 (leaf_id, line_id) SELECT leaf_id, line_id FROM pph_line_members").run().catch(() => {});
+  await env.DB.prepare("DROP TABLE IF EXISTS pph_line_members").run().catch(() => {});
   await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS pph_factory_config (
       factory_id TEXT PRIMARY KEY,
@@ -1459,7 +1463,7 @@ async function pphGetDashboardLines(env) {
     lineRows = r.results || [];
   } catch {}
   try {
-    const r = await env.DB.prepare("SELECT leaf_id, line_id FROM pph_line_members").all();
+    const r = await env.DB.prepare("SELECT leaf_id, line_id FROM pph_line_members_v2").all();
     memberRows = r.results || [];
   } catch {}
   const byLine = new Map();
@@ -2749,9 +2753,9 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
       const { results: existingRows } = await env.DB.prepare("SELECT id FROM pph_dashboard_lines").all();
       const existingIds = new Set((existingRows || []).map((r) => r.id));
       const keepIds = new Set();
-      const stmts = [env.DB.prepare("DELETE FROM pph_line_members")];
+      const stmts = [env.DB.prepare("DELETE FROM pph_line_members_v2")];
       let so = 0;
-      const seenLeaf = new Set();
+      const seenLeafInLine = new Set();
       for (const l of lines) {
         const reuseId = typeof l.id === "string" && existingIds.has(l.id) ? l.id : null;
         const lid = reuseId || pphNewId("pphline");
@@ -2764,9 +2768,10 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
         );
         for (const leafId of (Array.isArray(l.leafIds) ? l.leafIds : [])) {
           const lf = String(leafId || "").trim();
-          if (!lf || seenLeaf.has(lf)) continue; // 1 điểm quét chỉ vào 1 line
-          seenLeaf.add(lf);
-          stmts.push(env.DB.prepare("INSERT INTO pph_line_members (leaf_id, line_id) VALUES (?, ?)").bind(lf, lid));
+          // 1 điểm quét có thể vào nhiều line, nhưng không lặp trong cùng 1 line.
+          if (!lf || seenLeafInLine.has(`${lid}|${lf}`)) continue;
+          seenLeafInLine.add(`${lid}|${lf}`);
+          stmts.push(env.DB.prepare("INSERT INTO pph_line_members_v2 (leaf_id, line_id) VALUES (?, ?)").bind(lf, lid));
         }
       }
       for (const oldId of existingIds) {

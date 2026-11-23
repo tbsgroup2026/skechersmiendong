@@ -165,13 +165,11 @@ export default function PphDashboardLinesView({ onBack }: { onBack: () => void }
       return out;
     });
   }
+  // Một tổ có thể thuộc nhiều Line: thêm vào Line này không gỡ khỏi Line khác.
   function assignLeaf(leafId: string, lineKey: string) {
     touch();
     setLines((prev) =>
-      prev.map((l) => {
-        if (l.key === lineKey) return { ...l, leafIds: [...l.leafIds, leafId] };
-        return { ...l, leafIds: l.leafIds.filter((id) => id !== leafId) };
-      }),
+      prev.map((l) => (l.key === lineKey && !l.leafIds.includes(leafId) ? { ...l, leafIds: [...l.leafIds, leafId] } : l)),
     );
   }
   function removeLeaf(leafId: string, lineKey: string) {
@@ -305,6 +303,24 @@ export default function PphDashboardLinesView({ onBack }: { onBack: () => void }
                             ))
                           )}
                         </div>
+                        {g.leaves.some((lf) => !ln.leafIds.includes(lf.id)) && (
+                          <div className="mt-1.5">
+                            <select
+                              value=""
+                              onChange={(e) => e.target.value && assignLeaf(e.target.value, ln.key)}
+                              className="rounded-lg border border-dashed border-slate-300 bg-white px-2 py-1 text-[11px] font-bold text-[#006838] outline-none cursor-pointer"
+                            >
+                              <option value="">+ Thêm tổ vào {ln.name || 'Line'}</option>
+                              {g.leaves
+                                .filter((lf) => !ln.leafIds.includes(lf.id))
+                                .map((lf) => (
+                                  <option key={lf.id} value={lf.id}>
+                                    {lf.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+                        )}
                       </div>
                     ))}
 
