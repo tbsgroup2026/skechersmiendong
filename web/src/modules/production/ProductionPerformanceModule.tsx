@@ -2364,13 +2364,6 @@ function TrackAreaCard({
   const rowLabel = `font-black uppercase ${tv ? 'text-2xl' : 'text-sm'} ${bodyLabel}`;
   return (
     <div className={`relative flex min-w-0 flex-col overflow-hidden rounded-2xl ${blink ? 'border-2 animate-blink-red-alert ring-4 ring-rose-500' : 'border-2 bg-[#f0faf5]'}`} style={blink ? undefined : { borderColor: S.bg }}>
-      {blink && (
-        <span
-          className={`absolute bottom-2 right-3 z-10 whitespace-nowrap rounded-full bg-rose-600 font-black text-white shadow-lg animate-pulse ${tv ? 'px-5 py-1.5 text-xl' : 'px-2 py-0.5 text-xs'}`}
-        >
-          ⚠ CHƯA NHẬP SỐ — NHẬP NGAY
-        </span>
-      )}
       {/* Hàng tiêu đề: tên khu + ô Lao động (viền trái đậm, giống bản vẽ). */}
       <div className={`flex items-stretch border-b-2 border-current/30 ${S.text}`} style={{ backgroundColor: S.bg }}>
         <div className="flex min-w-0 flex-1 items-center justify-center gap-3 px-4 py-2">
@@ -2382,6 +2375,17 @@ function TrackAreaCard({
           <span className={`font-black tabular-nums leading-none ${tv ? 'text-6xl' : 'text-3xl'} text-blue-600`}>{fmtInt(workers)}</span>
         </div>
       </div>
+      {/* Dải cảnh báo chưa nhập số: nằm NGAY dưới tiêu đề khu, toàn chiều rộng, nền đỏ đặc + chữ trắng
+          + nhấp nháy để không bị bỏ qua (trước đây là nhãn nhỏ góc dưới, đè lên ô PPH). */}
+      {blink && (
+        <div
+          role="alert"
+          className={`flex w-full animate-pulse items-center justify-center gap-2 bg-rose-600 px-3 font-black uppercase tracking-wide text-white shadow-inner ${tv ? 'py-3 text-3xl' : 'py-2 text-sm'}`}
+        >
+          <span aria-hidden>⚠</span>
+          <span>Chưa nhập số — nhập ngay</span>
+        </div>
+      )}
       {/* Bảng KH / TH / %: cột 1 là nhãn hàng, hàng SL và PPH ngăn cách bằng nét chấm. */}
       <div className="grid grid-cols-[auto_1fr_1fr_1fr] items-center">
         <div />

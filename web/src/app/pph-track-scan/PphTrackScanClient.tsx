@@ -30,7 +30,11 @@ import { actualPph, laborHours, meetsPlan } from '@/modules/production/pphCalc';
 //   các dòng size + loại lỗi + số lượng lỗi
 // Xem handlePphTrack() bên _worker.js.
 
-type TrackRow = { size: string | null; qty: number; defectType: string | null };
+type TrackRow = { size: string | null; qty: number; defectType: string | null; runId?: string; workerCount?: number | null; workHours?: number | null };
+// Một mã giày đang chạy trong ngày (đầu ca là runId rỗng). Server trả về theo thứ tự thời gian.
+type TrackRunInfo = { id: string; model: string; color: string; size: string; perHourTarget: number; startTime: string | null };
+// Số liệu nhập cho 1 mã trong 1 giờ. Không có trong map thì dùng giá trị mặc định.
+type PartInput = { qty: string; workers: string; hours: string };
 type TrackEntry = { slot: string; filled: boolean; rows: TrackRow[] };
 // Bảng theo giờ do server tính sẵn. Các trường giờ công và PPH chỉ có ở trạm Đầu ra / QC.
 type HourRow = {
@@ -56,7 +60,11 @@ type TrackInfo = {
   defectTypes?: string[];
   supply?: { collected: number; input: number; gap: number };
   qcContext?: { dayOutput: number; dayDefects: number };
-  setup?: { shiftHours: number; workerCount: number; plannedQty: number; model: string; color: string; size: string; planPph: number | null; perHourTarget: number } | null;
+  setup?: { shiftHours: number; workerCount: number; plannedQty: number; model: string; color: string; size: string; planPph: number | null; perHourTarget: number; planPphOverridden?: boolean; perHourTargetOverridden?: boolean } | null;
+  // Các mã trong ngày và mã nào chạy ở từng khung giờ (khung có đổi mã thì có nhiều phần).
+  runs?: TrackRunInfo[];
+  currentRun?: { shiftHours: number; workerCount: number } | null;
+  partsBySlot?: Record<string, { runId: string; workHours: number | null }[]>;
   nextAction?: 'setup' | 'quantity' | 'wait' | 'done';
   targetSlot?: string | null;
   nextSlot?: string;
@@ -113,10 +121,15 @@ async function registerTrackPush(teamId: string, point: string, submittedBy: str
   }
 }
 
-type FormRow = { size: string; qty: string; defectType: string };
-const EMPTY_SETUP = { shiftHours: '', workerCount: '', model: '', color: '', size: '', plannedQty: '', planPph: '' };
+type FormRow = { size: string; qty: string; defectType: string; runId?: string };
+// perHourTarget / planPph: rỗng = tự tính, có số = sửa tay (xem _worker.js POST /setup).
+const EMPTY_SETUP = { shiftHours: '', workerCount: '', model: '', color: '', size: '', plannedQty: '', perHourTarget: '', planPph: '' };
 
 const fmtNumber = (value: number) => Number(value).toLocaleString('vi-VN', { maximumFractionDigits: 2 });
+
+// Ngày Việt Nam (UTC+7) dạng YYYY-MM-DD, lệch offsetDays ngày. Khớp PPH_TRACK_BACKFILL_DAYS bên _worker.js.
+const PPH_TRACK_BACKFILL_DAYS = 3;
+const vnDateStr = (offsetDays = 0) => new Date(Date.now() + 7 * 3600000 + offsetDays * 86400000).toISOString().slice(0, 10);
 
 // Số lao động tự điền cho giờ mới: số của giờ nhập gần nhất, chưa có thì lấy số đầu ca.
 function defaultWorkers(info: TrackInfo | null): string {
@@ -166,8 +179,13 @@ export default function PphTrackScanClient() {
   const [editingName, setEditingName] = useState(false);
   const [rows, setRows] = useState<FormRow[]>([]);
   const [singleQty, setSingleQty] = useState('');
+  // Số nhập riêng từng mã trong giờ (khi giờ đó có từ 2 mã). Mã chưa sửa thì dùng mặc định.
+  const [partInputs, setPartInputs] = useState<Record<string, PartInput>>({});
   const [setupForm, setSetupForm] = useState(EMPTY_SETUP);
   const [editingSetup, setEditingSetup] = useState(false);
+  // Chuyển mã giữa ca: form riêng, ghi 1 lần chuyển mã mới (POST /api/pph-track/run) từ giờ đã chọn.
+  const [changingRun, setChangingRun] = useState(false);
+  const [runForm, setRunForm] = useState({ startTime: '', shiftHours: '', workerCount: '', model: '', color: '', size: '', plannedQty: '', resumedAt: '' });
   // Khung giờ chọn để nhập bù; rỗng = khung của giờ hiện tại do server trả về.
   const [pickedSlot, setPickedSlot] = useState('');
   // Đầu ra / QC: số lao động và giờ làm việc thực tế của giờ đang nhập, điền sẵn để chỉ cần gõ sản lượng.
@@ -179,6 +197,8 @@ export default function PphTrackScanClient() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ slot: string } | null>(null);
+  // Ngày đang nhập: hôm nay, hoặc ngày trước (nhập bù) trong PPH_TRACK_BACKFILL_DAYS ngày.
+  const [date, setDate] = useState(() => vnDateStr());
 
   useEffect(() => {
     try {
@@ -197,10 +217,11 @@ export default function PphTrackScanClient() {
     }
     try {
       if (!opts?.silent) setLoading(true);
-      const res = await fetch(`/api/pph-track/scan-info?team=${encodeURIComponent(teamId)}&point=${encodeURIComponent(point)}`).then((r) => r.json());
+      const res = await fetch(`/api/pph-track/scan-info?team=${encodeURIComponent(teamId)}&point=${encodeURIComponent(point)}&date=${encodeURIComponent(date)}`).then((r) => r.json());
       setInfo(res);
       setRows([]);
       setSingleQty('');
+      setPartInputs({});
       setEditingSetup(false);
       setPickedSlot('');
       setEditingSlot('');
@@ -210,7 +231,17 @@ export default function PphTrackScanClient() {
       const s = res?.setup;
       setSetupForm(
         s
-          ? { shiftHours: String(s.shiftHours), workerCount: String(s.workerCount), model: s.model, color: s.color, size: s.size, plannedQty: String(s.plannedQty), planPph: s.planPph != null ? String(s.planPph) : '' }
+          ? {
+              shiftHours: String(s.shiftHours),
+              workerCount: String(s.workerCount),
+              model: s.model,
+              color: s.color,
+              size: s.size,
+              plannedQty: String(s.plannedQty),
+              // Chỉ điền sẵn số đã sửa tay; số tự tính để trống để đổi sản lượng/công nhân vẫn tự cập nhật.
+              perHourTarget: s.perHourTargetOverridden ? String(s.perHourTarget) : '',
+              planPph: s.planPphOverridden && s.planPph != null ? String(s.planPph) : '',
+            }
           : EMPTY_SETUP,
       );
     } catch {
@@ -223,7 +254,7 @@ export default function PphTrackScanClient() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamId, point]);
+  }, [teamId, point, date]);
 
   // Ghi nhận xong tự quay lại form (khung kế tiếp) sau ~1.8s, giống /pph-scan — đồng thời ĐĂNG KÝ
   // Web Push nhắc (fire-and-forget, không await/không chặn gì) cho đúng (Tổ, điểm) vừa nộp, xem
@@ -247,25 +278,57 @@ export default function PphTrackScanClient() {
       setFormError('Vui lòng nhập tên người báo cáo');
       return;
     }
-    const hourQty = Number(singleQty);
-    if (singleQty.trim() === '' || !Number.isInteger(hourQty) || hourQty < 0) {
-      setFormError('Vui lòng nhập đúng sản lượng của giờ này');
-      return;
-    }
     const isOutput = point === 'daura' || point === 'qc';
-    if (isOutput) {
-      const workers = Number(workerInput);
-      const hours = Number(hoursInput);
-      if (!Number.isInteger(workers) || workers < 1 || workers > 1000) {
-        setFormError('Vui lòng nhập đúng Số lao động');
+    // Giờ có từ 2 mã: mỗi mã nhập số riêng (parts), server tách và lưu theo runId.
+    let hourQty = 0;
+    let parts: { runId: string; qty: number; workerCount?: number; workHours?: number }[] | undefined;
+    if (multiPart) {
+      parts = [];
+      for (const p of activeParts) {
+        const v = partValueOf(p);
+        const label = `Mã ${runLabel(p.runId)}`;
+        const qty = Number(v.qty);
+        if (v.qty.trim() === '' || !Number.isInteger(qty) || qty < 0) {
+          setFormError(`${label}: Vui lòng nhập đúng sản lượng`);
+          return;
+        }
+        if (isOutput) {
+          const workers = Number(v.workers);
+          const hours = Number(v.hours);
+          if (!Number.isInteger(workers) || workers < 1 || workers > 1000) {
+            setFormError(`${label}: Vui lòng nhập đúng Số lao động`);
+            return;
+          }
+          if (v.hours.trim() === '' || !Number.isFinite(hours) || hours < 0 || hours > 24) {
+            setFormError(`${label}: Vui lòng nhập đúng Giờ làm việc thực tế`);
+            return;
+          }
+          parts.push({ runId: p.runId, qty, workerCount: workers, workHours: hours });
+        } else {
+          parts.push({ runId: p.runId, qty });
+        }
+      }
+      hourQty = parts.reduce((sum, x) => sum + x.qty, 0);
+    } else {
+      hourQty = Number(singleQty);
+      if (singleQty.trim() === '' || !Number.isInteger(hourQty) || hourQty < 0) {
+        setFormError('Vui lòng nhập đúng sản lượng của giờ này');
         return;
       }
-      if (hoursInput.trim() === '' || !Number.isFinite(hours) || hours < 0 || hours > 24) {
-        setFormError('Vui lòng nhập đúng Giờ làm việc thực tế');
-        return;
+      if (isOutput) {
+        const workers = Number(workerInput);
+        const hours = Number(hoursInput);
+        if (!Number.isInteger(workers) || workers < 1 || workers > 1000) {
+          setFormError('Vui lòng nhập đúng Số lao động');
+          return;
+        }
+        if (hoursInput.trim() === '' || !Number.isFinite(hours) || hours < 0 || hours > 24) {
+          setFormError('Vui lòng nhập đúng Giờ làm việc thực tế');
+          return;
+        }
       }
     }
-    const payloadRows: { size: string; qty: number; defectType: string }[] = [];
+    const payloadRows: { size: string; qty: number; defectType: string; runId?: string }[] = [];
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       const qty = Number(r.qty);
@@ -281,7 +344,7 @@ export default function PphTrackScanClient() {
         setFormError(`Dòng ${i + 1}: Vui lòng nhập Loại lỗi`);
         return;
       }
-      payloadRows.push({ size: r.size.trim(), qty, defectType: r.defectType });
+      payloadRows.push({ size: r.size.trim(), qty, defectType: r.defectType, runId: multiPart ? (r.runId ?? lastRunId) : undefined });
     }
 
     setSubmitting(true);
@@ -291,10 +354,12 @@ export default function PphTrackScanClient() {
         team: teamId,
         point,
         submittedBy: name,
+        date,
         rows: payloadRows,
         qty: hourQty,
-        workerCount: isOutput ? Number(workerInput) : undefined,
-        workHours: isOutput ? Number(hoursInput) : undefined,
+        ...(parts ? { parts } : {}),
+        workerCount: !parts && isOutput ? Number(workerInput) : undefined,
+        workHours: !parts && isOutput ? Number(hoursInput) : undefined,
       };
       const res = await fetch('/api/pph-track/scan', {
         method: editingSlot ? 'PUT' : 'POST',
@@ -311,6 +376,68 @@ export default function PphTrackScanClient() {
       setRememberedName(name);
       setEditingName(false);
       setSuccess({ slot: res.slot });
+    } catch {
+      setFormError('Không kết nối được tới hệ thống');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // Mở form chuyển mã: giờ bắt đầu mặc định là giờ hiện tại (VN), số ca và số công nhân lấy theo mã đang chạy.
+  function openChangeRun() {
+    const current = info?.currentRun ?? null;
+    setRunForm({
+      startTime: new Date(Date.now() + 7 * 3600000).toISOString().slice(11, 16),
+      shiftHours: String(current?.shiftHours ?? info?.setup?.shiftHours ?? ''),
+      workerCount: String(current?.workerCount ?? info?.setup?.workerCount ?? ''),
+      model: '',
+      color: '',
+      size: '',
+      plannedQty: '',
+      resumedAt: '',
+    });
+    setFormError(null);
+    setChangingRun(true);
+  }
+
+  async function handleRunSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const name = submittedBy.trim();
+    if (!name) {
+      setFormError('Vui lòng nhập tên người báo cáo');
+      return;
+    }
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      const res = await fetch('/api/pph-track/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          team: teamId,
+          point,
+          submittedBy: name,
+          startTime: runForm.startTime,
+          resumedAt: runForm.resumedAt || null,
+          shiftHours: Number(runForm.shiftHours),
+          workerCount: Number(runForm.workerCount),
+          plannedQty: Number(runForm.plannedQty),
+          model: runForm.model,
+          color: runForm.color,
+          size: runForm.size,
+        }),
+      }).then((r) => r.json());
+      if (!res.success) {
+        setFormError(res.error || 'Không lưu được chuyển mã');
+        return;
+      }
+      try {
+        window.localStorage.setItem(REMEMBERED_NAME_KEY, name);
+      } catch {}
+      setRememberedName(name);
+      setEditingName(false);
+      setChangingRun(false);
+      await load({ silent: true });
     } catch {
       setFormError('Không kết nối được tới hệ thống');
     } finally {
@@ -335,13 +462,16 @@ export default function PphTrackScanClient() {
           team: teamId,
           point,
           submittedBy: name,
+          date,
           shiftHours: Number(setupForm.shiftHours),
           workerCount: Number(setupForm.workerCount),
           plannedQty: Number(setupForm.plannedQty),
           model: setupForm.model,
           color: setupForm.color,
           size: setupForm.size,
-          planPph: setupForm.planPph,
+          // Rỗng = bỏ sửa tay, server tự tính lại từ số liệu đầu ca.
+          perHourTarget: setupForm.perHourTarget.trim() === '' ? null : Number(setupForm.perHourTarget),
+          planPph: (point === 'daura' || point === 'qc') && setupForm.planPph.trim() !== '' ? Number(setupForm.planPph) : null,
         }),
       }).then((r) => r.json());
       if (!res.success) {
@@ -376,8 +506,18 @@ export default function PphTrackScanClient() {
     setRows(
       (entry?.rows || [])
         .filter((row) => row.defectType)
-        .map((row) => ({ size: row.size || '', qty: String(row.qty), defectType: row.defectType || '' })),
+        .map((row) => ({ size: row.size || '', qty: String(row.qty), defectType: row.defectType || '', runId: row.runId ?? '' })),
     );
+    // Sửa giờ có nhiều mã: điền lại số của từng mã đã nộp (dòng sản lượng, không phải dòng lỗi).
+    const nextPartInputs: Record<string, PartInput> = {};
+    for (const row of (entry?.rows || []).filter((x) => !x.defectType)) {
+      nextPartInputs[row.runId ?? ''] = {
+        qty: String(row.qty),
+        workers: row.workerCount != null ? String(row.workerCount) : defaultWorkers(info),
+        hours: row.workHours != null ? String(row.workHours) : '1',
+      };
+    }
+    setPartInputs(nextPartInputs);
     window.scrollTo({ top: 0 });
   }
 
@@ -386,9 +526,16 @@ export default function PphTrackScanClient() {
     setConfirmDelete(false);
     setFormError(null);
     setSingleQty('');
+    setPartInputs({});
     setRows([]);
     setWorkerInput(defaultWorkers(info));
     setHoursInput('1');
+  }
+
+  function changeDate(next: string) {
+    if (!next || next === date) return;
+    setFormError(null);
+    setDate(next);
   }
 
   function pickBackfillSlot(slot: string) {
@@ -405,7 +552,8 @@ export default function PphTrackScanClient() {
     setSubmitting(true);
     setFormError(null);
     try {
-      const query = `team=${encodeURIComponent(teamId)}&point=${encodeURIComponent(point)}&slot=${encodeURIComponent(editingSlot)}`;
+      // Hôm nay: không gửi date (xoá công khai như trước). Ngày cũ: gửi date → server yêu cầu đăng nhập, không xoá nhầm giờ hôm nay.
+      const query = `team=${encodeURIComponent(teamId)}&point=${encodeURIComponent(point)}&slot=${encodeURIComponent(editingSlot)}${date !== vnDateStr() ? `&date=${encodeURIComponent(date)}` : ''}`;
       const response = await fetch(`/api/pph-track/scan?${query}`, { method: 'DELETE' });
       if (response.status === 401) {
         setConfirmDelete(false);
@@ -458,14 +606,66 @@ export default function PphTrackScanClient() {
         />
       </Field>
     );
+  // Chỉ chuyển mã cho ngày hôm nay (server cũng chỉ nhận chuyển mã của hôm nay).
+  const canChangeRun = !!info?.setup && date === vnDateStr();
   const editSetupButton =
     info?.setup ? (
-      <button type="button" onClick={() => setEditingSetup(true)} className="w-full py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">
-        Sửa đầu ca
-      </button>
+      <div className="space-y-2.5">
+        <button type="button" onClick={() => setEditingSetup(true)} className="w-full py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50">
+          Sửa đầu ca
+        </button>
+        {canChangeRun && (
+          <button type="button" onClick={openChangeRun} className="w-full py-2.5 rounded-xl border border-emerald-300 bg-emerald-50 text-xs font-bold text-emerald-700 hover:bg-emerald-100">
+            Chuyển mã
+          </button>
+        )}
+      </div>
     ) : null;
 
+  // Chọn ngày: luôn hiện trên đầu form để người nhập biết đang nhập cho ngày nào (hôm nay hay nhập bù).
+  const todayVNStr = vnDateStr();
+  const isBackfill = date !== todayVNStr;
+  const dateField = (
+    <div className={`mb-4 rounded-xl border px-3.5 py-2.5 ${isBackfill ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-slate-50'}`}>
+      <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+        <IconClock size={14} className="shrink-0" />
+        <span className="flex-1">Ngày nhập{isBackfill ? ' (nhập bù)' : ' (hôm nay)'}</span>
+        <input
+          type="date"
+          value={date}
+          min={vnDateStr(-PPH_TRACK_BACKFILL_DAYS)}
+          max={todayVNStr}
+          onChange={(e) => changeDate(e.target.value)}
+          className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm font-semibold text-slate-800 focus:outline-none focus:border-[#006838]"
+        />
+      </label>
+      {isBackfill && (
+        <p className="mt-1.5 text-[11px] font-semibold text-amber-800">
+          Đang nhập bù cho ngày {date.split('-').reverse().join('/')}. Chỉ nhập được tối đa {PPH_TRACK_BACKFILL_DAYS} ngày trước.
+        </p>
+      )}
+    </div>
+  );
+
   const activeSlot = editingSlot || pickedSlot || info?.targetSlot || '';
+  // Các mã chạy trong giờ đang nhập. Từ 2 mã trở lên thì form tách ô nhập theo từng mã.
+  const activeParts = info?.partsBySlot?.[activeSlot] ?? [];
+  const multiPart = activeParts.length > 1;
+  const lastRunId = activeParts[activeParts.length - 1]?.runId ?? '';
+  const runById = new Map((info?.runs ?? []).map((r) => [r.id, r] as const));
+  const runLabel = (runId: string) => {
+    const run = runById.get(runId);
+    return run ? `${run.model} · ${run.color} · Size ${run.size}` : 'Đầu ca';
+  };
+  // Số mặc định của 1 mã: lao động lấy như form thường, giờ làm lấy theo mã trong giờ (đã trừ nghỉ trưa).
+  const partDefault = (p: { runId: string; workHours: number | null }): PartInput => ({
+    qty: '',
+    workers: defaultWorkers(info),
+    hours: p.workHours != null ? String(p.workHours) : '1',
+  });
+  const partValueOf = (p: { runId: string; workHours: number | null }): PartInput => partInputs[p.runId] ?? partDefault(p);
+  const setPartField = (p: { runId: string; workHours: number | null }, field: keyof PartInput, value: string) =>
+    setPartInputs((prev) => ({ ...prev, [p.runId]: { ...(prev[p.runId] ?? partDefault(p)), [field]: value } }));
   const hourlyTable = info?.hourly ? (
     <HourlyTable hours={info.hourly} isOutput={point === 'daura' || point === 'qc'} currentSlot={info.currentSlot} activeSlot={editingSlot} onEdit={startEdit} />
   ) : null;
@@ -534,12 +734,62 @@ export default function PphTrackScanClient() {
     );
   }
 
-  if (info.nextAction === 'setup' || editingSetup) {
+  if (changingRun && info.setup) {
     const input = 'w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#006838]';
+    const setRun = (key: keyof typeof runForm) => (e: React.ChangeEvent<HTMLInputElement>) => setRunForm((prev) => ({ ...prev, [key]: e.target.value }));
+    return (
+      <ScanShell team={info.team} pointLabel={info.pointLabel}>
+        <div className="mb-4">{dateField}{reporterField}</div>
+        <div className="mb-4 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
+          <IconClock size={14} />
+          <span className="flex-1">Chuyển mã từ giờ đã chọn — số của mã cũ giữ nguyên</span>
+        </div>
+        <form onSubmit={handleRunSubmit} className="space-y-3.5">
+          <Field label="Giờ bắt đầu chuyển mã *" icon={IconClock}>
+            <input type="time" value={runForm.startTime} onChange={setRun('startTime')} className={input} required />
+          </Field>
+          <Field label="Mã giày *" icon={IconShoe}>
+            <input value={runForm.model} onChange={setRun('model')} maxLength={40} placeholder="VD: 139223" className={input} required />
+          </Field>
+          <Field label="Màu sắc *" icon={IconPalette}>
+            <input value={runForm.color} onChange={setRun('color')} maxLength={40} placeholder="VD: WHT" className={input} required />
+          </Field>
+          <Field label="Size *" icon={IconRuler2}>
+            <input value={runForm.size} onChange={setRun('size')} maxLength={40} placeholder="VD: 40" className={input} required />
+          </Field>
+          <Field label="Số lượng kế hoạch của mã mới *" icon={IconChartBar}>
+            <input type="number" inputMode="numeric" min={1} value={runForm.plannedQty} onChange={setRun('plannedQty')} placeholder="VD: 600" className={input} required />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Số công nhân *" icon={IconUsers}>
+              <input type="number" inputMode="numeric" min={1} max={1000} value={runForm.workerCount} onChange={setRun('workerCount')} className={input} required />
+            </Field>
+            <Field label="Thời gian sản xuất (giờ) *" icon={IconClock}>
+              <input type="number" inputMode="decimal" min={0.5} max={24} step={0.5} value={runForm.shiftHours} onChange={setRun('shiftHours')} className={input} required />
+            </Field>
+          </div>
+          <Field label="Giờ có sản lượng lại (nếu đã có)" icon={IconClock}>
+            <input type="time" value={runForm.resumedAt} onChange={setRun('resumedAt')} className={input} />
+            <p className="text-[11px] font-semibold text-slate-500">Để trống nếu mã mới chưa ra sản lượng. Có thể ghi sau.</p>
+          </Field>
+          {formError && <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">⚠️ {formError}</div>}
+          <button type="submit" disabled={submitting} className="w-full py-3.5 rounded-xl bg-[#006838] text-white text-sm font-black hover:opacity-90 disabled:opacity-50 transition">
+            {submitting ? 'Đang lưu...' : 'Lưu chuyển mã'}
+          </button>
+          <button type="button" onClick={() => { setChangingRun(false); setFormError(null); }} className="w-full py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600">
+            Huỷ
+          </button>
+        </form>
+      </ScanShell>
+    );
+  }
+
+  if (info.nextAction === 'setup' || editingSetup) {
+    const input ='w-full px-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-[#006838]';
     const set = (key: keyof typeof EMPTY_SETUP) => (e: React.ChangeEvent<HTMLInputElement>) => setSetupForm((prev) => ({ ...prev, [key]: e.target.value }));
     return (
       <ScanShell team={info.team} pointLabel={info.pointLabel} slotBadgeLabel="07:00">
-        <div className="mb-4">{reporterField}</div>
+        <div className="mb-4">{dateField}{reporterField}</div>
         <div className="mb-4 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
           <IconClock size={14} />
           <span className="flex-1">Nhập đầu ca</span>
@@ -563,13 +813,33 @@ export default function PphTrackScanClient() {
           <Field label="Số lượng kế hoạch cả ca *" icon={IconChartBar}>
             <input type="number" inputMode="numeric" min={1} value={setupForm.plannedQty} onChange={set('plannedQty')} placeholder="VD: 1000" className={input} required />
           </Field>
-          <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-3 text-sm font-black text-emerald-700">
-            Mục tiêu sản lượng giờ: {setupTarget == null ? '—' : `${setupTarget} đôi`}
-          </div>
+          <Field label="Mục tiêu sản lượng giờ (đôi)" icon={IconChartBar}>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step="any"
+              value={setupForm.perHourTarget}
+              onChange={set('perHourTarget')}
+              placeholder={setupTarget == null ? 'Tự tính' : `Tự tính: ${setupTarget}`}
+              className={input}
+            />
+            <p className="text-[11px] font-semibold text-slate-500">Để trống = tự tính từ sản lượng kế hoạch ÷ số giờ ca.</p>
+          </Field>
           {(point === 'daura' || point === 'qc') && (
-            <div className="rounded-xl bg-amber-50 border border-amber-200 px-3.5 py-3 text-sm font-black text-amber-700">
-              PPH kế hoạch (tự tính, đôi/giờ công): {setupPlanPph == null ? '—' : fmtNumber(setupPlanPph)}
-            </div>
+            <Field label="PPH kế hoạch (đôi/giờ công)" icon={IconChartBar}>
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="any"
+                value={setupForm.planPph}
+                onChange={set('planPph')}
+                placeholder={setupPlanPph == null ? 'Tự tính' : `Tự tính: ${fmtNumber(setupPlanPph)}`}
+                className={input}
+              />
+              <p className="text-[11px] font-semibold text-slate-500">Để trống = tự tính từ sản lượng kế hoạch ÷ (công nhân × số giờ ca).</p>
+            </Field>
           )}
           {formError && <div role="alert" className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">⚠️ {formError}</div>}
           <button type="submit" disabled={submitting} className="w-full py-3.5 rounded-xl bg-[#006838] text-white text-sm font-black hover:opacity-90 disabled:opacity-50 transition">
@@ -589,6 +859,7 @@ export default function PphTrackScanClient() {
     return (
       <ScanShell team={info.team} pointLabel={info.pointLabel} slotBadgeLabel={info.nextSlot}>
         <StateCard icon={IconClock} tone="amber" title="Chưa tới giờ nhập" desc={`Khung tiếp theo lúc ${info.nextSlot}. Quay lại quét sau nhé.`} />
+        {dateField}
         {backfillChips}
         {editSetupButton}
         {hourlyTable}
@@ -605,6 +876,7 @@ export default function PphTrackScanClient() {
           title={backfillSlots.length ? 'Đã nhập khung giờ cuối' : 'Đã cập nhật đủ hôm nay'}
           desc={backfillSlots.length ? 'Vẫn còn giờ trước chưa nhập, xem bên dưới.' : 'Cảm ơn bạn đã báo cáo đầy đủ các khung giờ hôm nay!'}
         />
+        {dateField}
         {backfillChips}
         {editSetupButton}
         {hourlyTable}
@@ -615,7 +887,8 @@ export default function PphTrackScanClient() {
   const isOutputForm = point === 'daura' || point === 'qc';
 
   // Chỉ CẢNH BÁO, không chặn nộp: các trạm nhập độc lập nên Tập trung có thể nhập sau trong cùng giờ.
-  const hourQty = Number(singleQty) || 0;
+  const hourQty = multiPart ? activeParts.reduce((sum, p) => sum + (Number(partValueOf(p).qty) || 0), 0) : Number(singleQty) || 0;
+  const qtyEntered = multiPart ? activeParts.some((p) => partValueOf(p).qty.trim() !== '') : singleQty.trim() !== '';
   const available = info.supply ? Math.max(0, info.supply.gap) : 0;
   const defectEntering = rows.reduce((sum, x) => sum + (Number(x.qty) || 0), 0);
   const qc = info.qcContext;
@@ -630,7 +903,7 @@ export default function PphTrackScanClient() {
 
   return (
     <ScanShell team={info.team} pointLabel={info.pointLabel} slotBadgeLabel={activeSlot || undefined}>
-      <div className="mb-4">{reporterField}</div>
+      <div className="mb-4">{dateField}{reporterField}</div>
       <div className="mb-4 flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold">
         <IconClock size={14} />
         <span className="flex-1">Khung giờ {activeSlot}{editingSlot ? ' (đang sửa)' : pickedSlot ? ' (nhập bù)' : ' (giờ hiện tại)'}</span>
@@ -648,6 +921,9 @@ export default function PphTrackScanClient() {
         <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-bold text-slate-700">
           <p className="text-sm font-black text-emerald-700">Mục tiêu sản lượng giờ: {info.setup.perHourTarget} đôi</p>
           <p>Mã {info.setup.model} · {info.setup.color} · Size {info.setup.size}</p>
+          {(info.runs?.length ?? 0) > 1 && (
+            <p>Đổi mã trong ngày: {(info.runs ?? []).map((r) => `${r.model}${r.startTime ? ` (từ ${r.startTime})` : ''}`).join(' → ')}</p>
+          )}
           <p>{info.setup.workerCount} công nhân · Kế hoạch {info.setup.plannedQty} đôi/{info.setup.shiftHours} giờ</p>
           {planPph != null && <p>PPH kế hoạch: {fmtNumber(planPph)} đôi/giờ công</p>}
           {info.supply && <p>Tập trung còn {available} đôi (đã nhận {info.supply.collected}, Đầu vào đã lấy {info.supply.input})</p>}
@@ -655,53 +931,100 @@ export default function PphTrackScanClient() {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-3.5">
-        <Field label={`${isOutputForm ? 'Đầu ra đạt chất lượng' : 'Sản lượng'} giờ ${activeSlot} (đôi) *`} icon={IconChartBar}>
-          <input
-            type="number"
-            inputMode="numeric"
-            min={0}
-            value={singleQty}
-            onChange={(e) => setSingleQty(e.target.value)}
-            placeholder="VD: 120"
-            className={inputClass}
-            required
-            autoFocus
-          />
-        </Field>
-        {isOutputForm && (
+        {multiPart ? (
           <>
-            <p className="-mt-2 text-[11px] font-semibold text-slate-500">Chỉ tính đôi đạt, hàng lỗi ghi riêng ở dòng lỗi bên dưới.</p>
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Số lao động *" icon={IconUsers}>
-                <input type="number" inputMode="numeric" min={1} max={1000} value={workerInput} onChange={(e) => setWorkerInput(e.target.value)} className={inputClass} required />
-              </Field>
-              <Field label="Giờ làm việc thực tế *" icon={IconClock}>
-                <input type="number" inputMode="decimal" min={0} max={24} step="any" value={hoursInput} onChange={(e) => setHoursInput(e.target.value)} className={inputClass} required />
-              </Field>
-            </div>
-            <p className="-mt-2 text-[11px] font-semibold text-slate-500">Đã điền sẵn. Chỉ sửa khi có nghỉ, dừng chuyền hoặc thay đổi người.</p>
-            <dl className="grid grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-center">
-              <div>
-                <dt className="text-[10px] font-bold text-slate-500">Tổng giờ công</dt>
-                <dd className="text-sm font-black tabular-nums text-slate-900">{previewLabor != null ? fmtNumber(previewLabor) : '–'}</dd>
-              </div>
-              <div>
-                <dt className="text-[10px] font-bold text-slate-500">PPH kế hoạch</dt>
-                <dd className="text-sm font-black tabular-nums text-slate-900">{planPph != null ? fmtNumber(planPph) : '–'}</dd>
-              </div>
-              <div>
-                <dt className="text-[10px] font-bold text-slate-500">PPH thực hiện</dt>
-                <dd className={`text-sm font-black tabular-nums ${previewMet === false ? 'text-rose-700' : previewMet ? 'text-emerald-700' : 'text-slate-900'}`}>
-                  {previewPph != null ? `${previewMet === false ? '▼ ' : previewMet ? '▲ ' : ''}${fmtNumber(previewPph)}` : '–'}
-                </dd>
-              </div>
-            </dl>
+            <p className="-mt-1 text-[11px] font-semibold text-slate-500">Giờ {activeSlot} có {activeParts.length} mã: nhập số riêng cho từng mã.</p>
+            {activeParts.map((p) => {
+              const run = runById.get(p.runId);
+              const v = partValueOf(p);
+              const partWorkers = v.workers.trim() === '' ? null : Number(v.workers);
+              const partHours = v.hours.trim() === '' ? null : Number(v.hours);
+              const partPph = isOutputForm && v.qty.trim() !== '' ? actualPph(Number(v.qty) || 0, partWorkers, partHours) : null;
+              return (
+                <div key={p.runId || 'dauca'} className="space-y-3 p-3.5 rounded-xl bg-emerald-50/60 border border-emerald-200">
+                  <div className="text-xs font-black text-emerald-800">
+                    {runLabel(p.runId)}
+                    {run && <span className="ml-1.5 font-semibold text-slate-500">· mục tiêu {run.perHourTarget} đôi/giờ</span>}
+                  </div>
+                  <Field label={`${isOutputForm ? 'Đầu ra đạt chất lượng' : 'Sản lượng'} của mã này (đôi) *`} icon={IconChartBar}>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      value={v.qty}
+                      onChange={(e) => setPartField(p, 'qty', e.target.value)}
+                      placeholder="VD: 120"
+                      className={inputClass}
+                    />
+                  </Field>
+                  {isOutputForm && (
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Field label="Số lao động *" icon={IconUsers}>
+                          <input type="number" inputMode="numeric" min={1} max={1000} value={v.workers} onChange={(e) => setPartField(p, 'workers', e.target.value)} className={inputClass} />
+                        </Field>
+                        <Field label="Giờ làm việc thực tế *" icon={IconClock}>
+                          <input type="number" inputMode="decimal" min={0} max={24} step="any" value={v.hours} onChange={(e) => setPartField(p, 'hours', e.target.value)} className={inputClass} />
+                        </Field>
+                      </div>
+                      <p className="text-[11px] font-bold text-slate-600">PPH thực hiện của mã này: {partPph != null ? fmtNumber(partPph) : '–'}</p>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </>
+        ) : (
+          <>
+            <Field label={`${isOutputForm ? 'Đầu ra đạt chất lượng' : 'Sản lượng'} giờ ${activeSlot} (đôi) *`} icon={IconChartBar}>
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                value={singleQty}
+                onChange={(e) => setSingleQty(e.target.value)}
+                placeholder="VD: 120"
+                className={inputClass}
+                required
+                autoFocus
+              />
+            </Field>
+            {isOutputForm && (
+              <>
+                <p className="-mt-2 text-[11px] font-semibold text-slate-500">Chỉ tính đôi đạt, hàng lỗi ghi riêng ở dòng lỗi bên dưới.</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="Số lao động *" icon={IconUsers}>
+                    <input type="number" inputMode="numeric" min={1} max={1000} value={workerInput} onChange={(e) => setWorkerInput(e.target.value)} className={inputClass} required />
+                  </Field>
+                  <Field label="Giờ làm việc thực tế *" icon={IconClock}>
+                    <input type="number" inputMode="decimal" min={0} max={24} step="any" value={hoursInput} onChange={(e) => setHoursInput(e.target.value)} className={inputClass} required />
+                  </Field>
+                </div>
+                <p className="-mt-2 text-[11px] font-semibold text-slate-500">Đã điền sẵn. Chỉ sửa khi có nghỉ, dừng chuyền hoặc thay đổi người.</p>
+                <dl className="grid grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2 py-2 text-center">
+                  <div>
+                    <dt className="text-[10px] font-bold text-slate-500">Tổng giờ công</dt>
+                    <dd className="text-sm font-black tabular-nums text-slate-900">{previewLabor != null ? fmtNumber(previewLabor) : '–'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] font-bold text-slate-500">PPH kế hoạch</dt>
+                    <dd className="text-sm font-black tabular-nums text-slate-900">{planPph != null ? fmtNumber(planPph) : '–'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[10px] font-bold text-slate-500">PPH thực hiện</dt>
+                    <dd className={`text-sm font-black tabular-nums ${previewMet === false ? 'text-rose-700' : previewMet ? 'text-emerald-700' : 'text-slate-900'}`}>
+                      {previewPph != null ? `${previewMet === false ? '▼ ' : previewMet ? '▲ ' : ''}${fmtNumber(previewPph)}` : '–'}
+                    </dd>
+                  </div>
+                </dl>
+              </>
+            )}
           </>
         )}
         {point === 'dauvao' && info.supply && hourQty > available && (
           <p role="status" className="text-xs font-bold text-rose-700">⚠ Vượt {hourQty - available} đôi so với Khu tập trung — kiểm tra lại</p>
         )}
-        {isOutputForm && defectEntering > hourQty && singleQty.trim() !== '' && (
+        {isOutputForm && defectEntering > hourQty && qtyEntered && (
           <p role="status" className="text-xs font-bold text-rose-700">⚠ Số lỗi ({defectEntering}) nhiều hơn Đầu ra giờ này — kiểm tra lại</p>
         )}
         {isOutputForm && (
@@ -718,6 +1041,19 @@ export default function PphTrackScanClient() {
                     <IconTrash size={15} />
                   </button>
                 </div>
+                {multiPart && (
+                  <Field label="Lỗi của mã *" icon={IconShoe}>
+                    <select
+                      value={r.runId ?? lastRunId}
+                      onChange={(e) => setRows((prev) => prev.map((x, i) => (i === idx ? { ...x, runId: e.target.value } : x)))}
+                      className="w-full px-3.5 py-3 bg-white border border-rose-200 rounded-xl text-sm font-semibold focus:outline-none focus:border-rose-400"
+                    >
+                      {activeParts.map((p) => (
+                        <option key={p.runId || 'dauca'} value={p.runId}>{runLabel(p.runId)}</option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
                 <Field label="Size *" icon={IconRuler2}>
                   <input
                     value={r.size}
@@ -753,7 +1089,7 @@ export default function PphTrackScanClient() {
             ))}
             <button
               type="button"
-              onClick={() => setRows((prev) => [...prev, { size: '', qty: '', defectType: '' }])}
+              onClick={() => setRows((prev) => [...prev, { size: '', qty: '', defectType: '', runId: lastRunId }])}
               className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl border-2 border-dashed border-rose-300 text-rose-700 text-xs font-bold hover:bg-rose-50"
             >
               <IconPlus size={15} /> Thêm dòng lỗi

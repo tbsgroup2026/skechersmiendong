@@ -17,6 +17,8 @@ const CONFIG = {
   // Từ ngày này lấy số từ Theo dõi chuyền. 3 link quét không kèm mã tổ nên đều nhập vào Tổ 1.
   TRACK_FROM: '2026-11-05',
   TRACK_TEAM_ID: 'pphorg_mv6fi3ay_mi0yvh',
+  // Line của Theo dõi chuyền: lấy Mục tiêu/giờ (perHourTarget) của từng ngày để ghi vào dòng SLKH của Báo cáo SL.
+  TRACK_LINE_ID: 'pphline_mvj5xlfa_ugml9m32',
   // Đọc lại cả các ngày gần đây để số được nhập bù hoặc sửa muộn cũng lên Sheet.
   DAYS_TO_REFRESH: 3,
   // 1 phút là mức nhanh nhất Apps Script cho phép.
@@ -65,7 +67,8 @@ const REPORT = {
   firstCol: 4,
   // Cột D … O: LŨY KẾ (D), 8h30 … 16h30 (E … L), 18h00 … 20h00 (M … O, tiêu đề ghi dạng "18h00").
   lastCol: 15,
-  // Dòng SLKH (kế hoạch) là mục tiêu/giờ của TV.
+  // Dòng SLKH (kế hoạch) = Mục tiêu/giờ của ngày đó lấy từ Theo dõi chuyền (writePlanRow_).
+  // Chỉ dùng số này cho các ngày PPH trước TRACK_FROM (chưa có Theo dõi chuyền).
   plan: 50,
   // Số dòng theo bố cục hiện tại: Khu Tập Chung ở dòng 5, Khu Đầu vào ở dòng 9, Khu Đầu ra ở dòng 13 (các dòng này chỉ là tiêu đề).
   // Đã bỏ dòng "Lũy kế trong ngày" (trùng với SLTH Đầu ra). "Tỷ lệ RFT" ở dòng 17.
@@ -124,7 +127,7 @@ function setDailyFormulas_(daily) {
   }
 }
 
-// Báo cáo SL đọc số từ tab ngày đang chọn ở C2: đổi ngày là hiện ngay. Dòng SLKH là mục tiêu cố định.
+// Báo cáo SL đọc số từ tab ngày đang chọn ở C2: đổi ngày là hiện ngay. Dòng SLKH do writePlanRow_ ghi theo ngày.
 function setReportFormulas_(report) {
   const width = REPORT.lastCol - REPORT.firstCol + 1;
   const headers = report.getRange(REPORT.headerRow, REPORT.firstCol, 1, width).getDisplayValues()[0];
@@ -142,7 +145,6 @@ function setReportFormulas_(report) {
       [R.centralPlan, R.central, R.centralDiff, R.inPlan, R.in, R.inDiff, R.outPlan, R.out, R.outDiff, R.rft].forEach((row) => report.getRange(row, col).clearContent());
       return;
     }
-    [R.centralPlan, R.inPlan, R.outPlan].forEach((row) => report.getRange(row, col).setValue(REPORT.plan));
     const dr = HOURLY.firstRow + slotIndex;
     const c = '$C$2';
     report.getRange(R.central, col).setFormula(`=${dayCell_(c, `M${dr}`)}`);
@@ -393,21 +395,34 @@ function fetchDays_(dates) {
 const TRACK_POINTS = ['khutaptrung', 'dauvao', 'daura'];
 function fetchTrackDays_(dates) {
   const url = (date, point) => `${CONFIG.API_BASE}/api/pph-track/scan-info?team=${CONFIG.TRACK_TEAM_ID}&point=${point}&date=${date}`;
-  const requests = dates.flatMap((date) => TRACK_POINTS.map((point) => ({ url: url(date, point), muteHttpExceptions: true })));
-  const bodies = UrlFetchApp.fetchAll(requests).map((response) => {
+  // Mỗi ngày: 3 trạm quét + 1 dashboard của line (lấy Mục tiêu/giờ).
+  const dashboardUrl = (date) => `${CONFIG.API_BASE}/api/pph-track/dashboard?lineId=${CONFIG.TRACK_LINE_ID}&date=${date}`;
+  const n = TRACK_POINTS.length + 1;
+  const requests = dates.flatMap((date) => [
+    ...TRACK_POINTS.map((point) => ({ url: url(date, point), muteHttpExceptions: true })),
+    { url: dashboardUrl(date), muteHttpExceptions: true },
+  ]);
+  const bodies = UrlFetchApp.fetchAll(requests).map((response, k) => {
     const status = response.getResponseCode();
-    if (status !== 200) throw new Error(`API Theo dõi chuyền trả HTTP ${status}.`);
+    const isDashboard = k % n === n - 1;
+    if (status !== 200) throw new Error(`API ${isDashboard ? 'Mục tiêu/giờ' : 'Theo dõi chuyền'} trả HTTP ${status}.`);
     const body = JSON.parse(response.getContentText());
-    if (!body.success) throw new Error(`API Theo dõi chuyền báo lỗi: ${body.error}`);
+    if (!body.success) throw new Error(`API ${isDashboard ? 'Mục tiêu/giờ' : 'Theo dõi chuyền'} báo lỗi: ${body.error}`);
+    if (isDashboard) {
+      if (!body.data) throw new Error('API Mục tiêu/giờ không có dữ liệu.');
+      return body;
+    }
     // API đổi cấu trúc thì dừng, không hiểu nhầm là ngày chưa nhập rồi xoá số trên Sheet.
     if (!Array.isArray(body.hourly) || !Array.isArray(body.entries)) throw new Error('API Theo dõi chuyền đã đổi cấu trúc.');
     return body;
   });
-  const n = TRACK_POINTS.length;
-  return dates.map((date, i) => summarizeTrackDay_(date, bodies[i * n], bodies[i * n + 1], bodies[i * n + 2]));
+  return dates.map((date, i) => {
+    const b = i * n;
+    return summarizeTrackDay_(date, bodies[b], bodies[b + 1], bodies[b + 2], bodies[b + 3]);
+  });
 }
 
-function summarizeTrackDay_(date, centralBody, inputBody, outputBody) {
+function summarizeTrackDay_(date, centralBody, inputBody, outputBody, dashboardBody) {
   const slots = new Map();
   const itemOf = (slot) => {
     if (!slots.has(slot)) slots.set(slot, { qty: null, input: null, central: null, defects: 0, topDefect: '', notes: [] });
@@ -447,9 +462,12 @@ function summarizeTrackDay_(date, centralBody, inputBody, outputBody) {
   const dayOutput = Number((outputBody.qcContext && outputBody.qcContext.dayOutput) || 0);
   const anyHour = outputBody.hourly.some((hour) => hour.qty != null);
   if (dayOutput > 0 && !anyHour) throw new Error(`API ngày ${date} có ${dayOutput} đôi nhưng không có số theo giờ.`);
+  const shift = dashboardBody.data.shift;
   return {
     date,
     slotList: TRACK_SLOTS,
+    // Mục tiêu/giờ của ngày (dòng SLKH trên Báo cáo SL). Không có thì để trống, không lấy số của ngày khác.
+    perHourTarget: shift && shift.perHourTarget != null ? Number(shift.perHourTarget) : null,
     // Số CN như ô Người lao động trên TV: cộng số người khai đầu ca của cả 3 trạm.
     workers: [centralBody, inputBody, outputBody].reduce((sum, body) => sum + Number((body.setup && body.setup.workerCount) || 0), 0),
     // Giờ làm = số khung đã nhập sản lượng (mỗi khung 1 giờ), nên có tăng ca thì tự tăng theo.
@@ -501,6 +519,8 @@ function summarizeDay_(data) {
   return {
     date: data.date,
     slotList: HOURLY.slots,
+    // Ngày PPH cũ không có Theo dõi chuyền: dùng SLKH mặc định.
+    perHourTarget: REPORT.plan,
     hasOutput: slots.size > 0,
     topDefect: '',
     workers: teams.reduce((sum, team) => sum + ((team.setup && team.setup.workerCount) || 0), 0),
@@ -565,8 +585,22 @@ function writeReport_(spreadsheet, day) {
   if (!sheet) throw new Error(`Không thấy tab "${REPORT.name}".`);
   const width = REPORT.lastCol - REPORT.firstCol + 1;
   const headers = sheet.getRange(REPORT.headerRow, REPORT.firstCol, 1, width).getDisplayValues()[0];
-  // Số các khung của báo cáo là công thức (setReportFormulas_), script chỉ ghi danh sách loại lỗi.
+  // Số các khung của báo cáo là công thức (setReportFormulas_), script chỉ ghi dòng SLKH và danh sách loại lỗi.
+  writePlanRow_(sheet, day, headers);
   writeDefectRows_(sheet, day, headers);
+}
+
+// Dòng SLKH (SLKH của Khu Tập trung, Đầu vào, Đầu ra) = Mục tiêu/giờ của ngày, lấy từ Theo dõi chuyền.
+// Ngày không có mục tiêu thì để trống, không ghi số cũ.
+function writePlanRow_(sheet, day, headers) {
+  const plan = day.perHourTarget != null ? day.perHourTarget : '';
+  const R = REPORT.rows;
+  headers.forEach((title, i) => {
+    if (String(title).trim().toUpperCase() === 'LŨY KẾ') return;
+    const col = REPORT.firstCol + i;
+    if (HOURLY.slots.indexOf(slotOfColumn_(col, title)) < 0) return;
+    [R.centralPlan, R.inPlan, R.outPlan].forEach((row) => sheet.getRange(row, col).setValue(plan));
+  });
 }
 
 // Dưới dòng RFT: cùng 1 loại lỗi thì gộp 1 dòng, xếp theo tổng lỗi giảm dần. Ô trống nghĩa là khung đó không có lỗi loại này.
