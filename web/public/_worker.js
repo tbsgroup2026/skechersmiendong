@@ -1382,6 +1382,24 @@ async function pphShoeModelEnsureTable(env) {
     )
   `).run().catch(() => {});
 }
+// Lịch sử tải/thay/xoá ảnh giày: MỖI lần tải hoặc xoá ghi 1 dòng và GIỮ NGUYÊN link ảnh cũ, nên ảnh đã
+// bị thay ở pph_shoe_models vẫn xem lại được ở đây. Màu nhập tay (không ràng buộc danh sách).
+let __pphShoeImageLogSchemaMigratedOnce = false;
+async function pphShoeImageLogEnsureTable(env) {
+  if (__pphShoeImageLogSchemaMigratedOnce) return;
+  __pphShoeImageLogSchemaMigratedOnce = true;
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS pph_shoe_image_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL,
+      color TEXT,
+      image_url TEXT NOT NULL,
+      action TEXT NOT NULL,
+      by_name TEXT,
+      created_at TEXT NOT NULL
+    )
+  `).run().catch(() => {});
+}
 // Chuẩn hoá mã trước khi so khớp — cho phép Model nhập lệch hoa/thường hoặc thừa khoảng trắng vẫn
 // khớp đúng (VD "4442 " hay "4442ew" đều khớp mã đã lưu "4442EW").
 function pphNormalizeShoeCode(code) {
@@ -2487,6 +2505,39 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
     }
   }
 
+  // ---- Sản lượng Đầu ra theo NGÀY của 1 Line (nguồn biểu đồ bên TBS II) — CÔNG KHAI, chỉ đọc ----
+  // Gọi lại đúng logic /dashboard cho từng ngày nên số khớp với màn TV. Ngày không có số liệu thì bỏ qua.
+  if (sub === "/daily-output" && request.method === "GET") {
+    const lineId = String(searchParams.get("lineId") || "").trim();
+    const from = String(searchParams.get("from") || "");
+    const to = String(searchParams.get("to") || "");
+    const isDay = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d);
+    if (!lineId || !isDay(from) || !isDay(to) || from > to) {
+      return pphJson({ success: false, error: "Thiếu lineId hoặc from/to không hợp lệ" }, 400);
+    }
+    const today = pphTodayStr();
+    const last = to > today ? today : to;
+    const days = [];
+    for (let d = from; d <= last && days.length < 62; d = pphAddDaysStr(d, 1)) days.push(d);
+    const out = [];
+    for (const date of days) {
+      const res = await handlePphTrack(request, env, "/dashboard", new URLSearchParams({ lineId, date }), ctx);
+      const j = await res.json().catch(() => null);
+      if (!j?.success || !j.data) continue;
+      const hourly = j.data.hourly || [];
+      if (!hourly.some((h) => h.qty != null)) continue;
+      const perHourTarget = Number(j.data.shift?.perHourTarget) || 0;
+      out.push({
+        date,
+        outputQty: Number(j.data.quality?.outputQty) || 0,
+        perHourTarget,
+        shiftHours: hourly.length,
+        targetQty: perHourTarget * hourly.length,
+      });
+    }
+    return pphJson({ success: true, data: out }, 200);
+  }
+
   // ---- Dashboard TV gộp theo Line (Đầu ra và PPH theo giờ + Top 5 lỗi cả ngày) — CÔNG KHAI ----
   if (sub === "/dashboard" && request.method === "GET") {
     const lineId = String(searchParams.get("lineId") || "").trim();
@@ -2627,17 +2678,37 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
     const { results } = await env.DB.prepare("SELECT code, image_url, updated_at FROM pph_shoe_models ORDER BY code ASC").all();
     return pphJson({ success: true, models: (results || []).map((r) => ({ code: r.code, imageUrl: r.image_url, updatedAt: r.updated_at })) });
   }
+  // Lịch sử ảnh giày (trang Sản lượng nhà máy) — đọc CÔNG KHAI như /shoe-models, mới nhất trước.
+  if (sub === "/shoe-image-log" && request.method === "GET") {
+    await pphShoeImageLogEnsureTable(env);
+    const { results } = await env.DB.prepare(
+      "SELECT id, code, color, image_url, action, by_name, created_at FROM pph_shoe_image_log ORDER BY id DESC LIMIT 500",
+    ).all();
+    return pphJson({
+      success: true,
+      logs: (results || []).map((r) => ({ id: r.id, code: r.code, color: r.color, imageUrl: r.image_url, action: r.action, by: r.by_name, createdAt: r.created_at })),
+    });
+  }
   if (sub === "/shoe-models" && request.method === "PUT") {
     try {
       const body = await request.json();
       const code = pphNormalizeShoeCode(body.code);
       const imageUrl = String(body.imageUrl || "").trim();
+      const color = String(body.color || "").trim();
+      const byName = String(body.by || "").trim().slice(0, 120);
       if (!code) return pphJson({ success: false, error: "Thiếu mã giày" }, 400);
       if (!imageUrl) return pphJson({ success: false, error: "Thiếu ảnh" }, 400);
+      if (!color) return pphJson({ success: false, error: "Thiếu màu giày" }, 400);
       await pphShoeModelEnsureTable(env);
+      await pphShoeImageLogEnsureTable(env);
+      const now = new Date().toISOString();
+      const existing = await env.DB.prepare("SELECT code FROM pph_shoe_models WHERE code = ?").bind(code).first();
+      await env.DB.prepare(
+        "INSERT INTO pph_shoe_image_log (code, color, image_url, action, by_name, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      ).bind(code, color, imageUrl, existing ? "THAY" : "THEM", byName || null, now).run();
       await env.DB.prepare(
         "INSERT INTO pph_shoe_models (code, image_url, updated_at) VALUES (?, ?, ?) ON CONFLICT(code) DO UPDATE SET image_url = excluded.image_url, updated_at = excluded.updated_at",
-      ).bind(code, imageUrl, new Date().toISOString()).run();
+      ).bind(code, imageUrl, now).run();
       // Ảnh vừa đổi cần thấy NGAY ở dashboard hôm nay, không đợi hết TTL cache.
       await pphCacheInvalidate(env, "pph:dashboard");
       return pphJson({ success: true, model: { code, imageUrl } });
@@ -2727,7 +2798,18 @@ async function handlePph(request, env, pathname, searchParams, ctx) {
   if (shoeModelMatch && request.method === "DELETE") {
     try {
       await pphShoeModelEnsureTable(env);
-      await env.DB.prepare("DELETE FROM pph_shoe_models WHERE code = ?").bind(pphNormalizeShoeCode(decodeURIComponent(shoeModelMatch[1]))).run();
+      await pphShoeImageLogEnsureTable(env);
+      const delCode = pphNormalizeShoeCode(decodeURIComponent(shoeModelMatch[1]));
+      // Ghi lịch sử TRƯỚC khi xoá: ảnh bị xoá vẫn còn trong log (không mất).
+      const delBody = await request.json().catch(() => ({}));
+      const delBy = String((delBody && delBody.by) || "").trim().slice(0, 120);
+      const old = await env.DB.prepare("SELECT image_url FROM pph_shoe_models WHERE code = ?").bind(delCode).first();
+      if (old) {
+        await env.DB.prepare(
+          "INSERT INTO pph_shoe_image_log (code, color, image_url, action, by_name, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        ).bind(delCode, null, old.image_url, "XOA", delBy || null, new Date().toISOString()).run();
+      }
+      await env.DB.prepare("DELETE FROM pph_shoe_models WHERE code = ?").bind(delCode).run();
       await pphCacheInvalidate(env, "pph:dashboard");
       return pphJson({ success: true });
     } catch (err) {
@@ -4734,7 +4816,7 @@ export default {
         (p === "/api/pph-track/run" && (m === "POST" || m === "PUT")) ||
         (p === "/api/pph-track/run-resume" && m === "POST") ||
         (p === "/api/pph-track/push-subscribe" && m === "POST") ||
-        (m === "GET" && ["/api/pph-track/scan-info", "/api/pph-track/dashboard", "/api/pph-track/default-team"].includes(p));
+        (m === "GET" && ["/api/pph-track/scan-info", "/api/pph-track/dashboard", "/api/pph-track/daily-output", "/api/pph-track/default-team"].includes(p));
       const isAdminOnly =
         p.startsWith("/api/admin/") ||
         p === "/api/users/sync-diff" ||

@@ -3,8 +3,12 @@
 import { useEffect, useState } from 'react';
 import { IconArrowLeft, IconShoe, IconTrash, IconUpload, IconSearch } from '@tabler/icons-react';
 import { uploadCloudinaryFile } from '@/lib/cloudinary';
+import { getCurrentUser } from '@/lib/userProfiles';
 
 type ShoeModel = { code: string; imageUrl: string; updatedAt: string };
+
+// Người thao tác ghi vào lịch sử ảnh (chỉ để hiển thị, không dùng để phân quyền).
+const actorName = () => getCurrentUser()?.name || '';
 
 // Ảnh gắn theo MÃ GIÀY (Model) — KHÁC ảnh thủ công gắn theo điểm quét (Tổ/Chuyền/Xưởng) đã có ở
 // trang Cây Nhà máy. Tổ nào hôm đó khai "Model sản xuất" (lúc Cập nhật đầu ca) khớp đúng 1 mã ở
@@ -16,6 +20,8 @@ export default function PphShoeModelsView({ onBack }: { onBack: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [newCode, setNewCode] = useState('');
+  // Màu giày nhập tay, bắt buộc khi tải ảnh; ảnh cũ luôn được giữ trong lịch sử (xem /shoe-image-log).
+  const [newColor, setNewColor] = useState('');
   // Mã ĐANG tải ảnh (kể cả ô "thêm mới", key riêng "__new__") — disable đúng ô đó, không khoá cả trang.
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -37,10 +43,15 @@ export default function PphShoeModelsView({ onBack }: { onBack: () => void }) {
     load();
   }, []);
 
-  async function saveImage(key: string, code: string, file: File) {
+  async function saveImage(key: string, code: string, color: string, file: File) {
     const cleanCode = code.trim().toUpperCase();
+    const cleanColor = color.trim();
     if (!cleanCode) {
       setActionError('Vui lòng nhập mã giày trước khi chọn ảnh');
+      return;
+    }
+    if (!cleanColor) {
+      setActionError('Vui lòng nhập màu giày trước khi chọn ảnh');
       return;
     }
     setUploadingKey(key);
@@ -50,7 +61,7 @@ export default function PphShoeModelsView({ onBack }: { onBack: () => void }) {
       const res = await fetch('/api/pph/shoe-models', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: cleanCode, imageUrl: secure_url }),
+        body: JSON.stringify({ code: cleanCode, color: cleanColor, imageUrl: secure_url, by: actorName() }),
       });
       const result = await res.json();
       if (!result.success) {
@@ -58,6 +69,7 @@ export default function PphShoeModelsView({ onBack }: { onBack: () => void }) {
         return;
       }
       setNewCode('');
+      setNewColor('');
       await load();
     } catch {
       setActionError('Không tải được ảnh lên — vui lòng thử lại.');
@@ -70,7 +82,11 @@ export default function PphShoeModelsView({ onBack }: { onBack: () => void }) {
     if (!confirm(`Xoá ảnh mã giày "${code}"?`)) return;
     setActionError(null);
     try {
-      const res = await fetch(`/api/pph/shoe-models/${encodeURIComponent(code)}`, { method: 'DELETE' });
+      const res = await fetch(`/api/pph/shoe-models/${encodeURIComponent(code)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ by: actorName() }),
+      });
       const result = await res.json();
       if (!result.success) {
         setActionError(result.error || 'Không xoá được');
@@ -114,17 +130,23 @@ export default function PphShoeModelsView({ onBack }: { onBack: () => void }) {
         <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-semibold">⚠️ {actionError}</div>
       )}
 
-      {/* Thêm mã mới — nhập mã trước, chọn ảnh sau (2 bước gộp 1 hàng cho gọn) */}
+      {/* Thêm mã mới — nhập mã và màu trước, chọn ảnh sau (ảnh cũ vẫn được giữ trong lịch sử) */}
       <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-sm flex flex-wrap items-center gap-3">
         <input
           value={newCode}
           onChange={(e) => setNewCode(e.target.value)}
-          placeholder="Mã giày mới (VD: 4442)"
-          className="flex-1 min-w-[160px] px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-[#006838]"
+          placeholder="Mã giày (VD: 4442)"
+          className="flex-1 min-w-[140px] px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-[#006838]"
+        />
+        <input
+          value={newColor}
+          onChange={(e) => setNewColor(e.target.value)}
+          placeholder="Màu giày (VD: BLK)"
+          className="flex-1 min-w-[140px] px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:border-[#006838]"
         />
         <label
           className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-bold shrink-0 ${
-            newCode.trim() && uploadingKey === null
+            newCode.trim() && newColor.trim() && uploadingKey === null
               ? 'bg-[#006838] text-white hover:opacity-90 cursor-pointer'
               : 'bg-slate-100 text-slate-400 cursor-not-allowed'
           }`}
@@ -133,11 +155,11 @@ export default function PphShoeModelsView({ onBack }: { onBack: () => void }) {
           <input
             type="file"
             accept="image/*"
-            disabled={!newCode.trim() || uploadingKey !== null}
+            disabled={!newCode.trim() || !newColor.trim() || uploadingKey !== null}
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
-              if (f) saveImage('__new__', newCode, f);
+              if (f) saveImage('__new__', newCode, newColor, f);
               e.target.value = '';
             }}
           />
@@ -186,7 +208,10 @@ export default function PphShoeModelsView({ onBack }: { onBack: () => void }) {
                   className="hidden"
                   onChange={(e) => {
                     const f = e.target.files?.[0];
-                    if (f) saveImage(m.code, m.code, f);
+                    // Đổi ảnh của 1 mã: hỏi màu của ảnh mới (huỷ thì không đổi).
+                    const color = f ? window.prompt(`Màu giày cho ảnh mới của mã ${m.code}:`, '') : null;
+                    if (f && color && color.trim()) saveImage(m.code, m.code, color, f);
+                    else if (f) setActionError('Chưa nhập màu giày nên ảnh chưa được đổi');
                     e.target.value = '';
                   }}
                 />

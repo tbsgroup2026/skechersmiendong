@@ -30,6 +30,8 @@ const CONFIG = {
   // Giờ làm việc chuẩn của 1 ca, khớp ô "Giờ làm việc / ngày" của Sheet.
   SHIFT_HOURS: 8,
 };
+// SL mục tiêu (đôi) mỗi giờ làm: cột "SL mục tiêu (đôi)" của SL & PPH = TARGET_PER_HOUR × "Giờ làm thực tế" (cột E).
+const TARGET_PER_HOUR = 48.875;
 
 // Khung giờ của Theo dõi chuyền; mốc đầu tiên chỉ là nửa giờ 07:00-07:30, không đưa lên Sheet.
 const TRACK_SLOTS = ['07:30', '08:30', '09:30', '10:30', '11:30', '13:30', '14:30', '15:30', '16:30'];
@@ -114,13 +116,16 @@ function dayCell_(dateRef, cell) {
   return `IFERROR(IF(${ref}="";"";${ref});"")`;
 }
 
-// Cột D, E, G, N, O của SL & PPH đọc từ tab ngày: đổi ngày ở D4 là hiện ngay.
+// Cột D, E, F, G, N, O của SL & PPH đọc từ tab ngày: đổi ngày ở D4 là hiện ngay.
 function setDailyFormulas_(daily) {
+  // SL mục tiêu (đôi) = 48,875 × Giờ làm thực tế (cột E). Viết 48875/1000 thay vì số thập phân để không lệ thuộc dấu phẩy/chấm theo locale của file.
+  const targetNumerator = Math.round(TARGET_PER_HOUR * 1000);
   for (let r = DAILY.firstRow; r <= DAILY.lastRow; r++) {
     const a = `$A${r}`;
     const outRange = `"'${HOURLY.name} "&TEXT(${a};"dd-mm")&"'!E${HOURLY.firstRow}:E${HOURLY.firstRow + HOURLY.rowCount - 1}"`;
     daily.getRange(r, 4).setFormula(`=${dayCell_(a, 'P4')}`);
     daily.getRange(r, 5).setFormula(`=${dayCell_(a, 'P5')}`);
+    daily.getRange(r, 6).setFormula(`=IF(E${r}="";"";E${r}*${targetNumerator}/1000)`);
     daily.getRange(r, 7).setFormula(`=IFERROR(IF(COUNT(INDIRECT(${outRange}))=0;"";SUM(INDIRECT(${outRange})));"")`);
     daily.getRange(r, 14).setFormula(`=IFERROR(IF(${dayCell_(a, 'P6')}="";"";${dayCell_(a, 'P6')}/G${r});"")`);
     daily.getRange(r, 15).setFormula(`=${dayCell_(a, 'P7')}`);

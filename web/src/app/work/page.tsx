@@ -23,6 +23,7 @@ import HRAttendancePayrollView from "@/modules/hr/components/HRAttendancePayroll
 import HRContractsView from "@/modules/hr/components/HRContractsView";
 import QualityModule from "@/modules/quality/QualityModule";
 import ProductionPerformanceModule from "@/modules/production/ProductionPerformanceModule";
+import PphShoeImageHistory from "@/modules/production/PphShoeImageHistory";
 import RDModule from "@/modules/rd/RDModule";
 import CNCIWrapper from "@/modules/ci/CNCIWrapper";
 import { StrategicManagementContent } from "@/components/home/StrategicManagementDashboard";
@@ -1613,6 +1614,7 @@ function WorkDashboardPage({ initialDept }: { initialDept?: string | null }) {
           {selectedDept === "production-output" && (
             <div className="space-y-4 my-auto">
               <ProductionPerformanceModule />
+              <PphShoeImageHistory />
             </div>
           )}
 
