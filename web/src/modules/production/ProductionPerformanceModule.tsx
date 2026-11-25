@@ -2781,18 +2781,20 @@ function TrackTopDefectsPanel({ items, light, tv }: { items: TrackTopDefect[]; l
 // Bố cục 1 màn hình, từ trên xuống: các ô chỉ số → biểu đồ SL → biểu đồ PPH → Top 5 lỗi. Mọi số do server
 // tính (xem pphTrackOutputHourly bên _worker.js), giao diện chỉ hiển thị. Hiện xem theo ngày; xem theo tuần
 // thuộc giai đoạn 2.
-export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: string; light?: boolean; tv?: boolean }) {
+export function TrackLineBoard({ lineId, light = false, tv = false, date }: { lineId: string; light?: boolean; tv?: boolean; date?: string }) {
   const [data, setData] = useState<TrackDashboardData | null>(null);
+  const viewDate = date ?? todayVNStr();
   useEffect(() => {
     let cancelled = false;
     function load(fresh: boolean) {
-      fetch(`/api/pph-track/dashboard?lineId=${encodeURIComponent(lineId)}&date=${todayVNStr()}${fresh ? '&fresh=1' : ''}`)
+      fetch(`/api/pph-track/dashboard?lineId=${encodeURIComponent(lineId)}&date=${viewDate}${fresh ? '&fresh=1' : ''}`)
         .then((r) => r.json())
         .then((res) => {
           if (!cancelled && res?.success && res.data) setData(res.data);
         })
         .catch(() => { });
     }
+    setData(null);
     load(true);
     // Yêu cầu: TV làm mới 30 phút một lần; tải lại trang thì thấy số mới ngay.
     const t = setInterval(() => load(false), 15 * 1000);
@@ -2800,7 +2802,7 @@ export function TrackLineBoard({ lineId, light = false, tv = false }: { lineId: 
       cancelled = true;
       clearInterval(t);
     };
-  }, [lineId]);
+  }, [lineId, viewDate]);
 
   const hourly = data?.hourly || [];
   const slots = hourly.map((d) => d.slot);

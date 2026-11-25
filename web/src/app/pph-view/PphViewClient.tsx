@@ -48,6 +48,8 @@ export default function PphViewClient() {
   // Bảng "Theo dõi chuyền" có link rút gọn riêng (target_type 'track' redirect kèm ?board=track), link
   // TV thường của Line luôn ra bảng "Line May" cũ.
   const trackBoard = searchParams.get('board') === 'track';
+  // Bảng Theo dõi chuyền: chọn ngày xem lại (tối đa hôm nay). null = luôn theo hôm nay.
+  const [trackDate, setTrackDate] = useState<string | null>(null);
 
   const [factories, setFactories] = useState<PphFactory[]>([]);
   const [lines, setLines] = useState<DashLine[]>([]);
@@ -377,7 +379,18 @@ export default function PphViewClient() {
                 hh:mm, đã đúng sẵn từ `clock` — mẫu có giây/AM-PM nhưng yêu cầu rõ là bỏ giây). */}
             <div className="overflow-hidden rounded-lg border border-gray-200">
               <div className="bg-[#006838] px-3 py-1 text-center">
-                <span className="font-mono text-sm font-black tracking-wide text-white">{dateStr}</span>
+                {trackBoard ? (
+                  <input
+                    type="date"
+                    aria-label="Chọn ngày xem"
+                    value={trackDate ?? todayVNStr()}
+                    max={todayVNStr()}
+                    onChange={(e) => e.target.value && setTrackDate(e.target.value === todayVNStr() ? null : e.target.value)}
+                    className="cursor-pointer bg-transparent text-center font-mono text-sm font-black tracking-wide text-white outline-none [color-scheme:dark]"
+                  />
+                ) : (
+                  <span className="font-mono text-sm font-black tracking-wide text-white">{dateStr}</span>
+                )}
               </div>
               <div className="bg-[#0a1a2f] px-3 py-1 text-center">
                 <span className="font-mono text-lg font-black tabular-nums text-white">{clock}</span>
@@ -387,7 +400,7 @@ export default function PphViewClient() {
         </div>
         <div className="space-y-2 p-3">
           {trackBoard ? (
-            <TrackLineBoard lineId={lineId} light tv />
+            <TrackLineBoard lineId={lineId} light tv date={trackDate ?? todayVNStr()} />
           ) : (
             <LineBoard
               sel={{ areaName: resolved.areaName, name: resolved.lineName, leafIds: resolved.leaves.map((l) => l.id) }}
