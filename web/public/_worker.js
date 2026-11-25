@@ -1514,9 +1514,28 @@ const PPH_TRACK_POINTS = {
 // 7:30 (7h-7h30) theo yêu cầu. Không có 12:30 vì trùng giờ nghỉ trưa, khớp bảng giấy và PPH_SLOTS.
 const PPH_TRACK_SLOTS = ["07:00", ...PPH_SLOTS.slice(1)];
 // Ca tăng ca CHỈ cho 1 ngày cụ thể: thêm các khung sau 16:30 để nhập số khi làm thêm giờ. Muốn bỏ thì xoá dòng ngày đó.
+// Ngày cũ đã khai tay (giữ để xem lại lịch sử). Từ 23/11 số khung tăng ca theo "Thời gian sản xuất" của đầu ca.
 const PPH_TRACK_EXTRA_SLOTS_BY_DATE = { "2026-11-09": ["18:00", "19:00", "20:00"], "2026-11-10": ["18:00", "19:00", "20:00"] };
-function pphTrackSlotsFor(date) {
-  return [...PPH_TRACK_SLOTS, ...(PPH_TRACK_EXTRA_SLOTS_BY_DATE[date] || [])];
+// Ca chuẩn 8 giờ kết thúc ở khung 16:30. Mỗi giờ vượt 8 thêm 1 khung: 11 giờ → 18:00, 19:00, 20:00.
+const PPH_TRACK_STANDARD_SHIFT_HOURS = 8;
+function pphTrackExtraSlotsFor(date, shiftHours) {
+  const fromShift = shiftHours > PPH_TRACK_STANDARD_SHIFT_HOURS ? Math.floor(shiftHours) - PPH_TRACK_STANDARD_SHIFT_HOURS : 0;
+  const fromMap = (PPH_TRACK_EXTRA_SLOTS_BY_DATE[date] || []).length;
+  const n = Math.max(fromShift, fromMap);
+  return Array.from({ length: n }, (_, i) => `${18 + i}:00`);
+}
+// shiftHours = số giờ ca lớn nhất của Tổ/Line trong ngày (null = chưa khai đầu ca → chỉ khung chuẩn).
+function pphTrackSlotsFor(date, shiftHours = null) {
+  return [...PPH_TRACK_SLOTS, ...pphTrackExtraSlotsFor(date, shiftHours)];
+}
+// Số giờ ca lớn nhất đã khai đầu ca trong ngày của các Tổ này (mọi trạm). Không có Tổ/đầu ca thì null.
+async function pphTrackDayShiftHours(env, teamIds, date) {
+  if (!teamIds || teamIds.length === 0) return null;
+  const placeholders = teamIds.map(() => "?").join(",");
+  const r = await env.DB.prepare(
+    `SELECT MAX(shift_hours) AS h FROM pph_track_shift_setup WHERE entry_date = ? AND team_id IN (${placeholders})`
+  ).bind(date, ...teamIds).first();
+  return r && r.h != null ? Number(r.h) : null;
 }
 // Danh mục loại lỗi QC — CỐ ĐỊNH (đề xuất ban đầu, CHƯA có màn Cài Đặt để admin tự sửa — nếu cần
 // đổi/thêm/bớt thì sửa thẳng mảng này rồi deploy lại).
@@ -2087,7 +2106,7 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
     const runs = await pphTrackGetRuns(env, teamId, date, point);
     const setup = runs[0] ?? null;
     const currentRun = runs[runs.length - 1] ?? null;
-    const slots = pphTrackSlotsFor(date);
+    const slots = pphTrackSlotsFor(date, await pphTrackDayShiftHours(env, [teamId], date));
     const resolved = !setup
       ? { nextAction: "setup", targetSlot: slots[0] }
       : pphTrackResolveSlot(filledSlots, openMinutesBySlot, slots, isPastDate);
@@ -2290,7 +2309,8 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       }
       const filledSlots = await pphTrackFilledSlots(env, teamId, date, point);
       const openMinutesBySlot = await pphOpenMinutesBySlot(env);
-      const resolved = pphTrackResolveSlot(filledSlots, openMinutesBySlot, pphTrackSlotsFor(date), date < pphTodayStr());
+      const daySlots = pphTrackSlotsFor(date, await pphTrackDayShiftHours(env, [teamId], date));
+      const resolved = pphTrackResolveSlot(filledSlots, openMinutesBySlot, daySlots, date < pphTodayStr());
 
       // Gửi lại do rớt mạng — khung gửi kèm đã có dữ liệu rồi thì coi như lần trước đã tới server.
       const expSlot = body.expectedSlot ? String(body.expectedSlot) : "";
@@ -2309,7 +2329,7 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       }
       const slot = expSlot || resolved.targetSlot;
 
-      const parsed = pphTrackParseHourInput(body, point, runs, runAtSlot(runs, pphTrackSlotsFor(date), slot)?.id ?? "");
+      const parsed = pphTrackParseHourInput(body, point, runs, runAtSlot(runs, daySlots, slot)?.id ?? "");
       if (parsed.error) return pphJson({ success: false, error: parsed.error }, 400);
       const nowIso = new Date().toISOString();
       try {
@@ -2344,7 +2364,8 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       const filledSlots = await pphTrackFilledSlots(env, teamId, date, point);
       if (!filledSlots.has(slot)) return pphJson({ success: false, error: `Khung giờ ${slot} chưa có số liệu để sửa` }, 404);
       const runs = await pphTrackGetRuns(env, teamId, date, point);
-      const parsed = pphTrackParseHourInput(body, point, runs, runAtSlot(runs, pphTrackSlotsFor(date), slot)?.id ?? "");
+      const daySlots = pphTrackSlotsFor(date, await pphTrackDayShiftHours(env, [teamId], date));
+      const parsed = pphTrackParseHourInput(body, point, runs, runAtSlot(runs, daySlots, slot)?.id ?? "");
       if (parsed.error) return pphJson({ success: false, error: parsed.error }, 400);
       const points = pphTrackFilledPoints(point);
       const nowIso = new Date().toISOString();
@@ -2409,7 +2430,7 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       lineName: line ? line.name : null,
       teamIds: line ? line.leafIds : Object.keys(teamNames),
       teamNames,
-      slots: pphTrackSlotsFor(date).slice(1),
+      slots: pphTrackSlotsFor(date, await pphTrackDayShiftHours(env, line ? line.leafIds : Object.keys(teamNames), date)).slice(1),
       defectTypes: PPH_TRACK_DEFECT_TYPES,
       entries: (entries.results || []).filter(inScope),
       setups: (setups.results || []).filter(inScope),
@@ -2425,7 +2446,7 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       const date = String(body.date || "");
       const submittedBy = String(body.submittedBy || "").trim().slice(0, 60);
       if (!PPH_TRACK_POINTS[point]) return pphJson({ success: false, error: "Trạm không hợp lệ" }, 400);
-      if (!pphTrackSlotsFor(date).slice(1).includes(slot)) return pphJson({ success: false, error: "Khung giờ không hợp lệ" }, 400);
+      if (!pphTrackSlotsFor(date, await pphTrackDayShiftHours(env, [teamId], date)).slice(1).includes(slot)) return pphJson({ success: false, error: "Khung giờ không hợp lệ" }, 400);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > pphTodayStr()) return pphJson({ success: false, error: "Ngày không hợp lệ" }, 400);
       if (!submittedBy) return pphJson({ success: false, error: "Vui lòng nhập tên người sửa" }, 400);
       if (!(await pphFindNodeChain(env, teamId))) return pphJson({ success: false, error: "Không tìm thấy Tổ" }, 404);
@@ -2478,7 +2499,7 @@ async function handlePphTrack(request, env, sub, searchParams, ctx) {
       const lines = await pphGetDashboardLines(env);
       const line = lines.find((l) => l.id === lineId);
       const teamIds = line ? line.leafIds : [];
-      const daySlots = pphTrackSlotsFor(date);
+      const daySlots = pphTrackSlotsFor(date, await pphTrackDayShiftHours(env, teamIds, date));
       const qSlots = daySlots.slice(1);
       let rows = [];
       let setups = [];
